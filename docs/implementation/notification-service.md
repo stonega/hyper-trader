@@ -7,10 +7,11 @@ The only permitted Hyperliquid dependency is
 `@hyper-trader/hyperliquid/public`, and the boundary test rejects any other
 entry point.
 
-Provider workers, public-data monitors, and delivery are intentionally disabled
-until U14. The U11 restore gate can enable mutations only; monitor and delivery
-flags remain false. `NOTIFICATION_ENABLE_PROVIDER_WORKERS=true` is rejected at
-configuration parsing rather than silently ignored.
+U14 adds the public-data monitors and Expo delivery workers behind the existing
+closed gates. `NOTIFICATION_ENABLE_PROVIDER_WORKERS=true` requests activation,
+but workers remain disabled until migration, restore, key, authorization, and
+dependency readiness all pass. The operational contract is documented in
+[`notification-operations.md`](notification-operations.md).
 
 ## Public API
 
@@ -126,6 +127,9 @@ Migrations use the following expand–migrate–contract sequence:
    `NOT VALID`, allowing an explicit backfill window.
 3. `0003_contract` validates those checks, makes required recovery and wrapped
    key fields non-null, and marks the schema contracted.
+4. `0004_workers` adds bounded delivery attempts, invalid-token state,
+   generation-fenced monitor leases, and receipt scheduling/lease state without
+   storing provider payloads.
 
 Migration history stores each exact version and name plus SHA-256 checksums for
 both up and down sources. Status, migration, rollback, restore preparation, and
@@ -179,8 +183,8 @@ Restore order is mandatory:
    MAC through the current head, and replay each deletion by recovery MAC.
 4. Validate every remaining token by unwrapping its row-specific DEK and
    authenticating its ciphertext/AAD in bounded batches.
-5. Atomically record the new watermark/head and open mutations. U11 continues
-   to hold monitors and delivery closed.
+5. Atomically record the new watermark/head and open mutations. Monitor and
+   delivery gates remain closed until the separate U14 activation audit passes.
 
 A stale head, sequence gap, invalid MAC, unavailable ledger, missing MAC/KEK
 version, token authentication failure, or replay error leaves all gates closed.

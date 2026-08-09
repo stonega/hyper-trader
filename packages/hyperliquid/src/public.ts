@@ -15,6 +15,17 @@ import {
 import type { MarketCatalog, MarketContext } from "./markets/types";
 import type { HyperliquidNetwork } from "./network";
 import {
+  getNotificationAccountDexSnapshot,
+  getNotificationAccountGlobalSnapshot,
+  getNotificationAccountSnapshot,
+  type NotificationAccountDexSnapshot,
+  type NotificationAccountDexSnapshotRequest,
+  type NotificationAccountGlobalSnapshot,
+  type NotificationAccountGlobalSnapshotRequest,
+  type NotificationAccountSnapshot,
+  type NotificationAccountSnapshotRequest,
+} from "./public-account";
+import {
   createInfoHttpTransport,
   type InfoHttpTransportOptions,
   type InfoRequestBudget,
@@ -27,6 +38,14 @@ export * from "./markets/types";
 export * from "./network";
 export * from "./numbers/decimal";
 export * from "./numbers/precision";
+export type {
+  NotificationAccountDexSnapshot,
+  NotificationAccountDexSnapshotRequest,
+  NotificationAccountGlobalSnapshot,
+  NotificationAccountGlobalSnapshotRequest,
+  NotificationAccountSnapshot,
+  NotificationAccountSnapshotRequest,
+} from "./public-account";
 export * from "./transport/http";
 export * from "./transport/websocket";
 
@@ -89,6 +108,18 @@ export interface PublicHyperliquidClient {
     },
     options?: InfoRequestOptions,
   ): Promise<FundingRecord[]>;
+  getNotificationAccountSnapshot(
+    request: NotificationAccountSnapshotRequest,
+    options?: InfoRequestOptions,
+  ): Promise<NotificationAccountSnapshot>;
+  getNotificationAccountGlobalSnapshot(
+    request: NotificationAccountGlobalSnapshotRequest,
+    options?: InfoRequestOptions,
+  ): Promise<NotificationAccountGlobalSnapshot>;
+  getNotificationAccountDexSnapshot(
+    request: NotificationAccountDexSnapshotRequest,
+    options?: InfoRequestOptions,
+  ): Promise<NotificationAccountDexSnapshot>;
 }
 
 export interface PublicHyperliquidClientOptions
@@ -188,6 +219,23 @@ export function createPublicHyperliquidClient(
           },
           requestOptions,
         ),
+      );
+    },
+    getNotificationAccountSnapshot(request, requestOptions = {}) {
+      return getNotificationAccountSnapshot(transport, request, requestOptions);
+    },
+    getNotificationAccountGlobalSnapshot(request, requestOptions = {}) {
+      return getNotificationAccountGlobalSnapshot(
+        transport,
+        request,
+        requestOptions,
+      );
+    },
+    getNotificationAccountDexSnapshot(request, requestOptions = {}) {
+      return getNotificationAccountDexSnapshot(
+        transport,
+        request,
+        requestOptions,
       );
     },
   };

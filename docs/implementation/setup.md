@@ -185,6 +185,12 @@ gap, stale head, tombstone replay failure, or missing migration evidence keeps
 the service disabled. Rotation and restore drills must not use production tokens
 in development.
 
+Notification monitor, outbox, Expo delivery, receipt, capacity, and incident
+procedures are defined in
+[`notification-operations.md`](notification-operations.md). Setting
+`NOTIFICATION_ENABLE_PROVIDER_WORKERS=true` never bypasses its database and
+dependency activation gates.
+
 ### Credential inventory
 
 Before a release, record an owner, storage system, rotation procedure, last drill,

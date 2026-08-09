@@ -107,6 +107,7 @@ export function getInfoRequestBudget(
 
 export interface InfoRequestOptions {
   readonly signal?: AbortSignal;
+  readonly onRequestBudget?: (budget: InfoRequestBudget) => void;
 }
 
 export interface InfoHttpTransport {
@@ -170,6 +171,7 @@ export function createInfoHttpTransport(
     budgetFor: getInfoRequestBudget,
     async request(body, requestOptions = {}) {
       const requestBudget = getInfoRequestBudget(body.type);
+      requestOptions.onRequestBudget?.(requestBudget);
       const response = await fetchRequest(endpoint, {
         method: "POST",
         redirect: "error",

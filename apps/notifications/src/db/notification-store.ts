@@ -24,7 +24,16 @@ import {
 } from "@hyper-trader/notifications";
 import type { SQL } from "bun";
 import type { Hex } from "viem";
-
+import type { DeliveryRejectionCode } from "../outbox/delivery-worker";
+import { DeliveryAuthorizationError } from "../outbox/delivery-worker";
+import {
+  EXPO_RECEIPT_BATCH_SIZE,
+  type ExpoReceiptResult,
+} from "../push/expo-push-client";
+import {
+  NOTIFICATION_EGRESS_LEASE_KEY,
+  type RuntimeEgressFence,
+} from "../worker-fence";
 import { assertNotificationMigrationIntegrity } from "./migrations";
 
 export const ACCOUNT_RELATIONSHIP_TIMEOUT_MS = 1_000;
@@ -35,6 +44,12 @@ export interface NotificationStoreDependencies {
   readonly deletionLedger: DeletionLedgerPort;
   readonly tombstoneKeyVersion: string;
   readonly serviceOrigin: string;
+}
+
+export interface NotificationWorkerHealthSnapshot {
+  readonly monitorLeases: number;
+  readonly outboxPending: number;
+  readonly receiptPending: number;
 }
 
 export interface AccountRelationshipResult {
@@ -438,6 +453,7 @@ export class PostgresNotificationStore {
                 wrapped_dek = decode(${Buffer.from(encrypted.wrappedDek, "base64").toString("hex")}, 'hex'),
                 recovery_scope_mac = decode(${recoveryScopeMac}, 'hex'),
                 recovery_key_version = ${this.#dependencies.tombstoneKeyVersion},
+                delivery_state = 'active', invalidated_at = NULL,
                 updated_at = clock_timestamp()
             WHERE installation_id = ${input.installationId}
               AND provider = ${input.provider}
@@ -1074,6 +1090,7 @@ export class PostgresNotificationStore {
   }
 
   async markProviderSubmissionStarted(permitId: string): Promise<void> {
+    validateHexId(permitId, "dispatch permit");
     await this.#sql.begin(async (transaction) => {
       const observed = await transaction<
         {
@@ -1105,6 +1122,15 @@ export class PostgresNotificationStore {
           observedPermit.revocation_generation
       ) {
         throw new StoreUnauthorizedError("dispatch scope is no longer active");
+      }
+      const tokens = await transaction<{ token_id: string }[]>`
+        SELECT token_id FROM notification_push_tokens
+        WHERE installation_id = ${observedPermit.installation_id}
+          AND provider = 'expo' AND delivery_state = 'active'
+        FOR SHARE
+      `;
+      if (tokens.length !== 1) {
+        throw new StoreUnauthorizedError("push token is no longer active");
       }
       if (observedPermit.account_link_scope_id) {
         const links = await transaction<
@@ -1934,6 +1960,791 @@ export class PostgresNotificationStore {
     return { appliedThrough: replay.currentHead };
   }
 
+  async activateWorkerGates(): Promise<void> {
+    const version = await assertNotificationMigrationIntegrity(this.#sql);
+    if (version < 4) {
+      throw new StoreNotReadyError("notification worker schema is unavailable");
+    }
+    await validateStoredPushTokens(
+      this.#sql,
+      this.#dependencies.tokenKeyProvider,
+    );
+    await this.#sql.begin(async (transaction) => {
+      const states = await transaction<
+        {
+          schema_phase: string;
+          restore_state: string;
+          mutations_enabled: boolean;
+          ledger_watermark: string | number;
+          ledger_head: string | number;
+        }[]
+      >`
+        SELECT schema_phase, restore_state, mutations_enabled,
+               ledger_watermark, ledger_head
+        FROM notification_service_state WHERE singleton FOR UPDATE
+      `;
+      const state = states[0];
+      if (
+        state?.schema_phase !== "contracted" ||
+        state.restore_state !== "ready" ||
+        !state.mutations_enabled ||
+        Number(state.ledger_head) !== Number(state.ledger_watermark)
+      ) {
+        throw new StoreNotReadyError("notification restore fence is not ready");
+      }
+      const invalid = await transaction<{ count: number }[]>`
+        SELECT count(*)::int AS count
+        FROM notification_rules r
+        LEFT JOIN notification_installations i
+          ON i.installation_id = r.installation_id AND i.state = 'active'
+        LEFT JOIN notification_push_tokens t
+          ON t.installation_id = r.installation_id
+         AND t.provider = 'expo' AND t.delivery_state = 'active'
+        LEFT JOIN notification_account_links l
+          ON l.account_link_id = r.account_link_id
+         AND l.installation_id = r.installation_id AND l.state = 'active'
+        WHERE r.active AND (
+          i.installation_id IS NULL OR t.token_id IS NULL OR
+          (r.account_link_id IS NOT NULL AND l.account_link_id IS NULL)
+        )
+      `;
+      const draining = await transaction<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM notification_revocation_operations
+        WHERE state = 'draining'
+      `;
+      if ((invalid[0]?.count ?? 0) !== 0 || (draining[0]?.count ?? 0) !== 0) {
+        throw new StoreNotReadyError(
+          "notification authorization fence is not ready",
+        );
+      }
+      await transaction`
+        UPDATE notification_service_state
+        SET monitors_enabled = true, delivery_enabled = true,
+            updated_at = clock_timestamp()
+        WHERE singleton
+      `;
+    });
+  }
+
+  async deactivateWorkerGates(): Promise<void> {
+    await this.#sql`
+      UPDATE notification_service_state
+      SET monitors_enabled = false, delivery_enabled = false,
+          updated_at = clock_timestamp()
+      WHERE singleton
+    `;
+  }
+
+  async acquireMonitorLease(input: {
+    readonly leaseKey: string;
+    readonly ownerId: string;
+  }): Promise<
+    | { readonly acquired: false }
+    | { readonly acquired: true; readonly generation: number }
+  > {
+    validateLeaseIdentity(input.leaseKey, input.ownerId);
+    return this.#sql.begin(async (transaction) => {
+      await assertMonitorsEnabled(transaction);
+      const rows = await transaction<{ lease_generation: number }[]>`
+        INSERT INTO notification_monitor_leases (
+          lease_key, owner_id, expires_at, renewed_at, lease_generation
+        ) VALUES (
+          ${input.leaseKey}, ${input.ownerId},
+          clock_timestamp() + interval '30 seconds', clock_timestamp(), 1
+        )
+        ON CONFLICT (lease_key) DO UPDATE SET
+          owner_id = EXCLUDED.owner_id,
+          expires_at = EXCLUDED.expires_at,
+          renewed_at = EXCLUDED.renewed_at,
+          lease_generation = notification_monitor_leases.lease_generation + 1
+        WHERE notification_monitor_leases.expires_at <= clock_timestamp()
+        RETURNING lease_generation
+      `;
+      const generation = rows[0]?.lease_generation;
+      return generation === undefined
+        ? { acquired: false as const }
+        : { acquired: true as const, generation };
+    });
+  }
+
+  async renewMonitorLease(input: {
+    readonly leaseKey: string;
+    readonly ownerId: string;
+    readonly generation: number;
+  }): Promise<boolean> {
+    validateLeaseIdentity(input.leaseKey, input.ownerId);
+    if (!Number.isSafeInteger(input.generation) || input.generation < 1) {
+      throw new StoreConflictError("monitor lease generation is invalid");
+    }
+    return this.#sql.begin(async (transaction) => {
+      await assertMonitorsEnabled(transaction);
+      const rows = await transaction<{ lease_key: string }[]>`
+        UPDATE notification_monitor_leases
+        SET expires_at = clock_timestamp() + interval '30 seconds',
+            renewed_at = clock_timestamp()
+        WHERE lease_key = ${input.leaseKey} AND owner_id = ${input.ownerId}
+          AND lease_generation = ${input.generation}
+          AND expires_at > clock_timestamp()
+        RETURNING lease_key
+      `;
+      return rows.length === 1;
+    });
+  }
+
+  async releaseMonitorLease(input: {
+    readonly leaseKey: string;
+    readonly ownerId: string;
+    readonly generation: number;
+  }): Promise<void> {
+    validateLeaseIdentity(input.leaseKey, input.ownerId);
+    if (!Number.isSafeInteger(input.generation) || input.generation < 1) return;
+    await this.#sql`
+      DELETE FROM notification_monitor_leases
+      WHERE lease_key = ${input.leaseKey} AND owner_id = ${input.ownerId}
+        AND lease_generation = ${input.generation}
+    `;
+  }
+
+  async readWorkerHealthSnapshot(): Promise<NotificationWorkerHealthSnapshot> {
+    await assertDeliveryEnabled(this.#sql);
+    const rows = await this.#sql<
+      {
+        monitor_leases: number;
+        outbox_pending: number;
+        receipt_pending: number;
+      }[]
+    >`
+      SELECT
+        (SELECT count(*)::int FROM notification_monitor_leases
+          WHERE lease_key <> ${NOTIFICATION_EGRESS_LEASE_KEY}
+            AND expires_at > clock_timestamp()) AS monitor_leases,
+        (SELECT count(*)::int FROM notification_outbox
+          WHERE state IN ('pending', 'leased', 'provider_submission_started'))
+          AS outbox_pending,
+        (SELECT count(*)::int FROM notification_provider_tickets
+          WHERE receipt_state = 'pending') AS receipt_pending
+    `;
+    return {
+      monitorLeases: rows[0]?.monitor_leases ?? 0,
+      outboxPending: rows[0]?.outbox_pending ?? 0,
+      receiptPending: rows[0]?.receipt_pending ?? 0,
+    };
+  }
+
+  async listActiveRules(
+    limit = 1_000,
+    afterRuleId = "",
+  ): Promise<
+    readonly {
+      readonly ruleId: string;
+      readonly identityDigest: string;
+      readonly installationId: string;
+      readonly accountLinkId?: string;
+      readonly accountAddress?: string;
+      readonly scope: "price" | "account";
+      readonly network: "testnet" | "mainnet";
+      readonly marketId: string;
+      readonly eventType:
+        | "fill"
+        | "cancellation"
+        | "rejection"
+        | "margin_risk"
+        | "liquidation_risk"
+        | "price_above"
+        | "price_below"
+        | "funding_above"
+        | "funding_below";
+      readonly threshold: string;
+    }[]
+  > {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 1_000) {
+      throw new StoreConflictError("notification rule read limit is invalid");
+    }
+    if (afterRuleId !== "" && !/^[0-9a-f]{32}$/.test(afterRuleId)) {
+      throw new StoreConflictError("notification rule cursor is invalid");
+    }
+    await assertMonitorsEnabled(this.#sql);
+    const rows = await this.#sql<
+      {
+        rule_id: string;
+        identity_digest: string;
+        installation_id: string;
+        account_link_id: string | null;
+        target_account: string | null;
+        scope: "price" | "account";
+        network: "testnet" | "mainnet";
+        market_id: string;
+        event_type:
+          | "fill"
+          | "cancellation"
+          | "rejection"
+          | "margin_risk"
+          | "liquidation_risk"
+          | "price_above"
+          | "price_below"
+          | "funding_above"
+          | "funding_below";
+        threshold: string;
+      }[]
+    >`
+      SELECT r.rule_id, encode(r.identity_digest, 'hex') AS identity_digest,
+             r.installation_id, r.account_link_id, l.target_account, r.scope,
+             r.network, r.market_id, r.event_type, r.threshold
+      FROM notification_rules r
+      JOIN notification_installations i
+        ON i.installation_id = r.installation_id AND i.state = 'active'
+      JOIN notification_push_tokens t
+        ON t.installation_id = r.installation_id
+       AND t.provider = 'expo' AND t.delivery_state = 'active'
+      LEFT JOIN notification_account_links l
+        ON l.account_link_id = r.account_link_id
+       AND l.installation_id = r.installation_id AND l.state = 'active'
+      WHERE r.active AND r.rule_id > ${afterRuleId}
+        AND (r.account_link_id IS NULL OR l.account_link_id IS NOT NULL)
+      ORDER BY r.rule_id LIMIT ${limit}
+    `;
+    return rows.map((row) => ({
+      ruleId: row.rule_id,
+      identityDigest: row.identity_digest,
+      installationId: row.installation_id,
+      ...(row.account_link_id ? { accountLinkId: row.account_link_id } : {}),
+      ...(row.target_account ? { accountAddress: row.target_account } : {}),
+      scope: row.scope,
+      network: row.network,
+      marketId: row.market_id,
+      eventType: row.event_type,
+      threshold: row.threshold,
+    }));
+  }
+
+  async createAlertForRuleMatch(input: {
+    readonly ruleId: string;
+    readonly eventKey: string;
+    readonly category: "execution" | "risk" | "price" | "funding";
+    readonly routeHint: "trade" | "portfolio";
+  }): Promise<
+    | { readonly created: false }
+    | {
+        readonly created: true;
+        readonly alertId: string;
+        readonly outboxId: string;
+      }
+  > {
+    if (
+      !/^[0-9a-f]{32}$/.test(input.ruleId) ||
+      !/^[0-9a-f]{64}$/.test(input.eventKey) ||
+      !["execution", "risk", "price", "funding"].includes(input.category) ||
+      !["trade", "portfolio"].includes(input.routeHint)
+    ) {
+      throw new StoreConflictError("notification alert input is invalid");
+    }
+    return this.#sql.begin(async (transaction) => {
+      await assertMonitorsEnabled(transaction);
+      const rules = await transaction<
+        {
+          installation_id: string;
+          account_link_id: string | null;
+          network: "testnet" | "mainnet";
+          installation_generation: number;
+          account_link_generation: number | null;
+        }[]
+      >`
+        SELECT r.installation_id, r.account_link_id, r.network,
+               i.revocation_generation AS installation_generation,
+               l.revocation_generation AS account_link_generation
+        FROM notification_rules r
+        JOIN notification_installations i
+          ON i.installation_id = r.installation_id AND i.state = 'active'
+        JOIN notification_push_tokens t
+          ON t.installation_id = r.installation_id
+         AND t.provider = 'expo' AND t.delivery_state = 'active'
+        LEFT JOIN notification_account_links l
+          ON l.account_link_id = r.account_link_id
+         AND l.installation_id = r.installation_id AND l.state = 'active'
+        WHERE r.rule_id = ${input.ruleId} AND r.active
+          AND (r.account_link_id IS NULL OR l.account_link_id IS NOT NULL)
+        FOR UPDATE OF r, i
+      `;
+      const rule = rules[0];
+      if (!rule) {
+        throw new StoreUnauthorizedError("notification rule is not active");
+      }
+      const claimed = await transaction<{ event_key: Uint8Array }[]>`
+        INSERT INTO notification_event_dedupe_keys (
+          event_key, created_at, expires_at
+        )
+        VALUES (
+          decode(${input.eventKey}, 'hex'), statement_timestamp(),
+          statement_timestamp() + interval '7 days'
+        ) ON CONFLICT DO NOTHING RETURNING event_key
+      `;
+      if (claimed.length === 0) return { created: false as const };
+      const alertId = randomHex(16);
+      const outboxId = randomHex(16);
+      await transaction`
+        INSERT INTO notification_alerts (
+          alert_id, installation_id, account_link_id, account_link_scope_id,
+          rule_id, category, network, route_hint
+        ) VALUES (
+          ${alertId}, ${rule.installation_id}, ${rule.account_link_id},
+          ${rule.account_link_id}, ${input.ruleId}, ${input.category},
+          ${rule.network}, ${input.routeHint}
+        )
+      `;
+      await transaction`
+        INSERT INTO notification_outbox (
+          outbox_id, alert_id, installation_id, account_link_id,
+          account_link_scope_id, account_link_generation, network,
+          revocation_generation
+        ) VALUES (
+          ${outboxId}, ${alertId}, ${rule.installation_id},
+          ${rule.account_link_id}, ${rule.account_link_id},
+          ${rule.account_link_generation}, ${rule.network},
+          ${rule.installation_generation}
+        )
+      `;
+      return { created: true as const, alertId, outboxId };
+    });
+  }
+
+  async recoverExpiredDispatches(limit: number): Promise<void> {
+    validateBoundedBatch(limit, "notification worker batch is invalid");
+    await this.#sql.begin(async (transaction) => {
+      await assertDeliveryEnabled(transaction);
+      await transaction`
+        UPDATE notification_dispatch_permits
+        SET state = 'finished', finished_at = clock_timestamp()
+        WHERE permit_id IN (
+          SELECT permit_id FROM notification_dispatch_permits
+          WHERE state = 'submission_started'
+            AND provider_deadline_at <= clock_timestamp()
+          ORDER BY provider_deadline_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+        )
+      `;
+      await transaction`
+        UPDATE notification_outbox o
+        SET state = 'provider_outcome_unknown', lease_owner = NULL,
+            lease_expires_at = NULL, updated_at = clock_timestamp()
+        WHERE o.state = 'provider_submission_started' AND EXISTS (
+          SELECT 1 FROM notification_dispatch_permits p
+          WHERE p.outbox_id = o.outbox_id AND p.state = 'finished'
+            AND p.provider_deadline_at <= clock_timestamp()
+        )
+      `;
+      await transaction`
+        UPDATE notification_dispatch_permits
+        SET state = 'expired'
+        WHERE permit_id IN (
+          SELECT permit_id FROM notification_dispatch_permits
+          WHERE state = 'active' AND expires_at <= clock_timestamp()
+          ORDER BY expires_at LIMIT ${limit} FOR UPDATE SKIP LOCKED
+        )
+      `;
+      await transaction`
+        UPDATE notification_outbox o
+        SET state = CASE WHEN claim_attempts < 8 THEN 'pending' ELSE 'cancelled' END,
+            lease_owner = NULL, lease_expires_at = NULL,
+            updated_at = clock_timestamp()
+        WHERE o.state = 'leased' AND o.lease_expires_at <= clock_timestamp()
+          AND NOT EXISTS (
+            SELECT 1 FROM notification_dispatch_permits p
+            WHERE p.outbox_id = o.outbox_id
+              AND p.state IN ('active', 'submission_started')
+          )
+      `;
+    });
+  }
+
+  async claimNextDispatch(
+    workerId: string,
+    fence: RuntimeEgressFence,
+  ): Promise<{
+    readonly permitId: string;
+    readonly outboxId: string;
+    readonly alertId: string;
+    readonly category: "execution" | "risk" | "price" | "funding";
+    readonly network: "testnet" | "mainnet";
+    readonly routeHint: string;
+    readonly providerDeadlineAt: number;
+  } | null> {
+    validateWorkerId(workerId);
+    validateRuntimeEgressFence(fence);
+    return this.#sql.begin(async (transaction) => {
+      await assertDeliveryEnabled(transaction);
+      await assertRuntimeEgressFence(transaction, fence);
+      const rows = await transaction<
+        {
+          outbox_id: string;
+          alert_id: string;
+          installation_id: string;
+          account_link_id: string | null;
+          account_link_generation: number | null;
+          network: "testnet" | "mainnet";
+          revocation_generation: number;
+          category: "execution" | "risk" | "price" | "funding";
+          route_hint: string;
+        }[]
+      >`
+        SELECT o.outbox_id, o.alert_id, o.installation_id, o.account_link_id,
+               o.account_link_generation, o.network, o.revocation_generation,
+               a.category, a.route_hint
+        FROM notification_outbox o
+        JOIN notification_alerts a ON a.alert_id = o.alert_id
+        JOIN notification_installations i
+          ON i.installation_id = o.installation_id AND i.state = 'active'
+         AND i.revocation_generation = o.revocation_generation
+        JOIN notification_push_tokens t
+          ON t.installation_id = o.installation_id
+         AND t.provider = 'expo' AND t.delivery_state = 'active'
+        LEFT JOIN notification_account_links l
+          ON l.account_link_id = o.account_link_scope_id
+         AND l.installation_id = o.installation_id AND l.state = 'active'
+         AND l.revocation_generation = o.account_link_generation
+        WHERE o.state = 'pending' AND o.claim_attempts < 8
+          AND (o.account_link_scope_id IS NULL OR l.account_link_id IS NOT NULL)
+        ORDER BY o.created_at, o.outbox_id
+        LIMIT 1 FOR UPDATE OF o SKIP LOCKED
+      `;
+      const row = rows[0];
+      if (!row) return null;
+      const permitId = randomHex(16);
+      const deadlines = await transaction<
+        { provider_deadline_at_ms: string | number }[]
+      >`
+        INSERT INTO notification_dispatch_permits (
+          permit_id, outbox_id, installation_id, account_link_id,
+          account_link_scope_id, account_link_generation, network,
+          revocation_generation, created_at, expires_at, provider_deadline_at
+        ) VALUES (
+          ${permitId}, ${row.outbox_id}, ${row.installation_id},
+          ${row.account_link_id}, ${row.account_link_id},
+          ${row.account_link_generation}, ${row.network},
+          ${row.revocation_generation}, statement_timestamp(),
+          statement_timestamp() + interval '30 seconds',
+          statement_timestamp() + interval '10 seconds'
+        )
+        RETURNING floor(extract(epoch FROM provider_deadline_at) * 1000)::bigint
+          AS provider_deadline_at_ms
+      `;
+      await transaction`
+        UPDATE notification_outbox
+        SET state = 'leased', lease_owner = ${workerId},
+            lease_expires_at = clock_timestamp() + interval '30 seconds',
+            claim_attempts = claim_attempts + 1,
+            updated_at = clock_timestamp()
+        WHERE outbox_id = ${row.outbox_id} AND state = 'pending'
+      `;
+      return {
+        permitId,
+        outboxId: row.outbox_id,
+        alertId: row.alert_id,
+        category: row.category,
+        network: row.network,
+        routeHint: row.route_hint,
+        providerDeadlineAt: Number(deadlines[0]?.provider_deadline_at_ms),
+      };
+    });
+  }
+
+  async abandonUnstartedDispatch(permitId: string): Promise<void> {
+    validateHexId(permitId, "dispatch permit");
+    await this.#sql.begin(async (transaction) => {
+      const permits = await transaction<{ outbox_id: string }[]>`
+        UPDATE notification_dispatch_permits SET state = 'expired'
+        WHERE permit_id = ${permitId} AND state = 'active'
+        RETURNING outbox_id
+      `;
+      if (permits[0]) {
+        await transaction`
+          UPDATE notification_outbox
+          SET state = CASE WHEN claim_attempts < 8 THEN 'pending' ELSE 'cancelled' END,
+              lease_owner = NULL, lease_expires_at = NULL,
+              updated_at = clock_timestamp()
+          WHERE outbox_id = ${permits[0].outbox_id} AND state = 'leased'
+        `;
+      }
+    });
+  }
+
+  async readDecryptedPushToken(permitId: string): Promise<string> {
+    validateHexId(permitId, "dispatch permit");
+    const rows = await this.#authorizedProviderRows(permitId);
+    const row = rows[0];
+    if (!row) throw new DeliveryAuthorizationError();
+    return decryptPushToken(
+      encryptedTokenFromRow(row),
+      this.#dependencies.tokenKeyProvider,
+    );
+  }
+
+  async authorizeProviderFetch(
+    permitId: string,
+    fence: RuntimeEgressFence,
+  ): Promise<{ readonly providerDeadlineAt: number }> {
+    validateHexId(permitId, "dispatch permit");
+    validateRuntimeEgressFence(fence);
+    const rows = await this.#authorizedProviderRows(permitId, fence);
+    const row = rows[0];
+    if (!row) throw new DeliveryAuthorizationError();
+    return { providerDeadlineAt: Number(row.provider_deadline_at_ms) };
+  }
+
+  async recordProviderAccepted(
+    permitId: string,
+    ticketId: string,
+  ): Promise<void> {
+    validateHexId(permitId, "dispatch permit");
+    if (!/^[\x21-\x7e]{1,256}$/.test(ticketId)) {
+      throw new StoreConflictError("provider ticket ID is invalid");
+    }
+    await this.#sql.begin(async (transaction) => {
+      const rows = await transaction<{ outbox_id: string; token_id: string }[]>`
+        SELECT p.outbox_id, t.token_id
+        FROM notification_dispatch_permits p
+        JOIN notification_outbox o ON o.outbox_id = p.outbox_id
+        JOIN notification_push_tokens t
+          ON t.installation_id = p.installation_id AND t.provider = 'expo'
+        WHERE p.permit_id = ${permitId} AND p.state = 'submission_started'
+          AND o.state = 'provider_submission_started'
+        FOR UPDATE OF p, o
+      `;
+      const row = rows[0];
+      if (!row)
+        throw new StoreConflictError("dispatch attempt is not in flight");
+      await transaction`
+        INSERT INTO notification_provider_tickets (
+          provider_ticket_id, outbox_id, provider, accepted_at, token_id,
+          next_receipt_at
+        ) VALUES (
+          ${ticketId}, ${row.outbox_id}, 'expo', clock_timestamp(),
+          ${row.token_id}, clock_timestamp() + interval '15 minutes'
+        )
+      `;
+      await finishDispatchInTransaction(
+        transaction,
+        permitId,
+        "provider_accepted",
+      );
+    });
+  }
+
+  async recordProviderRejected(
+    permitId: string,
+    errorCode: DeliveryRejectionCode,
+  ): Promise<void> {
+    validateHexId(permitId, "dispatch permit");
+    validateProviderErrorCode(errorCode);
+    await this.#sql.begin(async (transaction) => {
+      const permits = await transaction<
+        { installation_id: string; outbox_id: string }[]
+      >`
+        SELECT installation_id, outbox_id FROM notification_dispatch_permits
+        WHERE permit_id = ${permitId} AND state = 'submission_started'
+        FOR UPDATE
+      `;
+      const permit = permits[0];
+      if (!permit)
+        throw new StoreConflictError("dispatch attempt is not in flight");
+      if (errorCode === "device_not_registered") {
+        await transaction`
+          UPDATE notification_push_tokens
+          SET delivery_state = 'invalid', invalidated_at = clock_timestamp(),
+              updated_at = clock_timestamp()
+          WHERE installation_id = ${permit.installation_id}
+            AND provider = 'expo' AND delivery_state = 'active'
+        `;
+      }
+      await transaction`
+        UPDATE notification_outbox SET provider_error_code = ${errorCode}
+        WHERE outbox_id = ${permit.outbox_id}
+      `;
+      await finishDispatchInTransaction(
+        transaction,
+        permitId,
+        "provider_rejected",
+      );
+    });
+  }
+
+  async recordProviderOutcomeUnknown(permitId: string): Promise<void> {
+    validateHexId(permitId, "dispatch permit");
+    await this.finishDispatchPermit(permitId, "provider_outcome_unknown");
+  }
+
+  async recoverExpiredReceiptLeases(limit: number): Promise<void> {
+    validateBoundedBatch(limit, "notification receipt batch is invalid");
+    await this.#sql`
+      UPDATE notification_provider_tickets
+      SET receipt_lease_owner = NULL, receipt_lease_expires_at = NULL
+      WHERE provider_ticket_id IN (
+        SELECT provider_ticket_id FROM notification_provider_tickets
+        WHERE receipt_state = 'pending'
+          AND receipt_lease_expires_at <= clock_timestamp()
+        ORDER BY receipt_lease_expires_at LIMIT ${limit}
+        FOR UPDATE SKIP LOCKED
+      )
+    `;
+  }
+
+  async claimDueReceipts(
+    workerId: string,
+    limit: number,
+    fence: RuntimeEgressFence,
+  ): Promise<readonly string[]> {
+    validateWorkerId(workerId);
+    validateBoundedBatch(limit, "notification receipt batch is invalid");
+    validateRuntimeEgressFence(fence);
+    return this.#sql.begin(async (transaction) => {
+      await assertDeliveryEnabled(transaction);
+      await assertRuntimeEgressFence(transaction, fence);
+      const rows = await transaction<{ provider_ticket_id: string }[]>`
+        WITH due AS (
+          SELECT provider_ticket_id FROM notification_provider_tickets
+          WHERE receipt_state = 'pending' AND receipt_attempts < 5
+            AND next_receipt_at <= clock_timestamp()
+            AND receipt_lease_owner IS NULL
+          ORDER BY next_receipt_at, provider_ticket_id LIMIT ${limit}
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE notification_provider_tickets t
+        SET receipt_lease_owner = ${workerId},
+            receipt_lease_expires_at = clock_timestamp() + interval '30 seconds'
+        FROM due WHERE t.provider_ticket_id = due.provider_ticket_id
+        RETURNING t.provider_ticket_id
+      `;
+      return rows.map((row) => row.provider_ticket_id);
+    });
+  }
+
+  async completeReceipt(
+    ticketId: string,
+    workerId: string,
+    result: Exclude<ExpoReceiptResult, { readonly kind: "pending" }>,
+  ): Promise<void> {
+    validateWorkerId(workerId);
+    const status = result.kind === "delivered" ? "delivered" : "failed";
+    const errorCode = result.kind === "failed" ? result.errorCode : null;
+    if (errorCode) validateProviderErrorCode(errorCode);
+    await this.#sql.begin(async (transaction) => {
+      const tickets = await transaction<{ token_id: string | null }[]>`
+        UPDATE notification_provider_tickets
+        SET receipt_state = ${status}, receipt_error_code = ${errorCode},
+            receipt_lease_owner = NULL, receipt_lease_expires_at = NULL
+        WHERE provider_ticket_id = ${ticketId} AND receipt_state = 'pending'
+          AND receipt_lease_owner = ${workerId}
+          AND receipt_lease_expires_at > clock_timestamp()
+        RETURNING token_id
+      `;
+      const ticket = tickets[0];
+      if (!ticket) throw new StoreConflictError("receipt lease is unavailable");
+      await transaction`
+        INSERT INTO notification_delivery_receipts (
+          receipt_id, provider_ticket_id, status
+        ) VALUES (${randomHex(16)}, ${ticketId}, ${status})
+      `;
+      if (errorCode === "device_not_registered" && ticket.token_id) {
+        await transaction`
+          UPDATE notification_push_tokens
+          SET delivery_state = 'invalid', invalidated_at = clock_timestamp(),
+              updated_at = clock_timestamp()
+          WHERE token_id = ${ticket.token_id} AND delivery_state = 'active'
+        `;
+      }
+    });
+  }
+
+  async deferReceipt(ticketId: string, workerId: string): Promise<void> {
+    validateWorkerId(workerId);
+    await this.#sql.begin(async (transaction) => {
+      const rows = await transaction<{ receipt_attempts: number }[]>`
+        SELECT receipt_attempts FROM notification_provider_tickets
+        WHERE provider_ticket_id = ${ticketId} AND receipt_state = 'pending'
+          AND receipt_lease_owner = ${workerId}
+          AND receipt_lease_expires_at > clock_timestamp()
+        FOR UPDATE
+      `;
+      const nextAttempt = (rows[0]?.receipt_attempts ?? -1) + 1;
+      if (nextAttempt < 0) {
+        throw new StoreConflictError("receipt lease is unavailable");
+      }
+      if (nextAttempt >= 5) {
+        await transaction`
+          UPDATE notification_provider_tickets
+          SET receipt_state = 'unknown', receipt_attempts = 5,
+              receipt_lease_owner = NULL, receipt_lease_expires_at = NULL
+          WHERE provider_ticket_id = ${ticketId}
+        `;
+        await transaction`
+          INSERT INTO notification_delivery_receipts (
+            receipt_id, provider_ticket_id, status
+          ) VALUES (${randomHex(16)}, ${ticketId}, 'unknown')
+        `;
+        return;
+      }
+      const delayMinutes = 15 * 2 ** nextAttempt;
+      await transaction`
+        UPDATE notification_provider_tickets
+        SET receipt_attempts = ${nextAttempt},
+            next_receipt_at = clock_timestamp() + ${`${delayMinutes} minutes`}::interval,
+            receipt_lease_owner = NULL, receipt_lease_expires_at = NULL
+        WHERE provider_ticket_id = ${ticketId}
+      `;
+    });
+  }
+
+  async #authorizedProviderRows(
+    permitId: string,
+    fence?: RuntimeEgressFence,
+  ): Promise<
+    (EncryptedTokenRow & {
+      readonly provider_deadline_at_ms: string | number;
+      readonly token_id: string;
+    })[]
+  > {
+    return this.#sql<
+      (EncryptedTokenRow & {
+        readonly provider_deadline_at_ms: string | number;
+        readonly token_id: string;
+      })[]
+    >`
+      SELECT t.token_id, t.installation_id, t.provider,
+             encode(t.token_fingerprint, 'hex') AS fingerprint,
+             t.ciphertext, encode(t.nonce, 'hex') AS nonce,
+             t.key_version, t.wrapped_dek,
+             floor(extract(epoch FROM p.provider_deadline_at) * 1000)::bigint
+               AS provider_deadline_at_ms
+      FROM notification_dispatch_permits p
+      JOIN notification_outbox o
+        ON o.outbox_id = p.outbox_id
+       AND o.installation_id = p.installation_id
+       AND o.revocation_generation = p.revocation_generation
+      JOIN notification_installations i
+        ON i.installation_id = p.installation_id AND i.state = 'active'
+       AND i.revocation_generation = p.revocation_generation
+      JOIN notification_push_tokens t
+        ON t.installation_id = p.installation_id
+       AND t.provider = 'expo' AND t.delivery_state = 'active'
+      LEFT JOIN notification_account_links l
+        ON l.account_link_id = p.account_link_scope_id
+       AND l.installation_id = p.installation_id AND l.state = 'active'
+       AND l.revocation_generation = p.account_link_generation
+      CROSS JOIN notification_service_state s
+      WHERE p.permit_id = ${permitId} AND p.state = 'submission_started'
+        AND p.provider_deadline_at > clock_timestamp()
+        AND o.state = 'provider_submission_started'
+        AND o.account_link_scope_id IS NOT DISTINCT FROM p.account_link_scope_id
+        AND (p.account_link_scope_id IS NULL OR l.account_link_id IS NOT NULL)
+        AND s.singleton AND s.delivery_enabled
+        AND (${fence === undefined} OR EXISTS (
+          SELECT 1 FROM notification_monitor_leases runtime_lease
+          WHERE runtime_lease.lease_key = ${fence?.leaseKey ?? ""}
+            AND runtime_lease.owner_id = ${fence?.ownerId ?? ""}
+            AND runtime_lease.lease_generation = ${fence?.generation ?? 0}
+            AND runtime_lease.expires_at > clock_timestamp()
+        ))
+    `;
+  }
+
   async cleanupRetention(batchSize: number): Promise<{
     readonly challenges: number;
     readonly dedupeKeys: number;
@@ -2091,6 +2902,145 @@ export class PostgresNotificationStore {
       this.#dependencies.tombstoneKeyVersion,
       new TextEncoder().encode(`scope/v1|${kind}|${identifier}`),
     );
+  }
+}
+
+async function assertMonitorsEnabled(sql: SQL): Promise<void> {
+  const rows = await sql<
+    {
+      schema_phase: string;
+      restore_state: string;
+      monitors_enabled: boolean;
+    }[]
+  >`
+    SELECT schema_phase, restore_state, monitors_enabled
+    FROM notification_service_state WHERE singleton FOR SHARE
+  `;
+  const state = rows[0];
+  if (
+    state?.schema_phase !== "contracted" ||
+    state.restore_state !== "ready" ||
+    !state.monitors_enabled
+  ) {
+    throw new StoreNotReadyError("notification monitors are not ready");
+  }
+}
+
+async function assertDeliveryEnabled(sql: SQL): Promise<void> {
+  const rows = await sql<
+    {
+      schema_phase: string;
+      restore_state: string;
+      delivery_enabled: boolean;
+    }[]
+  >`
+    SELECT schema_phase, restore_state, delivery_enabled
+    FROM notification_service_state WHERE singleton FOR SHARE
+  `;
+  const state = rows[0];
+  if (
+    state?.schema_phase !== "contracted" ||
+    state.restore_state !== "ready" ||
+    !state.delivery_enabled
+  ) {
+    throw new StoreNotReadyError("notification delivery is not ready");
+  }
+}
+
+function validateRuntimeEgressFence(fence: RuntimeEgressFence): void {
+  if (
+    fence.leaseKey !== NOTIFICATION_EGRESS_LEASE_KEY ||
+    !/^[a-z0-9:_-]{1,128}$/.test(fence.ownerId) ||
+    !Number.isSafeInteger(fence.generation) ||
+    fence.generation < 1
+  ) {
+    throw new StoreConflictError("notification egress fence is invalid");
+  }
+}
+
+async function assertRuntimeEgressFence(
+  sql: SQL,
+  fence: RuntimeEgressFence,
+): Promise<void> {
+  const rows = await sql<{ authorized: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM notification_monitor_leases
+      WHERE lease_key = ${fence.leaseKey} AND owner_id = ${fence.ownerId}
+        AND lease_generation = ${fence.generation}
+        AND expires_at > clock_timestamp()
+    ) AS authorized
+  `;
+  if (!rows[0]?.authorized) {
+    throw new StoreNotReadyError(
+      "notification egress ownership is unavailable",
+    );
+  }
+}
+
+async function finishDispatchInTransaction(
+  sql: SQL,
+  permitId: string,
+  outcome:
+    | "provider_accepted"
+    | "provider_rejected"
+    | "provider_outcome_unknown",
+): Promise<void> {
+  const permits = await sql<{ outbox_id: string }[]>`
+    UPDATE notification_dispatch_permits
+    SET state = 'finished', finished_at = clock_timestamp()
+    WHERE permit_id = ${permitId} AND state = 'submission_started'
+    RETURNING outbox_id
+  `;
+  const permit = permits[0];
+  if (!permit)
+    throw new StoreConflictError("dispatch attempt is not in flight");
+  const rows = await sql<{ outbox_id: string }[]>`
+    UPDATE notification_outbox
+    SET state = ${outcome}, lease_owner = NULL, lease_expires_at = NULL,
+        updated_at = clock_timestamp()
+    WHERE outbox_id = ${permit.outbox_id}
+      AND state = 'provider_submission_started'
+    RETURNING outbox_id
+  `;
+  if (rows.length !== 1) {
+    throw new StoreConflictError("dispatch outbox is not in flight");
+  }
+}
+
+function validateLeaseIdentity(leaseKey: string, ownerId: string): void {
+  if (
+    !/^[\x21-\x7e]{1,256}$/.test(leaseKey) ||
+    !/^[a-z0-9:_-]{1,128}$/.test(ownerId)
+  ) {
+    throw new StoreConflictError("monitor lease identity is invalid");
+  }
+}
+
+function validateWorkerId(workerId: string): void {
+  if (!/^[a-z0-9:_-]{1,128}$/.test(workerId)) {
+    throw new StoreConflictError("notification worker ID is invalid");
+  }
+}
+
+function validateHexId(value: string, label: string): void {
+  if (!/^[0-9a-f]{32}$/.test(value)) {
+    throw new StoreConflictError(`${label} ID is invalid`);
+  }
+}
+
+function validateBoundedBatch(limit: number, errorMessage: string): void {
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > EXPO_RECEIPT_BATCH_SIZE
+  ) {
+    throw new StoreConflictError(errorMessage);
+  }
+}
+
+function validateProviderErrorCode(errorCode: string): void {
+  if (!/^[a-z][a-z0-9_]{0,63}$/.test(errorCode)) {
+    throw new StoreConflictError("provider error code is invalid");
   }
 }
 

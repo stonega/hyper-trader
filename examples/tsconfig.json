@@ -9,6 +9,7 @@
     "types": ["bun"]
   },
   "include": [
+    "notification-account-baseline.ts",
     "notification-proof-digests.ts",
     "testnet-action-encoding.ts",
     "testnet-order-workflow.ts"

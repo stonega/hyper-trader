@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { parseNotificationServiceConfig } from "./config";
 
 describe("notification service deployment configuration", () => {
-  test("accepts a fixed HTTPS origin and keeps delivery disabled in U11", () => {
+  test("accepts a fixed HTTPS origin and an explicit disabled worker gate", () => {
     expect(
       parseNotificationServiceConfig({
         NOTIFICATION_SERVICE_ORIGIN: "https://notify.example.com",
@@ -21,7 +21,18 @@ describe("notification service deployment configuration", () => {
     });
   });
 
-  test("fails closed on insecure origins, invalid ports, and worker activation", () => {
+  test("accepts an explicit worker request without bypassing database gates", () => {
+    expect(
+      parseNotificationServiceConfig({
+        NOTIFICATION_SERVICE_ORIGIN: "https://notify.example.com",
+        NOTIFICATION_DATABASE_URL:
+          "postgres://notification.internal/hyper_trader",
+        NOTIFICATION_ENABLE_PROVIDER_WORKERS: "true",
+      }).providerWorkersEnabled,
+    ).toBe(true);
+  });
+
+  test("fails closed on insecure origins, invalid ports, and malformed flags", () => {
     const base = {
       NOTIFICATION_SERVICE_ORIGIN: "https://notify.example.com",
       NOTIFICATION_DATABASE_URL:
@@ -39,8 +50,8 @@ describe("notification service deployment configuration", () => {
     expect(() =>
       parseNotificationServiceConfig({
         ...base,
-        NOTIFICATION_ENABLE_PROVIDER_WORKERS: "true",
+        NOTIFICATION_ENABLE_PROVIDER_WORKERS: "yes",
       }),
-    ).toThrow("unavailable");
+    ).toThrow("flag");
   });
 });

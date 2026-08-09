@@ -4,7 +4,7 @@ export interface NotificationServiceConfig {
   readonly serviceOrigin: string;
   readonly databaseUrl: string;
   readonly port: number;
-  readonly providerWorkersEnabled: false;
+  readonly providerWorkersEnabled: boolean;
   readonly upstreamUtilizationPercent: 70;
 }
 
@@ -30,14 +30,18 @@ export function parseNotificationServiceConfig(
   const port = Number(portText);
   if (port > 65_535) throw new Error("notification port is invalid");
   const workerFlag = environment.NOTIFICATION_ENABLE_PROVIDER_WORKERS;
-  if (workerFlag !== undefined && workerFlag !== "false") {
-    throw new Error("notification provider workers are unavailable before U14");
+  if (
+    workerFlag !== undefined &&
+    workerFlag !== "false" &&
+    workerFlag !== "true"
+  ) {
+    throw new Error("notification provider worker flag is invalid");
   }
   return {
     serviceOrigin,
     databaseUrl,
     port,
-    providerWorkersEnabled: false,
+    providerWorkersEnabled: workerFlag === "true",
     upstreamUtilizationPercent: CONTRACT_LIMITS.upstreamUtilizationPercent,
   };
 }

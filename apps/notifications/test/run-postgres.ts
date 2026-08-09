@@ -1,8 +1,10 @@
 import { SQL } from "bun";
 
 const repositoryRoot = new URL("../../../", import.meta.url).pathname;
-const integrationTest =
-  "apps/notifications/src/db/postgres.integration.test.ts";
+const integrationTests = [
+  "apps/notifications/src/db/postgres.integration.test.ts",
+  "apps/notifications/src/db/worker-postgres.integration.test.ts",
+] as const;
 const suppliedDatabaseUrl = process.env.NOTIFICATION_TEST_DATABASE_URL;
 
 if (suppliedDatabaseUrl) {
@@ -64,17 +66,21 @@ try {
 }
 
 async function runIntegration(databaseUrl: string): Promise<number> {
-  const child = Bun.spawn(
-    ["bun", "test", "--timeout", "30000", integrationTest],
-    {
-      cwd: repositoryRoot,
-      env: { ...process.env, NOTIFICATION_TEST_DATABASE_URL: databaseUrl },
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    },
-  );
-  return child.exited;
+  for (const integrationTest of integrationTests) {
+    const child = Bun.spawn(
+      ["bun", "test", "--timeout", "30000", integrationTest],
+      {
+        cwd: repositoryRoot,
+        env: { ...process.env, NOTIFICATION_TEST_DATABASE_URL: databaseUrl },
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      },
+    );
+    const exitCode = await child.exited;
+    if (exitCode !== 0) return exitCode;
+  }
+  return 0;
 }
 
 async function waitUntilReady(

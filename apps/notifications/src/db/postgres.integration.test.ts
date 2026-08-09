@@ -139,7 +139,7 @@ integration("PostgreSQL notification foundation", () => {
     first = new SQL(databaseUrl as string, { max: 2 });
     second = new SQL(databaseUrl as string, { max: 2 });
     await rollbackNotificationMigrations(first, { target: 0 });
-    await migrateNotifications(first, { target: 3 });
+    await migrateNotifications(first, { target: 4 });
     const dependencies = {
       tokenKeyProvider: pushKeys,
       tombstoneKeyProvider: tombstoneKeys,
@@ -159,7 +159,7 @@ integration("PostgreSQL notification foundation", () => {
 
   test("runs expand-migrate-contract forward and exposes a closed activation gate", async () => {
     expect(await getNotificationMigrationStatus(first)).toEqual({
-      currentVersion: 3,
+      currentVersion: 4,
       schemaPhase: "contracted",
       restoreState: "blocked",
       mutationsEnabled: false,
@@ -187,16 +187,22 @@ integration("PostgreSQL notification foundation", () => {
       `UPDATE notification_migration_history SET up_checksum = $1 WHERE version = 3`,
       [contractHistory.up_checksum],
     );
+    const workerHistory = await first.unsafe<{ down_checksum: string }[]>(
+      `SELECT down_checksum FROM notification_migration_history WHERE version = 4`,
+    );
+    const workerDownChecksum = workerHistory[0]?.down_checksum;
+    if (!workerDownChecksum)
+      throw new Error("worker migration history missing");
     await first.unsafe(
-      `UPDATE notification_migration_history SET down_checksum = $1 WHERE version = 3`,
+      `UPDATE notification_migration_history SET down_checksum = $1 WHERE version = 4`,
       ["1".repeat(64)],
     );
     await expect(
-      rollbackNotificationMigrations(first, { target: 2 }),
+      rollbackNotificationMigrations(first, { target: 3 }),
     ).rejects.toThrow("checksum");
     await first.unsafe(
-      `UPDATE notification_migration_history SET down_checksum = $1 WHERE version = 3`,
-      [contractHistory.down_checksum],
+      `UPDATE notification_migration_history SET down_checksum = $1 WHERE version = 4`,
+      [workerDownChecksum],
     );
     await expect(
       first.begin(async (transaction) => {
@@ -209,7 +215,7 @@ integration("PostgreSQL notification foundation", () => {
         await transaction`
           INSERT INTO notification_migration_history (
             version, name, up_checksum, down_checksum
-          ) VALUES (4, 'unknown', ${"2".repeat(64)}, ${"3".repeat(64)})
+          ) VALUES (5, 'unknown', ${"2".repeat(64)}, ${"3".repeat(64)})
         `;
         await getNotificationMigrationStatus(transaction);
       }),
@@ -223,7 +229,7 @@ integration("PostgreSQL notification foundation", () => {
       }),
     ).rejects.toThrow("continuous");
     expect((await getNotificationMigrationStatus(first)).currentVersion).toBe(
-      3,
+      4,
     );
   });
 

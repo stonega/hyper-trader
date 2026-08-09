@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@hyper-trader/hyperliquid": "workspace:*",
     "@hyper-trader/notifications": "workspace:*",
     "viem": "^2.55.11"
   },

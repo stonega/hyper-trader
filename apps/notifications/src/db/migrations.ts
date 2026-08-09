@@ -6,6 +6,7 @@ const MIGRATIONS = [
   { version: 1, name: "expand" },
   { version: 2, name: "migrate" },
   { version: 3, name: "contract" },
+  { version: 4, name: "workers" },
 ] as const;
 
 export interface NotificationMigrationStatus {
