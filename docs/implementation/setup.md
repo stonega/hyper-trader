@@ -76,6 +76,11 @@ blocking sign-off is [`security-review.md`](security-review.md). U5-U7 live
 integration stays disabled until that checklist approves one evidence revision.
 Offline codec, repository, and UI work may proceed without real credentials.
 
+The implemented offline API-wallet setup, native custody adapters, explicit
+wallet runtime gate, phase/Back behavior, and five-minute signer-session boundary
+are documented in
+[`api-wallet-setup-and-session.md`](api-wallet-setup-and-session.md).
+
 ### Local data classes
 
 - AsyncStorage: public market cache, install sentinel, and presentation/trading

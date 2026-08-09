@@ -8,7 +8,7 @@ import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useReducedMotion } from "../components/use-reduced-motion";
-import { TRADE_ROUTE } from "../features/onboarding/routes";
+import { welcomeChoiceRoute } from "../features/onboarding/routes";
 import {
   reduceWelcomePhase,
   type WelcomeChoice,
@@ -43,7 +43,7 @@ export default function WelcomeScreen(): JSX.Element {
       if (currentOperation !== operation.current) {
         return;
       }
-      router.replace(TRADE_ROUTE);
+      router.replace(welcomeChoiceRoute(choice));
     } catch {
       if (currentOperation === operation.current) {
         submitting.current = false;
@@ -85,8 +85,9 @@ export default function WelcomeScreen(): JSX.Element {
         <Card.Body className="gap-2">
           <Card.Title>Choose how to begin</Card.Title>
           <Card.Description>
-            Both choices enter the same read-only Trade screen. Setup saves only
-            an untrusted intent; it does not create authority or a key.
+            Setup first saves a resumable, untrusted intent, then opens its
+            dedicated testnet flow. Read-only opens Trade without connecting a
+            wallet.
           </Card.Description>
           {phase === "failed" ? (
             <Animated.View
@@ -103,7 +104,7 @@ export default function WelcomeScreen(): JSX.Element {
         </Card.Body>
         <Card.Footer className="flex-col gap-3">
           <Button
-            accessibilityHint="Saves a setup intent and opens the read-only Trade tab. No wallet approval occurs yet."
+            accessibilityHint="Saves a resumable setup intent and opens the dedicated testnet trading setup flow."
             animation={reducedMotion ? "disable-all" : undefined}
             className="min-h-12 w-full"
             isDisabled={phase === "persisting"}

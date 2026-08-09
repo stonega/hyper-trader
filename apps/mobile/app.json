@@ -6,6 +6,9 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hypertrader",
+    "updates": {
+      "enabled": false
+    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -19,6 +22,19 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Allow Hyper Trader to unlock your protected testnet API wallet."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Hyper Trader to verify you before unlocking a temporary signing session."
+        }
+      ],
       [
         "expo-splash-screen",
         {
