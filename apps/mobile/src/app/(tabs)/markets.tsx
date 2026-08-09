@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ScreenHeading } from "../../components/screen-heading";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
+import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { CatalogStatus } from "../../features/markets/catalog-status";
 import {
   discoverMarkets,
@@ -161,7 +162,13 @@ export default function MarketsScreen(): JSX.Element {
         title="Markets"
         description="Search the complete validated catalog. Display symbols may repeat; venue and canonical ID keep each market distinct."
         network={current.network}
+        accountLabel={
+          current.targetAccount === null
+            ? "no account · read only"
+            : `target …${current.targetAccount.slice(-6)}${current.signer === null ? " · read only" : ""}`
+        }
       />
+      <GlobalAccountSwitcher />
       <TextField animation={reducedMotion ? "disable-all" : undefined}>
         <Label>Search every market</Label>
         <Input

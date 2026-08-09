@@ -228,7 +228,26 @@ export function createTradeDraft(input: {
   readonly market: Market;
   readonly context: NormalizedTradingContext;
   readonly account: TradeAccountSnapshot | null;
+  readonly preferences?: {
+    readonly defaultOrderType: TradeOrderType;
+    readonly defaultSlippageBps: number;
+  };
 }): TradeDraft {
+  const supportsPreferences = hasSupportedOrderMetadata(input.market);
+  const preferredOrderType = input.preferences?.defaultOrderType;
+  const preferredSlippage = input.preferences?.defaultSlippageBps;
+  const orderType =
+    supportsPreferences &&
+    (preferredOrderType === "market" || preferredOrderType === "limit")
+      ? preferredOrderType
+      : "market";
+  const slippageBps =
+    supportsPreferences &&
+    Number.isSafeInteger(preferredSlippage) &&
+    (preferredSlippage as number) >= 0 &&
+    (preferredSlippage as number) <= 500
+      ? String(preferredSlippage)
+      : "50";
   return {
     binding: bindDraftContext({
       context: input.context,
@@ -236,14 +255,14 @@ export function createTradeDraft(input: {
       metadataFingerprint: marketFingerprint(input.market),
     }),
     side: "buy",
-    orderType: "market",
+    orderType,
     size: "",
     limitPrice: currentPrice(input.market),
     leverage:
       input.market.family === "perp" ? (input.account?.leverage ?? null) : null,
     timeInForce: "Gtc",
     reduceOnly: false,
-    slippageBps: "50",
+    slippageBps,
   };
 }
 
@@ -253,6 +272,10 @@ export function reconcileTradeDraft(
     readonly market: Market;
     readonly context: NormalizedTradingContext;
     readonly account: TradeAccountSnapshot | null;
+    readonly preferences?: {
+      readonly defaultOrderType: TradeOrderType;
+      readonly defaultSlippageBps: number;
+    };
   },
 ): TradeDraftReconciliation {
   const validation = validateDraftContext(draft.binding, {

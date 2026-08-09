@@ -25,6 +25,7 @@ import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useDraftRegistry } from "../../core/actions/draft-provider";
 import { useTradingContext } from "../../core/context/provider";
 import { useSignerSession } from "../../core/session/provider";
+import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { CatalogStatus } from "../../features/markets/catalog-status";
 import {
@@ -47,6 +48,7 @@ import {
   resolveMarketSelection,
 } from "../../features/markets/selection";
 import { useUsableTradeMarker } from "../../features/markets/use-usable-trade-marker";
+import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
 import { useTradeMarketData } from "../../features/trade/market-data";
 import { OrderPanel } from "../../features/trade/order-panel";
 import {
@@ -206,6 +208,22 @@ export default function TradeScreen(): JSX.Element {
   const signerSession = useSignerSession();
   const drafts = useDraftRegistry();
   const actionRuntime = useActionRuntime();
+  const scopedPreferences = useScopedTradingPreferences();
+  const tradeDefaults = useMemo(
+    () =>
+      scopedPreferences.status === "ready"
+        ? {
+            defaultOrderType: scopedPreferences.preferences.defaultOrderType,
+            defaultSlippageBps:
+              scopedPreferences.preferences.defaultSlippageBps,
+          }
+        : undefined,
+    [
+      scopedPreferences.preferences.defaultOrderType,
+      scopedPreferences.preferences.defaultSlippageBps,
+      scopedPreferences.status,
+    ],
+  );
   const preferences = useMarketPreferences();
   const reducedMotion = useReducedMotion();
   const { catalog, catalogQuery, presentation } = useMarketCatalogPresentation(
@@ -308,7 +326,7 @@ export default function TradeScreen(): JSX.Element {
   }, [preferences, selection]);
 
   useEffect(() => {
-    if (market === null) {
+    if (market === null || scopedPreferences.status === "loading") {
       setDraftState({ draft: null, invalidationMessage: null });
       return;
     }
@@ -319,6 +337,7 @@ export default function TradeScreen(): JSX.Element {
             market,
             context: current,
             account: authority.account,
+            preferences: tradeDefaults,
           }),
           invalidationMessage: previous.invalidationMessage,
         };
@@ -327,6 +346,7 @@ export default function TradeScreen(): JSX.Element {
         market,
         context: current,
         account: authority.account,
+        preferences: tradeDefaults,
       });
       return reconciled.preserved
         ? previous
@@ -335,7 +355,13 @@ export default function TradeScreen(): JSX.Element {
             invalidationMessage: reconciled.message,
           };
     });
-  }, [authority.account, current, market]);
+  }, [
+    authority.account,
+    current,
+    market,
+    scopedPreferences.status,
+    tradeDefaults,
+  ]);
 
   const draftBinding = draftState.draft?.binding ?? null;
   useEffect(() => {
@@ -500,6 +526,8 @@ export default function TradeScreen(): JSX.Element {
             {shortAddress(current.targetAccount)}
           </Text>
         </View>
+
+        <GlobalAccountSwitcher />
 
         <Button
           accessibilityHint="Opens the complete searchable catalog without changing account or network."

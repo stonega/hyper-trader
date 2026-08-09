@@ -98,6 +98,25 @@ describe("Trade control applicability", () => {
       expect(hasSupportedOrderMetadata(market as Market)).toBe(expected);
     },
   );
+
+  test("applies scoped defaults only when the selected market can support them", () => {
+    expect(
+      createTradeDraft({
+        market: NATIVE_DUPLICATE,
+        context,
+        account,
+        preferences: { defaultOrderType: "limit", defaultSlippageBps: 25 },
+      }),
+    ).toMatchObject({ orderType: "limit", slippageBps: "25" });
+    expect(
+      createTradeDraft({
+        market: OUTCOME_MARKET,
+        context,
+        account,
+        preferences: { defaultOrderType: "limit", defaultSlippageBps: 25 },
+      }),
+    ).toMatchObject({ orderType: "market", slippageBps: "50" });
+  });
 });
 
 describe("Trade draft ownership", () => {

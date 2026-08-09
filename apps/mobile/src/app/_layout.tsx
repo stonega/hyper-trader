@@ -12,7 +12,10 @@ import { NotificationIntentProvider } from "../core/notifications/intent-provide
 import { MobileQueryProvider } from "../core/query/provider";
 import { SignerSessionProvider } from "../core/session/provider";
 import { StreamRuntimeProvider } from "../core/streams/provider";
+import { AccountDirectoryProvider } from "../features/accounts/account-directory-provider";
 import { ActionRuntimeProvider } from "../features/actions/runtime-provider";
+import { AppearancePreferenceProvider } from "../features/settings/appearance-provider";
+import { ScopedTradingPreferencesProvider } from "../features/settings/preferences-provider";
 
 import "../global.css";
 
@@ -20,43 +23,49 @@ export default function RootLayout(): JSX.Element {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
-        <SafeAreaProvider>
-          <MobileQueryProvider>
-            <SignerSessionProvider>
-              <StreamRuntimeProvider>
-                <DraftRegistryProvider>
-                  <TradingContextProvider>
-                    <ActionRuntimeProvider>
-                      <NativeLifecycleProvider>
-                        <NotificationIntentProvider>
-                          <StatusBar style="auto" />
-                          <Stack screenOptions={{ headerShown: false }}>
-                            <Stack.Screen
-                              name="action-review"
-                              options={{
-                                animation: "none",
-                                gestureEnabled: false,
-                                presentation: "modal",
-                              }}
-                            />
-                            <Stack.Screen
-                              name="action-result"
-                              options={{
-                                animation: "none",
-                                gestureEnabled: false,
-                                presentation: "modal",
-                              }}
-                            />
-                          </Stack>
-                        </NotificationIntentProvider>
-                      </NativeLifecycleProvider>
-                    </ActionRuntimeProvider>
-                  </TradingContextProvider>
-                </DraftRegistryProvider>
-              </StreamRuntimeProvider>
-            </SignerSessionProvider>
-          </MobileQueryProvider>
-        </SafeAreaProvider>
+        <AppearancePreferenceProvider>
+          <SafeAreaProvider>
+            <MobileQueryProvider>
+              <AccountDirectoryProvider>
+                <SignerSessionProvider>
+                  <StreamRuntimeProvider>
+                    <DraftRegistryProvider>
+                      <TradingContextProvider>
+                        <ScopedTradingPreferencesProvider>
+                          <ActionRuntimeProvider>
+                            <NativeLifecycleProvider>
+                              <NotificationIntentProvider>
+                                <StatusBar style="auto" />
+                                <Stack screenOptions={{ headerShown: false }}>
+                                  <Stack.Screen
+                                    name="action-review"
+                                    options={{
+                                      animation: "none",
+                                      gestureEnabled: false,
+                                      presentation: "modal",
+                                    }}
+                                  />
+                                  <Stack.Screen
+                                    name="action-result"
+                                    options={{
+                                      animation: "none",
+                                      gestureEnabled: false,
+                                      presentation: "modal",
+                                    }}
+                                  />
+                                </Stack>
+                              </NotificationIntentProvider>
+                            </NativeLifecycleProvider>
+                          </ActionRuntimeProvider>
+                        </ScopedTradingPreferencesProvider>
+                      </TradingContextProvider>
+                    </DraftRegistryProvider>
+                  </StreamRuntimeProvider>
+                </SignerSessionProvider>
+              </AccountDirectoryProvider>
+            </MobileQueryProvider>
+          </SafeAreaProvider>
+        </AppearancePreferenceProvider>
       </HeroUINativeProvider>
     </GestureHandlerRootView>
   );

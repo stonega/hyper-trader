@@ -7,10 +7,12 @@ export function ScreenHeading({
   title,
   description,
   network,
+  accountLabel = "no account · read only",
 }: {
   readonly title: string;
   readonly description: string;
   readonly network: HyperliquidNetwork;
+  readonly accountLabel?: string;
 }): JSX.Element {
   return (
     <View className="gap-3">
@@ -22,12 +24,12 @@ export function ScreenHeading({
           {title}
         </Text>
         <Chip
-          accessibilityLabel={`${network} network, no account, read only`}
+          accessibilityLabel={`${network} network, ${accountLabel}`}
           size="sm"
           variant="soft"
           color="default"
         >
-          {network} · no account
+          {network} · {accountLabel}
         </Chip>
       </View>
       <Text className="text-base leading-6 text-muted">{description}</Text>

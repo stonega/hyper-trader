@@ -22,6 +22,7 @@ import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { useSignerSession } from "../../core/session/provider";
+import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
 import type {
@@ -47,6 +48,7 @@ import {
   PortfolioRows,
   PortfolioSelectionChip,
 } from "../../features/portfolio/portfolio-rows";
+import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
 import {
   cloidFromRandomBytes,
   createTradeOperationFence,
@@ -105,6 +107,7 @@ export default function PortfolioScreen(): JSX.Element {
   const { current } = tradingContext;
   const signerSession = useSignerSession();
   const actionRuntime = useActionRuntime();
+  const scopedPreferences = useScopedTradingPreferences();
   const { catalog, catalogQuery, presentation } = useMarketCatalogPresentation(
     current.network,
   );
@@ -122,6 +125,19 @@ export default function PortfolioScreen(): JSX.Element {
   }>({ editor: null, invalidationMessage: null });
   const [actionError, setActionError] = useState<string | null>(null);
   const editor = interaction.editor;
+
+  useEffect(() => {
+    setRange(
+      scopedPreferences.status === "ready" &&
+        scopedPreferences.scopeKey !== null
+        ? scopedPreferences.preferences.defaultChartRange
+        : "24h",
+    );
+  }, [
+    scopedPreferences.preferences.defaultChartRange,
+    scopedPreferences.scopeKey,
+    scopedPreferences.status,
+  ]);
 
   const nowMs = Date.now();
   const accountCurrent =
@@ -488,6 +504,8 @@ export default function PortfolioScreen(): JSX.Element {
             {shortAddress(current.targetAccount)}
           </Text>
         </View>
+
+        <GlobalAccountSwitcher />
 
         {targetResolution.target === null ? (
           current.masterAccount === null ? (
