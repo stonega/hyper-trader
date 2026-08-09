@@ -12,8 +12,8 @@ code.
 ## Product scope
 
 - Support every active market returned by Hyperliquid's documented metadata
-  endpoints, including native perpetuals, builder-deployed HIP-3 perpetuals, and
-  spot pairs.
+  endpoints, including native perpetuals, builder-deployed HIP-3 perpetuals,
+  spot pairs, and testnet outcome markets.
 - Discover markets and their precision, leverage, margin, lifecycle, and asset-ID
   rules at runtime. A hard-coded featured-symbol list may be used for curation,
   but never as the source of truth for market coverage.
@@ -141,6 +141,10 @@ Reference: [Hyperliquid: Nonces and API wallets](https://hyperliquid.gitbook.io/
 - Discover spot pairs and token metadata from the current spot metadata
   endpoints. Preserve Hyperliquid's canonical asset identifiers separately from
   user-facing display names.
+- Discover testnet outcome sides from `outcomeMeta` and preserve their outcome,
+  side, coin, and order-asset encodings. Outcome sides remain browse-only until
+  the runtime metadata supplies enough precision data to validate order input;
+  the client never guesses lot or tick sizes.
 - Read prices, order books, candles, funding, open interest, and tradability from
   the market-specific contexts exposed by Hyperliquid.
 - Preserve delisted, isolated-only, margin-mode, precision, and maximum-leverage
@@ -150,7 +154,8 @@ Reference: [Hyperliquid: Nonces and API wallets](https://hyperliquid.gitbook.io/
 
 References: [Hyperliquid perpetual metadata](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals),
 [spot metadata](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot),
-and [exchange asset IDs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint).
+[asset IDs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/asset-ids),
+and [exchange actions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint).
 
 ## Network policy
 

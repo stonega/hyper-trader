@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Typed Hyperliquid API client for Hyper Trader.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./public": "./src/public.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"
