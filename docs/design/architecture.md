@@ -161,3 +161,83 @@ and [exchange asset IDs](https://hyperliquid.gitbook.io/hyperliquid-docs/for-dev
   never be silently reused across testnet and mainnet.
 - Mainnet trading requires an explicit product decision and a separate release
   safety review.
+
+## Security architecture contract
+
+The repository has three enforced trust domains. `apps/mobile` owns native
+lifecycle, OS key storage, the process-wide context epoch/action queue, and the
+SQLite nonce journal. `packages/hyperliquid` owns transport-independent remote
+validation, typed actions, exact protocol bytes, and repository ports. The
+notification runtime may import only `@hyper-trader/hyperliquid/public`, a
+dedicated `/info` and public-stream surface with no signer, action,
+authenticated-account, or `/exchange` capability.
+
+Normative detail lives in:
+
+- [`api-wallet-custody.md`](api-wallet-custody.md): immutable local binding,
+  SecureStore/session policy, authorization, replacement, loss, and unlink;
+- [`action-lifecycle.md`](action-lifecycle.md): byte ownership, atomic
+  nonce+journal reservation, write-once transport, and reconciliation; and
+- [`notification-service.md`](notification-service.md): account ownership proof,
+  push-key custody, retention, deletion races, and incidents.
+
+The only state-changing path is:
+
+```text
+typed intent -> validation -> immutable review -> atomic nonce+journal
+            -> codec bytes -> device signature -> durable submission marker
+            -> one fixed-origin write -> authoritative reconciliation
+```
+
+Only the action codec owns signing bytes. Private keys, raw signatures, signing
+preimages, canonical action bytes, and complete signed request bodies are
+prohibited from durable storage, logs, analytics, crash reports, support bundles,
+notification payloads, and backend requests.
+
+## Compile-owned mainnet denial
+
+For every build covered by the current plan, the compile-owned action capability
+matrix is:
+
+```text
+testnet: { signerAccess: true, exchangeTransport: true }
+mainnet: { signerAccess: false, exchangeTransport: false }
+```
+
+The shared action entry point, mobile signer repository, and exchange transport
+each check it. A mainnet context is public-read-only and fails before key access
+and again before `/exchange`. Remote configuration, backend responses, deep
+links, notifications, restored state, environment variables, and debug menus
+cannot enable a false capability.
+
+Future mainnet enablement requires a new reviewed plan, an explicit source diff
+to this matrix, current official vectors for both networks, independent protocol
+and mobile-security sign-off, updated threat/incident contracts, physical-device
+custody evidence, staged disposable-agent testnet evidence, release attestation,
+and a separately authorized mainnet canary/rollback procedure. Testnet approval
+is not mainnet evidence.
+
+## Fixed origins and release integrity
+
+Hyperliquid clients use exact compile-owned origins:
+
+| Network | HTTPS | WSS |
+|---|---|---|
+| Testnet | `https://api.hyperliquid-testnet.xyz` | `wss://api.hyperliquid-testnet.xyz/ws` |
+| Mainnet public reads | `https://api.hyperliquid.xyz` | `wss://api.hyperliquid.xyz/ws` |
+
+Clients reject overrides, non-TLS schemes, alternate ports, userinfo, suffix
+host matching, redirects, and TLS errors. Certificate pinning is not assumed.
+The notification service has a separately configured exact HTTPS origin; clients
+do not supply its base URL.
+
+Signing-capable builds accept only signed EAS Updates. If update-code signing is
+not configured and verified for the release channel, OTA is disabled and changes
+ship in a new store build. Certificate rotation uses a new runtime version.
+Dependency and lockfile changes, Reown configuration, and native config plugins
+require provenance, permission, generated-native-diff, and credential review.
+Update, Reown, TLS, push-provider, and notification-encryption credentials have
+separate owners and exercised rotation paths.
+
+The blocking gate is
+[`../implementation/security-review.md`](../implementation/security-review.md).
