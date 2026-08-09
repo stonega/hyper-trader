@@ -1,0 +1,20 @@
+@import "tailwindcss";
+@import "uniwind";
+
+@import "heroui-native/styles";
+
+/* End-user path: heroui-native lives in the project's node_modules, one
+   level up from this src/global.css file. */
+@source "../node_modules/heroui-native/lib";
+
+@layer theme {
+  @variant light {
+    --accent: oklch(0.63 0.13 178);
+    --accent-foreground: oklch(0.98 0.01 178);
+  }
+
+  @variant dark {
+    --accent: oklch(0.78 0.14 173);
+    --accent-foreground: oklch(0.16 0.03 180);
+  }
+}

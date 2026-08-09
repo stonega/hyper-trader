@@ -1,0 +1,13 @@
+{
+  "name": "@hyper-trader/hyperliquid",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed Hyperliquid API client for Hyper Trader.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

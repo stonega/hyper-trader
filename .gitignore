@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build and tool output
+dist/
+coverage/
+.expo/
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+*.log
+
+# Generated local state
+.codegraph/
