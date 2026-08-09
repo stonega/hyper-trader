@@ -14,7 +14,7 @@
     "mobile:ios": "bun --cwd apps/mobile ios",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "typecheck": "bun run --filter '*' typecheck",
+    "typecheck": "bun run --filter '*' typecheck && tsc -p examples/tsconfig.json",
     "test": "bun test"
   },
   "devDependencies": {

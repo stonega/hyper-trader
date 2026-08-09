@@ -1,0 +1,209 @@
+{
+  "provenance": {
+    "sdkTag": "0.24.0",
+    "sdkCommit": "2fdb18f9517675ea03695a0962bd19eece9c83f0",
+    "generator": "generate.py",
+    "signerLabel": "hyper-trader-u6-official-parity-v1",
+    "signerAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+  },
+  "vectors": {
+    "marketOrder": {
+      "actionBytesLength": 110,
+      "actionBytesKeccak256": "0xb958f589f411e843381e6ad6335893a8380ba42e255eafccdf1f5318d87370c5",
+      "actionHash": "0xfbdc2ee67b175c5492e4667ba8ff627015782b3a3a715ee85ed6c0f913de640f",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0xd0974a2ec3299ed8a212ef27004b51aaf3a89b78608b7fc1b63eb31737b4a5af",
+          "signatureKeccak256": "0xbba2fe361faef1018208fb4a28c66bdd78dede80b085c3bb9d0160fd99913dc0",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x0a8a12ec12d59680dc5ef593222866dc24ea5062c6197bd357180de3a261a58b",
+          "signatureKeccak256": "0x9f9f47a0a162fe5b9877afea184d69549db36e631cee2da1b416ea12961ec502",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "limitOrder": {
+      "actionBytesLength": 113,
+      "actionBytesKeccak256": "0x6e2d804ff61c70beca3076a34472e22baf14cda4c2c331a64c488f0eaf55def6",
+      "actionHash": "0x454de7d0797dc3a9638c3a92485deab4b01c8484c3e5a3bd50a5be2d70d007d2",
+      "vaultAddress": "0x1719884eb866cb12b2287399b15f7db5e7d775ea",
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0x12295f440a9c428a8f1291b449f15795de8bfdfbf5eb2b275c60349afa73dc8d",
+          "signatureKeccak256": "0x3a08f8962a265ab6145bc8a290a3789e6c3767f039041153e9799f1d697d79b1",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0xdc3bb1a04a361085b940aacdb7ee109812514e53cc4f1dc61fa879f730f026ff",
+          "signatureKeccak256": "0x567567a7c9aecad442e419cf413b61cb59b0db01f2b8691880fad3f2b03af104",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "cancelByOid": {
+      "actionBytesLength": 29,
+      "actionBytesKeccak256": "0xf822bbee7125d287548322c8ea40a31e0eceefbe4bd00f960d0fb2e3b5d2799a",
+      "actionHash": "0x8a8cb4f3f631d465b2cb73ceb7c7ad9eee43db6c0e686c02e4a4e9a692553311",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0x321baf56e4031b0c6a2cfaf947d355bdc420be8c2ada112904de1a632f003568",
+          "signatureKeccak256": "0xdaa3cbb451cc364cfd89e2e4077b19c615c9230f8de306276d673ba5e20113fc",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x132394be609e695a9d552ea73358d4dfe24e16a61a783cae0c1d0f12b9bbecc8",
+          "signatureKeccak256": "0xa5fa12f620eefd377303745c66ae0cac74468becb95f1a59ddc0665e130da7eb",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "cancelByCloid": {
+      "actionBytesLength": 79,
+      "actionBytesKeccak256": "0x8ffe8bc08ba39ee4b4ac31f4fbde724eca6e4257e7313146e2fa65b6b9ee373e",
+      "actionHash": "0x581f709ee09849878c10cbc7c5931aec9f49aa18ef8e14e713a6e3801f9f7931",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0xaf198c594be7d596519eda30566a83450cff8bcc0b1e4bf3ac9bec73384b8174",
+          "signatureKeccak256": "0xdfef5d5261645e9c1db089fef991b47a5287eff808c43314935a5ea981eecf01",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x43217a1251008263b3a59057843a172ebc2f620181569c6694e5ec3e1f88ffa7",
+          "signatureKeccak256": "0x382daa05920b3eff54d60d2235ec1f48639893ccbd482ff0ee2a3073f0d54d0e",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "bulkCancelByOid": {
+      "actionBytesLength": 38,
+      "actionBytesKeccak256": "0x74375845c3e0b71081c4ff85608e98f1f93b65b0543377b508aa8fbe1230b01a",
+      "actionHash": "0xc4908dd0c5ddd6229b6ee17b93ad4e03642d5a3e2749716da98f2a032be5102c",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0xe4e1faf6e560fb4f2aaa13801933191c714793b4cfd88412c2d802ec67e3c4ac",
+          "signatureKeccak256": "0xe03e8a2e9dffc5a652309d7f430e288152c20c6b90b82911619b01e0f03a4802",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x866eb15a3951b666b0f5a9457dcc44522ba9968b613aab7cb653220e6ff945d5",
+          "signatureKeccak256": "0x6965d6c873d5f4c52e04b57869fcb29e64056ee86f4f914990148b46af645193",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "bulkCancelByCloid": {
+      "actionBytesLength": 131,
+      "actionBytesKeccak256": "0x7b874e90099f3bce0a3518f14ad25ae3ecef3d79432bbd1bea683f99a600739e",
+      "actionHash": "0xad03a182105aea9564ae7ef0b8d6373004cab135ad0462b84ce085379cebf294",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0x85bc5a1ac67ef05c93bebeb1115b78c1fc1588ce34925ede93cd5d5f4e215839",
+          "signatureKeccak256": "0x5c82de8d7c1202d0e3180abe968d79e9edc182b09b63399c2ec0ae55d22ba540",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x05a89bd819b54551ee8b1a08e1e01f41409314c84418dfa87be1c7329a9a9f80",
+          "signatureKeccak256": "0xdeb49d08b785e71f46446ccf4144f075d99256ee53c15113647788cb9a684e2f",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "updateLeverage": {
+      "actionBytesLength": 47,
+      "actionBytesKeccak256": "0xc79ef37fbb050ad640e7561b8375aa369ebdd91be2fa73a4d02c73f9b0a58c3d",
+      "actionHash": "0x1b7cdaad7a7e3956b96fc7ace32a9e373013bf0d8e0adf550ae2c789e7305972",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0xdeae346308840804ec7d6ec4d76c9802bafdc58e6b8a4a2c3cdb90ffabb8fe93",
+          "signatureKeccak256": "0x9e415ab63b0a0e3ce65aeb888d1abccae6d5c7155f94bfc71411cdfd856ebb6d",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x0e4083e11883ef7fe002c525e159e7860c725d5fd49475943d746bb62cb07d7d",
+          "signatureKeccak256": "0xf5bcaa7493916766b1b3ce9765a2bb28a715687ff568dc7cdce0d30a8613954a",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "reduceOnlyClose": {
+      "actionBytesLength": 107,
+      "actionBytesKeccak256": "0x6545116fe5f05b8bc59b68633eb252669206ae502a7c1f0e88143e2a82ea7fe1",
+      "actionHash": "0x59ed6db717e609ddf0f537f892a55eef09976ebcc82b254ea82707732aa9e233",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0x0b8892307d77adc75e35d3bdd2753cfde10686d2accec45b8ea72aab7bd4f53a",
+          "signatureKeccak256": "0xc0a443cfc3e3a9b9e9dfca7562dcf4949711996474d413f710702d6784c11998",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x4c2c5a04960a5c0ee567d409e7fa6975340524e9d2bc20f70875f77e8f62b234",
+          "signatureKeccak256": "0xfd61d0ba595d27b8c525c5f729d032e8e4e6d826d7d2f94446583813ac35599e",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    }
+  },
+  "approveAgent": {
+    "testnet": {
+      "hyperliquidChain": "Testnet",
+      "signatureChainId": "0x66eee",
+      "typedDataHash": "0xb7e3e7eaf2fe88f19f309f164dd75838ef8123d38e8f0bb80408367ee9f4ee9a",
+      "signatureKeccak256": "0x7b552a7bff43bec0471501002989f4c6561fae80f39a64196c1ba7e1e7c77db6",
+      "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9",
+      "agentAddress": "0x8CD1baCB8A83643b1C585Bcfe30c29e2517E45fA",
+      "agentName": "ht-0123456789abc valid_until 1727592000000",
+      "nonce": 1725000000000
+    },
+    "mainnet": {
+      "hyperliquidChain": "Mainnet",
+      "signatureChainId": "0x66eee",
+      "typedDataHash": "0xda651bea7ee210d00fbd5bd265f93eee53e1a313703a191d0878b572fd0dbd6e",
+      "signatureKeccak256": "0x424030ab314f36b8a3dc005d2d08902731a6dc8a5138dd9685655a88ba526307",
+      "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9",
+      "agentAddress": "0x8CD1baCB8A83643b1C585Bcfe30c29e2517E45fA",
+      "agentName": "ht-0123456789abc valid_until 1727592000000",
+      "nonce": 1725000000000
+    }
+  }
+}

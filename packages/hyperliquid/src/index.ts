@@ -9,7 +9,11 @@ import {
 } from "./public";
 
 export * from "./accounts";
+export * from "./actions";
+export * from "./nonces";
 export * from "./public";
+export * from "./reconciliation";
+export * from "./signing";
 
 export interface HyperliquidClient extends PublicHyperliquidClient {
   readonly accounts: AccountDataClient;
