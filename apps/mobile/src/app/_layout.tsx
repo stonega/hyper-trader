@@ -12,6 +12,7 @@ import { NotificationIntentProvider } from "../core/notifications/intent-provide
 import { MobileQueryProvider } from "../core/query/provider";
 import { SignerSessionProvider } from "../core/session/provider";
 import { StreamRuntimeProvider } from "../core/streams/provider";
+import { ActionRuntimeProvider } from "../features/actions/runtime-provider";
 
 import "../global.css";
 
@@ -25,12 +26,31 @@ export default function RootLayout(): JSX.Element {
               <StreamRuntimeProvider>
                 <DraftRegistryProvider>
                   <TradingContextProvider>
-                    <NativeLifecycleProvider>
-                      <NotificationIntentProvider>
-                        <StatusBar style="auto" />
-                        <Stack screenOptions={{ headerShown: false }} />
-                      </NotificationIntentProvider>
-                    </NativeLifecycleProvider>
+                    <ActionRuntimeProvider>
+                      <NativeLifecycleProvider>
+                        <NotificationIntentProvider>
+                          <StatusBar style="auto" />
+                          <Stack screenOptions={{ headerShown: false }}>
+                            <Stack.Screen
+                              name="action-review"
+                              options={{
+                                animation: "none",
+                                gestureEnabled: false,
+                                presentation: "modal",
+                              }}
+                            />
+                            <Stack.Screen
+                              name="action-result"
+                              options={{
+                                animation: "none",
+                                gestureEnabled: false,
+                                presentation: "modal",
+                              }}
+                            />
+                          </Stack>
+                        </NotificationIntentProvider>
+                      </NativeLifecycleProvider>
+                    </ActionRuntimeProvider>
                   </TradingContextProvider>
                 </DraftRegistryProvider>
               </StreamRuntimeProvider>

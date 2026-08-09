@@ -5,6 +5,9 @@ The action-signing layer adds an offline codec and signing boundary to
 mobile application. It deliberately stops before exchange transport or live
 submission.
 
+The reviewed U7 orchestration and signer-free recovery layer is documented in
+[`action-orchestration-and-reconciliation.md`](action-orchestration-and-reconciliation.md).
+
 ## Dependency decisions
 
 - `@msgpack/msgpack` produces the protocol MessagePack action bytes. The test

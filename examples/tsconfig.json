@@ -8,5 +8,5 @@
     "target": "ES2022",
     "types": ["bun"]
   },
-  "include": ["testnet-action-encoding.ts"]
+  "include": ["testnet-action-encoding.ts", "testnet-order-workflow.ts"]
 }
