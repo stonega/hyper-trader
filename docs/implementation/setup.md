@@ -64,6 +64,10 @@ The script runs Biome checks, all workspace type checks, and Bun tests.
 
 ## Security-sensitive development setup
 
+Physical-device performance evidence follows
+[`warm-resume-benchmark.md`](warm-resume-benchmark.md). The contract defines
+release-build markers and reporting; it does not claim benchmark results.
+
 The security contracts are
 [`../design/api-wallet-custody.md`](../design/api-wallet-custody.md),
 [`../design/action-lifecycle.md`](../design/action-lifecycle.md), and
@@ -83,6 +87,17 @@ Offline codec, repository, and UI work may proceed without real credentials.
 - Memory only: private-key reads, signing sessions, canonical action bytes,
   signatures, complete `/exchange` envelopes, account-link proof signatures, and
   decrypted push tokens/keys.
+
+### Mobile data lifecycle dependencies
+
+- `expo-network` supplies the initial native connection state and change
+  listener that drive TanStack Query and the foreground stream runtime.
+- `@react-native-async-storage/async-storage` stores only the explicitly
+  allowlisted public query cache.
+- `@tanstack/react-query-persist-client` and
+  `@tanstack/query-async-storage-persister` provide the restore-before-refetch
+  gate and lifecycle-scoped persistence subscription. Hyper Trader sanitizes on
+  both write and restore, persists no mutations, and removes corrupt records.
 
 Never put secrets in `.env`, Expo `extra`, EAS plain-text variables, fixtures,
 logs, screenshots, or support bundles. Development uses synthetic keys committed
