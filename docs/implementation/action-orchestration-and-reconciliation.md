@@ -2,9 +2,9 @@
 
 ## Runtime status
 
-U7 provides one deterministic action pipeline for Trade and Portfolio. It
+The action orchestration layer provides one deterministic pipeline for Trade and Portfolio. It
 supports reviewed testnet market and limit orders, cancellation, full
-reduce-only close, and leverage changes through the U6 nonce journal and signer
+reduce-only close, and leverage changes through the nonce journal and signer
 session boundaries.
 
 The root `ActionRuntimeProvider` is intentionally created without a production
@@ -12,6 +12,8 @@ orchestrator while `security-review.md` remains conditional. The fixed-origin
 exchange client and complete injected pipeline are tested offline, but the app
 does not instantiate live `/exchange` transport or real signer access. Enabling
 that wiring requires unconditional evidence for the same security revision.
+The progressive Trade drafting and review handoff is documented in
+[`trade-screen.md`](trade-screen.md).
 
 ## Confirmation sequence
 
@@ -25,7 +27,7 @@ starts this sequence:
 4. Revalidate decimals, discriminators, precision, notional, leverage, margin,
    reduce-only, time-in-force, trigger, slippage, tradability, market metadata,
    account version, and current context.
-5. Atomically reserve the U6 nonce and secret-free journal record.
+5. Atomically reserve the nonce and secret-free journal record.
 6. Build the codec-owned action and sign exact typed data in memory.
 7. Persist `submission_started` and obtain the one-shot permit.
 8. POST once to the compiled testnet `/exchange` origin with redirects rejected
@@ -49,7 +51,7 @@ reservation, codec input, or signature. Any market, metadata fingerprint,
 account version, network, account, target, epoch, or normalized-intent change
 stops before reservation and requires fresh review.
 
-Trigger input is validated but fails closed because U7 does not own a trigger
+Trigger input is validated but fails closed because the reviewed action codec does not own a trigger
 codec. Bulk cancel remains outside the public reviewed action surface. Outcome
 markets remain browse-only. Missing constraints are never guessed.
 
@@ -78,7 +80,7 @@ TalkBack release-build evidence.
 
 ## Action-specific reconciliation
 
-Reconciliation claims the existing 30-second U6 lease, loads authoritative
+Reconciliation claims the existing 30-second lease, loads authoritative
 evidence, renews before commit, and persists bounded backoff while unresolved.
 A lost lease cannot update the record. The worker has no signer, signed body, or
 transport permit.
