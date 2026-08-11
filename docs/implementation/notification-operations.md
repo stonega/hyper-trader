@@ -6,6 +6,118 @@ This is an operations contract: production adapters may change process layout,
 but may not weaken the database fences, fixed origins, budgets, or retention
 rules described here.
 
+## `0004_workers` concurrent-index upgrade
+
+Stop worker activation and leave API mutation admission closed before starting
+the upgrade. The migration runner takes the notification advisory lock, closes
+all database gates, applies the columns and receipt backfill transactionally,
+and records version 4 as `applying`. It then builds the six indexes in separate
+non-transactional `CREATE INDEX CONCURRENTLY` commands. It changes history to
+`applied` only after catalog verification succeeds. Do not manually change the
+history state or flip a gate.
+
+After the runner returns successfully, this query must return one `workers` row
+with `state = 'applied'` and both checksum checks true:
+
+```sql
+SELECT version, name, state,
+       up_checksum ~ '^[0-9a-f]{64}$' AS up_checksum_valid,
+       down_checksum ~ '^[0-9a-f]{64}$' AS down_checksum_valid
+FROM notification_migration_history
+WHERE version = 4;
+```
+
+This query must return exactly six rows. Every row must have the expected table,
+`present = true`, `ready = true`, and `valid = true`; retain
+`index_definition` with the release evidence:
+
+```sql
+WITH expected(index_name, table_name, ordinal) AS (
+  VALUES
+    ('notification_push_tokens_active_delivery_idx',
+     'notification_push_tokens', 1),
+    ('notification_outbox_bounded_dispatch_idx',
+     'notification_outbox', 2),
+    ('notification_dispatch_submission_deadline_idx',
+     'notification_dispatch_permits', 3),
+    ('notification_dispatch_active_expiry_idx',
+     'notification_dispatch_permits', 4),
+    ('notification_outbox_leased_expiry_idx',
+     'notification_outbox', 5),
+    ('notification_provider_tickets_due_receipt_idx',
+     'notification_provider_tickets', 6)
+)
+SELECT expected.index_name,
+       expected.table_name AS expected_table,
+       table_class.relname AS actual_table,
+       index_class.oid IS NOT NULL AS present,
+       COALESCE(index_state.indisready, false) AS ready,
+       COALESCE(index_state.indisvalid, false) AS valid,
+       pg_get_indexdef(index_class.oid) AS index_definition
+FROM expected
+LEFT JOIN pg_namespace AS index_namespace
+  ON index_namespace.nspname = current_schema()
+LEFT JOIN pg_class AS index_class
+  ON index_class.relnamespace = index_namespace.oid
+ AND index_class.relname = expected.index_name
+LEFT JOIN pg_index AS index_state
+  ON index_state.indexrelid = index_class.oid
+LEFT JOIN pg_class AS table_class
+  ON table_class.oid = index_state.indrelid
+ORDER BY expected.ordinal;
+```
+
+The gates must remain closed after the schema upgrade. This query must return
+`blocked, false, false, false`; restore replay and the normal activation audit
+are still required before traffic resumes:
+
+```sql
+SELECT restore_state, mutations_enabled, monitors_enabled, delivery_enabled
+FROM notification_service_state
+WHERE singleton;
+```
+
+If migration fails, keep every process disabled and inspect both phase state and
+same-name catalog objects:
+
+```sql
+SELECT version, name, state
+FROM notification_migration_history
+WHERE version = 4;
+
+SELECT namespace.nspname, relation.relname, relation.relkind,
+       index_state.indisready, index_state.indisvalid,
+       pg_get_indexdef(index_state.indexrelid) AS index_definition
+FROM pg_class AS relation
+JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+LEFT JOIN pg_index AS index_state ON index_state.indexrelid = relation.oid
+WHERE namespace.nspname = current_schema()
+  AND relation.relname IN (
+    'notification_push_tokens_active_delivery_idx',
+    'notification_outbox_bounded_dispatch_idx',
+    'notification_dispatch_submission_deadline_idx',
+    'notification_dispatch_active_expiry_idx',
+    'notification_outbox_leased_expiry_idx',
+    'notification_provider_tickets_due_receipt_idx'
+  )
+ORDER BY relation.relname;
+```
+
+An `applying` row is an incomplete migration, not an applied version. Resolve a
+same-name non-index conflict only after confirming its ownership, then rerun the
+same forward migration. The runner reuses valid expected indexes and safely
+drops/rebuilds an invalid expected concurrent index. It refuses status, restore,
+activation, and rollback while version 4 is `applying`; do not delete the row or
+run the down file by hand.
+
+Rollback is deliberately not an online inverse. First complete any `applying`
+phase, keep all gates closed, stop API and worker processes, and then use the
+migration runner to target version 3. The checked down migration drops indexes
+inside its schema transaction and can wait for PostgreSQL locks; schedule a
+maintenance window and inspect blockers before proceeding. A failed rollback
+must be investigated and retried through the runner—never bypass the down-source
+checksum or edit migration history.
+
 ## Activation gate
 
 `NOTIFICATION_ENABLE_PROVIDER_WORKERS=true` is only a request to start workers.

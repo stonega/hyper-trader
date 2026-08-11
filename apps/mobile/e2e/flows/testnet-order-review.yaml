@@ -1,0 +1,17 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - trade
+---
+# acceptance: AE14
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: testnet-order-review
+- assertVisible: "Testnet"
+- assertVisible: "Review buy order"
+- tapOn: "Review buy order"
+- assertVisible: "Review action"
+- assertVisible: "Account"
+- assertVisible: "Network"
+- assertVisible: "Estimated fee"

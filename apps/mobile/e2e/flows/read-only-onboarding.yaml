@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - onboarding
+---
+# acceptance: AE4
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: read-only-onboarding
+- assertVisible: "Hyper Trader"
+- assertVisible: "Set up trading"
+- tapOn: "Explore read-only"
+- assertVisible: "Trade"
+- assertVisible: "Read-only"

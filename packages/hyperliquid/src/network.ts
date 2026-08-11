@@ -6,17 +6,15 @@ export interface HyperliquidNetworkOrigins {
   readonly websocket: string;
 }
 
-export const HYPERLIQUID_NETWORK_ORIGINS: Readonly<
-  Record<HyperliquidNetwork, HyperliquidNetworkOrigins>
-> = {
-  mainnet: {
+export const HYPERLIQUID_NETWORK_ORIGINS = Object.freeze({
+  mainnet: Object.freeze({
     http: "https://api.hyperliquid.xyz/info",
     exchange: "https://api.hyperliquid.xyz/exchange",
     websocket: "wss://api.hyperliquid.xyz/ws",
-  },
-  testnet: {
+  }),
+  testnet: Object.freeze({
     http: "https://api.hyperliquid-testnet.xyz/info",
     exchange: "https://api.hyperliquid-testnet.xyz/exchange",
     websocket: "wss://api.hyperliquid-testnet.xyz/ws",
-  },
-};
+  }),
+}) satisfies Readonly<Record<HyperliquidNetwork, HyperliquidNetworkOrigins>>;

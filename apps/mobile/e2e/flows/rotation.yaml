@@ -1,0 +1,14 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - security
+---
+# acceptance: AE11
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: rotation
+- tapOn: "Settings"
+- assertVisible: "Rotation pending reconciliation"
+- assertVisible: "The prior agent remains unable to sign."
+- assertVisible: "Read-only"

@@ -16,6 +16,9 @@ import {
   type RevokeInstallationRequest,
 } from "@hyper-trader/notifications/mobile";
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_REQUEST_TIMEOUT_MS = 60_000;
+
 export type NotificationServiceErrorCode =
   | "unauthorized"
   | "forbidden"
@@ -85,8 +88,10 @@ export interface NotificationServiceClient {
 export function createNotificationServiceClient(options: {
   readonly origin: string;
   readonly fetch: (request: Request) => Promise<Response>;
+  readonly timeoutMs?: number;
 }): NotificationServiceClient {
   const origin = exactHttpsOrigin(options.origin);
+  const timeoutMs = exactTimeoutMilliseconds(options.timeoutMs);
 
   async function call(
     path: string,
@@ -97,33 +102,35 @@ export function createNotificationServiceClient(options: {
     if (credential !== null && !/^[0-9a-f]{64}$/.test(credential)) {
       throw new NotificationServiceError("unauthorized");
     }
-    const request = new Request(`${origin}${path}`, {
-      ...init,
-      headers: {
-        accept: "application/json",
-        ...(credential === null
-          ? {}
-          : { authorization: `Bearer ${credential}` }),
-        ...(init.body === undefined
-          ? {}
-          : { "content-type": "application/json" }),
-      },
-      redirect: "error",
-      signal,
-    });
-    let response: Response;
     try {
-      response = await options.fetch(request);
-    } catch {
+      return await withRequestDeadline(signal, timeoutMs, async (deadline) => {
+        const request = new Request(`${origin}${path}`, {
+          ...init,
+          headers: {
+            accept: "application/json",
+            ...(credential === null
+              ? {}
+              : { authorization: `Bearer ${credential}` }),
+            ...(init.body === undefined
+              ? {}
+              : { "content-type": "application/json" }),
+          },
+          redirect: "error",
+          signal: deadline,
+        });
+        const response = await options.fetch(request);
+        if (!response.ok) {
+          throw new NotificationServiceError(
+            responseCode(response.status),
+            retryAfterMilliseconds(response),
+          );
+        }
+        return readBoundedJson(response);
+      });
+    } catch (error) {
+      if (error instanceof NotificationServiceError) throw error;
       throw new NotificationServiceError("network");
     }
-    if (!response.ok) {
-      throw new NotificationServiceError(
-        responseCode(response.status),
-        retryAfterMilliseconds(response),
-      );
-    }
-    return readBoundedJson(response);
   }
 
   return {
@@ -215,6 +222,52 @@ export function createNotificationServiceClient(options: {
       );
     },
   };
+}
+
+function withRequestDeadline<T>(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => {
+      if (timeout !== undefined) clearTimeout(timeout);
+      callerSignal?.removeEventListener("abort", abort);
+    };
+    const settle = (complete: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      complete();
+    };
+    const abort = () => {
+      controller.abort();
+      settle(() => reject(new NotificationServiceError("network")));
+    };
+
+    if (callerSignal?.aborted) {
+      abort();
+      return;
+    }
+    callerSignal?.addEventListener("abort", abort, { once: true });
+    timeout = setTimeout(abort, timeoutMs);
+
+    let pending: Promise<T>;
+    try {
+      pending = request(controller.signal);
+    } catch (error) {
+      settle(() => reject(error));
+      return;
+    }
+    pending.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    );
+  });
 }
 
 async function readBoundedJson(response: Response): Promise<unknown> {
@@ -355,6 +408,20 @@ function exactHttpsOrigin(value: string): string {
     );
   }
   return value;
+}
+
+function exactTimeoutMilliseconds(value: number | undefined): number {
+  const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > MAX_REQUEST_TIMEOUT_MS
+  ) {
+    throw new Error(
+      `notification service timeout must be whole milliseconds between 1 and ${MAX_REQUEST_TIMEOUT_MS}`,
+    );
+  }
+  return timeoutMs;
 }
 
 function exactId(value: string): void {

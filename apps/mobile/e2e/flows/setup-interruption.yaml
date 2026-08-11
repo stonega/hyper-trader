@@ -1,0 +1,14 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - setup
+---
+# acceptance: AE10
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: setup-interruption
+- assertVisible: "Dedicated trading access"
+- assertVisible: "Setup is safely paused"
+- tapOn: "Continue read-only"
+- assertVisible: "Resume testnet setup"

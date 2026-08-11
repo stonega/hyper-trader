@@ -1,6 +1,7 @@
 import { getAddress } from "viem";
 
 import { HyperliquidValidationError } from "../errors";
+import type { HyperliquidNetwork } from "../network";
 import type {
   Eip712Signature,
   InjectedBytesSigner,
@@ -10,6 +11,22 @@ import type {
 } from "./types";
 
 const SIGNATURE_COMPONENT = /^0x[0-9a-fA-F]{64}$/;
+
+export interface ActionCapability {
+  readonly signerAccess: boolean;
+  readonly exchangeTransport: boolean;
+}
+
+export const ACTION_CAPABILITIES = Object.freeze({
+  mainnet: Object.freeze({
+    signerAccess: false,
+    exchangeTransport: false,
+  }),
+  testnet: Object.freeze({
+    signerAccess: true,
+    exchangeTransport: true,
+  }),
+}) satisfies Readonly<Record<HyperliquidNetwork, Readonly<ActionCapability>>>;
 
 export function normalizeSignerBinding(binding: SignerBinding): SignerBinding {
   if (!Number.isSafeInteger(binding.generation) || binding.generation < 1) {
@@ -54,7 +71,11 @@ export function assertSignerBinding(
 }
 
 export function assertTestnetSigningCapability(network: string): void {
-  if (network !== "testnet") {
+  const capability =
+    network === "testnet"
+      ? ACTION_CAPABILITIES.testnet
+      : ACTION_CAPABILITIES.mainnet;
+  if (!capability.signerAccess || !capability.exchangeTransport) {
     throw new HyperliquidValidationError(
       "network",
       "mainnet signing is disabled by the local capability policy",

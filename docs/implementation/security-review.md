@@ -21,6 +21,12 @@ conditional for live integration: every applicable unchecked runtime or drill
 row below still means stop, and later evidence must update all four decisions to
 unconditional approval for the same revision before live U5-U7 paths activate.
 
+U13 automated, device, external-system, and reviewer receipts are recorded in
+[`release-evidence.md`](release-evidence.md). That record deliberately leaves
+physical-device, Reown, push-provider, database-restore, credential-rotation,
+and live-testnet rows pending; this document's conditional gate therefore
+remains closed.
+
 ## Required checklist
 
 ### Protocol and action integrity

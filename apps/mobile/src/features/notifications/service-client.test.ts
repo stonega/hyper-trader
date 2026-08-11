@@ -8,6 +8,19 @@ import {
 const installationId = "11".repeat(16);
 const credential = "22".repeat(32);
 
+function snapshotResponse(): Response {
+  return Response.json({
+    installationId,
+    state: "active",
+    tokenState: "active",
+    deliveryHealth: "healthy",
+    pendingDeliveryCount: 0,
+    unknownDeliveryCount: 0,
+    accountLinks: [],
+    rules: [],
+  });
+}
+
 describe("mobile notification service client", () => {
   test("uses one fixed origin, bearer authority, no redirects, and strict responses", async () => {
     const seen: Request[] = [];
@@ -15,16 +28,7 @@ describe("mobile notification service client", () => {
       origin: "https://notify.example.com",
       fetch: async (request) => {
         seen.push(request);
-        return Response.json({
-          installationId,
-          state: "active",
-          tokenState: "active",
-          deliveryHealth: "healthy",
-          pendingDeliveryCount: 0,
-          unknownDeliveryCount: 0,
-          accountLinks: [],
-          rules: [],
-        });
+        return snapshotResponse();
       },
     });
     await expect(
@@ -47,6 +51,13 @@ describe("mobile notification service client", () => {
         fetch: globalThis.fetch,
       }),
     ).toThrow("exact HTTPS origin");
+    expect(() =>
+      createNotificationServiceClient({
+        origin: "https://notify.example.com",
+        fetch: globalThis.fetch,
+        timeoutMs: 0,
+      }),
+    ).toThrow("timeout must be whole milliseconds");
     const extra = createNotificationServiceClient({
       origin: "https://notify.example.com",
       fetch: async () =>
@@ -108,4 +119,73 @@ describe("mobile notification service client", () => {
     ).rejects.toMatchObject({ code: "rate_limited", retryAfterMs: 3_000 });
     expect(calls).toBe(1);
   });
+
+  test("times out a stalled mutation and releases a serialized retry", async () => {
+    let calls = 0;
+    const client = createNotificationServiceClient({
+      origin: "https://notify.example.com",
+      timeoutMs: 5,
+      fetch: async () => {
+        calls += 1;
+        if (calls === 1) return new Promise<Response>(() => undefined);
+        return snapshotResponse();
+      },
+    });
+    let mutation = Promise.resolve();
+    const serialize = <T>(work: () => Promise<T>): Promise<T> => {
+      const next = mutation.then(work, work);
+      mutation = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
+    };
+
+    const stalled = serialize(() =>
+      client.readSnapshot(installationId, credential),
+    );
+    const retry = serialize(() =>
+      client.readSnapshot(installationId, credential),
+    );
+
+    await expect(stalled).rejects.toMatchObject({ code: "network" });
+    await expect(retry).resolves.toMatchObject({ installationId });
+    expect(calls).toBe(2);
+  }, 250);
+
+  test("composes caller cancellation and clears request resources after completion", async () => {
+    const caller = new AbortController();
+    const stalledSignals: AbortSignal[] = [];
+    const stalled = createNotificationServiceClient({
+      origin: "https://notify.example.com",
+      timeoutMs: 100,
+      fetch: async (request) => {
+        stalledSignals.push(request.signal);
+        return new Promise<Response>(() => undefined);
+      },
+    }).readSnapshot(installationId, credential, caller.signal);
+
+    caller.abort();
+    await expect(stalled).rejects.toMatchObject({ code: "network" });
+    expect(stalledSignals[0]?.aborted).toBe(true);
+
+    const completedCaller = new AbortController();
+    const completedSignals: AbortSignal[] = [];
+    const completed = createNotificationServiceClient({
+      origin: "https://notify.example.com",
+      timeoutMs: 20,
+      fetch: async (request) => {
+        completedSignals.push(request.signal);
+        return snapshotResponse();
+      },
+    });
+    await completed.readSnapshot(
+      installationId,
+      credential,
+      completedCaller.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    completedCaller.abort();
+    expect(completedSignals[0]?.aborted).toBe(false);
+  }, 250);
 });

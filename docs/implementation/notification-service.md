@@ -140,11 +140,25 @@ Migrations use the following expand–migrate–contract sequence:
    generation-fenced monitor leases, and receipt scheduling/lease state without
    storing provider payloads.
 
+The `0004_workers` runner keeps its column changes and receipt backfill in one
+transaction, then records the history row as `applying` and builds its six
+ordinary-index declarations one at a time with `CREATE INDEX CONCURRENTLY` on a
+reserved connection. Before the schema transaction starts it durably sets
+restore to `blocked` and closes mutation, monitor, and delivery gates. The row
+becomes `applied` only after PostgreSQL reports every expected index present,
+`indisready`, `indisvalid`, and structurally matched to its table, key columns,
+and predicate. A retry reuses valid indexes and removes only an invalid index
+whose catalog definition matches the expected migration definition before
+rebuilding it concurrently.
+
 Migration history stores each exact version and name plus SHA-256 checksums for
 both up and down sources. Status, migration, rollback, restore preparation, and
 activation require a contiguous known history matching current sources. Gaps,
 unknown rows, edited names, checksum drift, or a changed rollback source stop
-before schema work or readiness can proceed.
+before schema work or readiness can proceed. The original `0004_workers.up.sql`
+source remains the checksum authority: runner metadata identifies its index
+suffix and changes only the execution mode, so an already applied version 4
+retains the same checksum while any source edit still hard-stops integrity.
 
 No mutation starts until the schema is contracted and tombstone restore reaches
 `ready`. Rolling back from contract to migrate first disables mutations,

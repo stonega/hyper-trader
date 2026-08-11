@@ -23,6 +23,7 @@ export interface NotificationRuleWorkerStore {
   ): Promise<readonly ActiveNotificationRule[]>;
   createAlertForRuleMatch(input: {
     readonly ruleId: string;
+    readonly identityDigest: string;
     readonly eventKey: string;
     readonly category: "execution" | "risk" | "price" | "funding";
     readonly routeHint: "trade" | "portfolio";
@@ -220,6 +221,7 @@ export class NotificationRuleWorker {
       try {
         await this.#store.createAlertForRuleMatch({
           ruleId: state.rule.ruleId,
+          identityDigest: state.rule.identityDigest,
           ...match,
         });
       } catch {

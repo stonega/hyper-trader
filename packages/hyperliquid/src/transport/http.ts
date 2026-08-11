@@ -1,5 +1,6 @@
 import {
   HyperliquidApiError,
+  HyperliquidValidationError,
   type RateLimitMetadata,
   UnknownInfoRequestWeightError,
 } from "../errors";
@@ -7,6 +8,9 @@ import {
   HYPERLIQUID_NETWORK_ORIGINS,
   type HyperliquidNetwork,
 } from "../network";
+
+const DEFAULT_INFO_REQUEST_TIMEOUT_MS = 10_000;
+const MAX_INFO_REQUEST_TIMEOUT_MS = 60_000;
 
 export interface InfoRequestBudget {
   readonly requestType: string;
@@ -123,6 +127,74 @@ export interface InfoHttpTransport {
 export interface InfoHttpTransportOptions {
   readonly network?: HyperliquidNetwork;
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * Whole-millisecond deadline for each request. Defaults to 10 seconds and
+   * cannot exceed 60 seconds.
+   */
+  readonly timeoutMs?: number;
+}
+
+interface InfoRequestDeadline {
+  readonly signal: AbortSignal;
+  readonly cancellation: Promise<never>;
+  cleanup(): void;
+}
+
+function createInfoRequestDeadline(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number,
+): InfoRequestDeadline {
+  const controller = new AbortController();
+  let rejectCancellation: (reason: unknown) => void = () => {};
+  const cancellation = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject;
+  });
+  const abort = (reason: unknown) => {
+    if (controller.signal.aborted) {
+      return;
+    }
+    controller.abort(reason);
+    rejectCancellation(reason);
+  };
+  const abortFromCaller = () =>
+    abort(
+      callerSignal?.reason ??
+        new DOMException("Info request was aborted.", "AbortError"),
+    );
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let hasCallerListener = false;
+  if (callerSignal?.aborted) {
+    abortFromCaller();
+  } else {
+    if (callerSignal !== undefined) {
+      callerSignal.addEventListener("abort", abortFromCaller, { once: true });
+      hasCallerListener = true;
+    }
+    timeout = setTimeout(
+      () =>
+        abort(
+          new DOMException(
+            `Info request timed out after ${timeoutMs} milliseconds.`,
+            "TimeoutError",
+          ),
+        ),
+      timeoutMs,
+    );
+  }
+
+  return {
+    signal: controller.signal,
+    cancellation,
+    cleanup() {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      if (hasCallerListener) {
+        callerSignal?.removeEventListener("abort", abortFromCaller);
+      }
+    },
+  };
 }
 
 function parseHeaderNumber(value: string | null): number | undefined {
@@ -164,6 +236,17 @@ export function createInfoHttpTransport(
   const network = options.network ?? "mainnet";
   const endpoint = HYPERLIQUID_NETWORK_ORIGINS[network].http;
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_INFO_REQUEST_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > MAX_INFO_REQUEST_TIMEOUT_MS
+  ) {
+    throw new HyperliquidValidationError(
+      "info.timeoutMs",
+      `expected whole milliseconds between 1 and ${MAX_INFO_REQUEST_TIMEOUT_MS}`,
+    );
+  }
 
   return {
     network,
@@ -172,24 +255,36 @@ export function createInfoHttpTransport(
     async request(body, requestOptions = {}) {
       const requestBudget = getInfoRequestBudget(body.type);
       requestOptions.onRequestBudget?.(requestBudget);
-      const response = await fetchRequest(endpoint, {
-        method: "POST",
-        redirect: "error",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: requestOptions.signal,
-      });
-
-      if (!response.ok) {
-        throw new HyperliquidApiError({
-          status: response.status,
-          endpoint,
-          requestBudget,
-          rateLimit: parseRateLimitMetadata(response.headers),
+      const deadline = createInfoRequestDeadline(
+        requestOptions.signal,
+        timeoutMs,
+      );
+      const operation = (async () => {
+        const response = await fetchRequest(endpoint, {
+          method: "POST",
+          redirect: "error",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: deadline.signal,
         });
-      }
 
-      return response.json();
+        if (!response.ok) {
+          throw new HyperliquidApiError({
+            status: response.status,
+            endpoint,
+            requestBudget,
+            rateLimit: parseRateLimitMetadata(response.headers),
+          });
+        }
+
+        return response.json();
+      })();
+
+      try {
+        return await Promise.race([operation, deadline.cancellation]);
+      } finally {
+        deadline.cleanup();
+      }
     },
   };
 }

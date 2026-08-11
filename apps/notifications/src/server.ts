@@ -47,6 +47,15 @@ export interface NotificationServerOptions {
   readonly serviceOrigin: string;
 }
 
+export interface NotificationDirectTlsServerBoundary {
+  readonly transport: "direct-tls";
+  readonly tls: Readonly<{
+    readonly cert: NonNullable<Bun.TLSOptions["cert"]>;
+    readonly key: NonNullable<Bun.TLSOptions["key"]>;
+    readonly passphrase?: Bun.TLSOptions["passphrase"];
+  }>;
+}
+
 export type NotificationRequestHandler = (
   request: Request,
   context: NotificationApplicationContext,
@@ -280,18 +289,38 @@ export function createNotificationRequestHandler(
 }
 
 export function startNotificationServer(
-  options: NotificationServerOptions & { readonly port: number },
+  options: NotificationServerOptions & {
+    readonly port: number;
+    readonly serverBoundary: NotificationDirectTlsServerBoundary;
+  },
 ): Bun.Server<undefined> {
   const handler = createNotificationRequestHandler(options);
+  const tls = directTlsOptions(options.serverBoundary);
   return Bun.serve({
     port: options.port,
     maxRequestBodySize: CONTRACT_LIMITS.maxBodyBytes,
+    tls,
     fetch(request, server) {
       return handler(request, {
         ip: server.requestIP(request)?.address ?? "0.0.0.0",
       });
     },
   });
+}
+
+function directTlsOptions(
+  boundary: NotificationDirectTlsServerBoundary | undefined,
+): NotificationDirectTlsServerBoundary["tls"] {
+  if (
+    boundary?.transport !== "direct-tls" ||
+    boundary.tls?.cert === undefined ||
+    boundary.tls.key === undefined
+  ) {
+    throw new Error(
+      "HTTPS notification server requires a direct TLS server boundary with certificate and key material",
+    );
+  }
+  return boundary.tls;
 }
 
 async function readBoundedJson(request: Request): Promise<unknown> {

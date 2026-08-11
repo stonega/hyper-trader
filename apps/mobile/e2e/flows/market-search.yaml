@@ -1,0 +1,16 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - markets
+---
+# acceptance: AE2
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: market-search
+- tapOn: "Markets"
+- assertVisible: "Search every market"
+- tapOn: "Search every market"
+- inputText: "omega DUP"
+- assertVisible: "Omega Markets"
+- assertVisible: "HIP-3 perpetual market"

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { signTestnetTypedData } from "./boundary";
+import {
+  ACTION_CAPABILITIES,
+  assertTestnetSigningCapability,
+  signTestnetTypedData,
+} from "./boundary";
 import type {
   Eip712Payload,
   InjectedTypedDataSigner,
@@ -51,6 +55,19 @@ function signer(
 }
 
 describe("injected signer boundary", () => {
+  test("exposes an immutable compile-owned action capability matrix", () => {
+    expect(ACTION_CAPABILITIES).toEqual({
+      mainnet: { signerAccess: false, exchangeTransport: false },
+      testnet: { signerAccess: true, exchangeTransport: true },
+    });
+    expect(Object.isFrozen(ACTION_CAPABILITIES)).toBe(true);
+    expect(Object.isFrozen(ACTION_CAPABILITIES.mainnet)).toBe(true);
+    expect(Object.isFrozen(ACTION_CAPABILITIES.testnet)).toBe(true);
+    expect(() => assertTestnetSigningCapability("unexpected-network")).toThrow(
+      "mainnet signing is disabled",
+    );
+  });
+
   test("returns only signature components for an exact testnet binding", async () => {
     const calls = { value: 0 };
     await expect(

@@ -53,6 +53,7 @@ integration("PostgreSQL notification workers", () => {
   let second: SQL;
   let store: PostgresNotificationStore;
   let peer: PostgresNotificationStore;
+  let identityDigest: string;
   let claim: NonNullable<
     Awaited<ReturnType<PostgresNotificationStore["claimNextDispatch"]>>
   >;
@@ -93,6 +94,15 @@ integration("PostgreSQL notification workers", () => {
       },
       { installationId, credential },
     );
+    const rules = await first.unsafe<{ identity_digest: string }[]>(
+      `SELECT encode(identity_digest, 'hex') AS identity_digest
+       FROM notification_rules WHERE rule_id = $1`,
+      [ruleId],
+    );
+    const activeIdentityDigest = rules[0]?.identity_digest;
+    if (!activeIdentityDigest)
+      throw new Error("rule digest fixture is missing");
+    identityDigest = activeIdentityDigest;
   });
 
   afterAll(async () => {
@@ -173,12 +183,14 @@ integration("PostgreSQL notification workers", () => {
     const results = await Promise.all([
       store.createAlertForRuleMatch({
         ruleId,
+        identityDigest,
         eventKey: "e1".repeat(32),
         category: "price",
         routeHint: "trade",
       }),
       peer.createAlertForRuleMatch({
         ruleId,
+        identityDigest,
         eventKey: "e1".repeat(32),
         category: "price",
         routeHint: "trade",
@@ -195,6 +207,76 @@ integration("PostgreSQL notification workers", () => {
         (SELECT count(*)::int FROM notification_event_dedupe_keys) AS dedupe
     `);
     expect(counts[0]).toEqual({ alerts: 1, outbox: 1, dedupe: 1 });
+  });
+
+  test("rejects a queued evaluation after the rule identity is replaced", async () => {
+    const staleIdentityDigest = identityDigest;
+    const countsBefore = await first.unsafe<
+      { alerts: number; outbox: number; dedupe: number }[]
+    >(`
+      SELECT
+        (SELECT count(*)::int FROM notification_alerts) AS alerts,
+        (SELECT count(*)::int FROM notification_outbox) AS outbox,
+        (SELECT count(*)::int FROM notification_event_dedupe_keys) AS dedupe
+    `);
+    await store.putPriceRule(
+      {
+        ruleId,
+        scope: "price",
+        network: "testnet",
+        marketId: "perp:0:0",
+        eventType: "price_above",
+        threshold: "100001",
+      },
+      { installationId, credential },
+    );
+    const replacement = (await store.listActiveRules()).find(
+      (rule) => rule.ruleId === ruleId,
+    );
+    if (!replacement) throw new Error("replacement rule fixture is missing");
+    identityDigest = replacement.identityDigest;
+    expect(identityDigest).not.toBe(staleIdentityDigest);
+
+    let staleEvaluationError: unknown;
+    try {
+      await expect(
+        store.createAlertForRuleMatch({
+          ruleId,
+          identityDigest: staleIdentityDigest,
+          eventKey: "e4".repeat(32),
+          category: "price",
+          routeHint: "trade",
+        }),
+      ).rejects.toThrow(StoreUnauthorizedError);
+      const countsAfter = await first.unsafe<
+        { alerts: number; outbox: number; dedupe: number }[]
+      >(`
+        SELECT
+          (SELECT count(*)::int FROM notification_alerts) AS alerts,
+          (SELECT count(*)::int FROM notification_outbox) AS outbox,
+          (SELECT count(*)::int FROM notification_event_dedupe_keys) AS dedupe
+      `);
+      expect(countsAfter[0]).toEqual(countsBefore[0]);
+    } catch (error) {
+      staleEvaluationError = error;
+    }
+    await store.putPriceRule(
+      {
+        ruleId,
+        scope: "price",
+        network: "testnet",
+        marketId: "perp:0:0",
+        eventType: "price_above",
+        threshold: "100000",
+      },
+      { installationId, credential },
+    );
+    const restored = (await store.listActiveRules()).find(
+      (rule) => rule.ruleId === ruleId,
+    );
+    if (!restored) throw new Error("restored rule fixture is missing");
+    identityDigest = restored.identityDigest;
+    if (staleEvaluationError) throw staleEvaluationError;
   });
 
   test("lets exactly one database worker lease a pending dispatch", async () => {
@@ -271,6 +353,7 @@ integration("PostgreSQL notification workers", () => {
     );
     await store.createAlertForRuleMatch({
       ruleId,
+      identityDigest,
       eventKey: "e3".repeat(32),
       category: "price",
       routeHint: "trade",
@@ -310,6 +393,7 @@ integration("PostgreSQL notification workers", () => {
     );
     await store.createAlertForRuleMatch({
       ruleId,
+      identityDigest,
       eventKey: "e2".repeat(32),
       category: "price",
       routeHint: "trade",

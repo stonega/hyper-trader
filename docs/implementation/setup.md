@@ -57,10 +57,24 @@ binary floating point.
 ## Verification
 
 ```sh
+bun install --frozen-lockfile
+bun run check
+bun run typecheck
+bun test
+bun run test:mobile
+(cd apps/mobile && bunx expo install --check)
+(cd apps/mobile && bunx expo-doctor)
+bun run test:notifications
+bun run test:e2e:mobile
+bun run check:secrets
 ./scripts/check.sh
 ```
 
-The script runs Biome checks, all workspace type checks, and Bun tests.
+Native Jest files use `*.rn.tsx` under `apps/mobile/src/__native_tests__/`, a
+convention Bun does not discover. `test:e2e:mobile` validates Maestro fixture
+contracts without claiming device execution. The separate acknowledged device
+command and all release evidence fields are documented in
+[`release-evidence.md`](release-evidence.md).
 
 ## Security-sensitive development setup
 
@@ -166,6 +180,12 @@ owner, and requires a signed staging update before promotion. Dependency,
 lockfile, config-plugin, Reown, and update changes receive provenance and
 generated-native-diff review.
 
+The current native configuration chooses option 2. `app.json` is native-only
+and contains exactly `updates: { enabled: false }`; it has no update URL.
+Repository tests verify that source contract. Generated `Expo.plist`, Android
+manifest metadata, `Updates.isEnabled`, and the failed remote-update probe still
+require the exact release build and remain pending in the release evidence.
+
 ### Notification service secrets and restore
 
 The service receives its database, TLS, push-provider, and key-provider authority
@@ -175,6 +195,17 @@ source, and ordinary environment variables. Deployment adapters implement the
 portable `PushTokenKeyProvider`, `TombstoneKeyProvider`, and
 `DeletionLedgerPort` contracts; PostgreSQL stores only wrapped DEKs, encrypted
 push tokens, and applied ledger receipts.
+
+The notification process terminates TLS directly. Its deployment adapter must
+load the certificate and private-key material from the reviewed secret mount or
+secret-manager integration and inject a `direct-tls` server boundary into
+`composeNotificationServiceRuntime`. The runtime passes that material to
+`Bun.serve({ tls: { cert, key } })`; it does not put TLS material in
+`NotificationServiceConfig`, source, an image, or ordinary environment
+variables. Startup fails before binding when the boundary, certificate, or key
+is missing or when a different listener topology is supplied. The request
+handler continues to compare the request URL with the configured exact HTTPS
+origin and does not derive that URL from `Forwarded` or `X-Forwarded-*` headers.
 
 Restore order is strict: provision every reviewed key authority, restore
 PostgreSQL, run forward migrations, retrieve the independently recovered ledger

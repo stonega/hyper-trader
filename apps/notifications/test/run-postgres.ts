@@ -2,6 +2,7 @@ import { SQL } from "bun";
 
 const repositoryRoot = new URL("../../../", import.meta.url).pathname;
 const integrationTests = [
+  "apps/notifications/src/db/migrations-postgres.integration.test.ts",
   "apps/notifications/src/db/postgres.integration.test.ts",
   "apps/notifications/src/db/worker-postgres.integration.test.ts",
 ] as const;

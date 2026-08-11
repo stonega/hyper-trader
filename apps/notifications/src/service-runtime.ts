@@ -23,7 +23,10 @@ import { NotificationDeliveryWorker } from "./outbox/delivery-worker";
 import { NotificationReceiptWorker } from "./outbox/receipt-worker";
 import type { ExpoPushClient } from "./push/expo-push-client";
 import { NotificationRuleWorker } from "./rules/rule-worker";
-import { startNotificationServer } from "./server";
+import {
+  type NotificationDirectTlsServerBoundary,
+  startNotificationServer,
+} from "./server";
 import { NotificationWorkerSupervisor } from "./worker-supervisor";
 
 export interface NotificationServerRuntimePort {
@@ -97,20 +100,30 @@ export class NotificationServiceRuntime {
   }
 }
 
-export function composeNotificationServiceRuntime(input: {
-  readonly config: NotificationServiceConfig;
-  readonly ownerId: string;
-  readonly store: PostgresNotificationStore;
-  readonly application: NotificationApplication;
-  readonly openWebSocket: OpenWebSocketConnection;
-  readonly expo: Pick<ExpoPushClient, "send" | "getReceipts">;
-  readonly dependenciesReady: () => Promise<boolean>;
-  readonly clients?: Readonly<
-    Record<NotificationNetwork, PublicHyperliquidClient>
-  >;
-  readonly server?: NotificationServerRuntimePort;
-  readonly metrics?: BoundedNotificationMetrics;
-}): {
+export function composeNotificationServiceRuntime(
+  input: {
+    readonly config: NotificationServiceConfig;
+    readonly ownerId: string;
+    readonly store: PostgresNotificationStore;
+    readonly application: NotificationApplication;
+    readonly openWebSocket: OpenWebSocketConnection;
+    readonly expo: Pick<ExpoPushClient, "send" | "getReceipts">;
+    readonly dependenciesReady: () => Promise<boolean>;
+    readonly clients?: Readonly<
+      Record<NotificationNetwork, PublicHyperliquidClient>
+    >;
+    readonly metrics?: BoundedNotificationMetrics;
+  } & (
+    | {
+        readonly server: NotificationServerRuntimePort;
+        readonly serverBoundary?: never;
+      }
+    | {
+        readonly server?: undefined;
+        readonly serverBoundary: NotificationDirectTlsServerBoundary;
+      }
+  ),
+): {
   readonly runtime: NotificationServiceRuntime;
   readonly metrics: BoundedNotificationMetrics;
 } {
@@ -196,16 +209,19 @@ export function composeNotificationServiceRuntime(input: {
       },
     }),
   });
-  return {
-    runtime: new NotificationServiceRuntime({
-      workers,
-      server:
-        input.server ??
-        notificationBunServerPort({
+  const server =
+    input.server !== undefined
+      ? input.server
+      : notificationBunServerPort({
           application: input.application,
           serviceOrigin: input.config.serviceOrigin,
           port: input.config.port,
-        }),
+          serverBoundary: input.serverBoundary,
+        });
+  return {
+    runtime: new NotificationServiceRuntime({
+      workers,
+      server,
     }),
     metrics,
   };
@@ -215,6 +231,7 @@ function notificationBunServerPort(input: {
   readonly application: NotificationApplication;
   readonly serviceOrigin: string;
   readonly port: number;
+  readonly serverBoundary: NotificationDirectTlsServerBoundary;
 }): NotificationServerRuntimePort {
   let server: Bun.Server<undefined> | undefined;
   return {

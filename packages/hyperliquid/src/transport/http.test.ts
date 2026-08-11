@@ -1,42 +1,138 @@
 import { describe, expect, test } from "bun:test";
 
-import { HyperliquidApiError, UnknownInfoRequestWeightError } from "../errors";
+import {
+  HyperliquidApiError,
+  HyperliquidValidationError,
+  UnknownInfoRequestWeightError,
+} from "../errors";
 import { HYPERLIQUID_NETWORK_ORIGINS } from "../network";
 import { createInfoHttpTransport, getInfoRequestBudget } from "./http";
 
+type PromiseOutcome<T> =
+  | { readonly status: "fulfilled"; readonly value: T }
+  | { readonly status: "rejected"; readonly reason: unknown }
+  | { readonly status: "pending" };
+
+function observeWithin<T>(
+  promise: Promise<T>,
+  milliseconds = 100,
+): Promise<PromiseOutcome<T>> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(
+      () => resolve({ status: "pending" }),
+      milliseconds,
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve({ status: "fulfilled", value });
+      },
+      (reason: unknown) => {
+        clearTimeout(timer);
+        resolve({ status: "rejected", reason });
+      },
+    );
+  });
+}
+
 describe("info HTTP transport", () => {
-  test("isolates fixed network endpoints and propagates abort signals", async () => {
+  test("keeps compile-owned origins immutable at runtime", () => {
+    expect(Object.isFrozen(HYPERLIQUID_NETWORK_ORIGINS)).toBe(true);
+    expect(Object.isFrozen(HYPERLIQUID_NETWORK_ORIGINS.mainnet)).toBe(true);
+    expect(Object.isFrozen(HYPERLIQUID_NETWORK_ORIGINS.testnet)).toBe(true);
+  });
+
+  test("isolates fixed endpoints and gives an already-aborted caller precedence", async () => {
     const requests: {
       url: string;
       redirect?: RequestRedirect;
       signal?: AbortSignal | null;
     }[] = [];
     const controller = new AbortController();
-    controller.abort();
+    const callerReason = new DOMException("Caller cancelled", "AbortError");
+    controller.abort(callerReason);
     const transport = createInfoHttpTransport({
       network: "testnet",
-      fetch: async (input, init) => {
+      fetch: (input, init) => {
         requests.push({
           url: String(input),
           redirect: init?.redirect,
           signal: init?.signal,
         });
-        throw new DOMException("Aborted", "AbortError");
+        return new Promise<Response>(() => {});
+      },
+    });
+
+    const outcome = await observeWithin(
+      transport.request({ type: "allMids" }, { signal: controller.signal }),
+    );
+
+    expect(outcome.status).toBe("rejected");
+    if (outcome.status === "rejected") {
+      expect(outcome.reason).toBe(callerReason);
+    }
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({
+      url: HYPERLIQUID_NETWORK_ORIGINS.testnet.http,
+      redirect: "error",
+    });
+    expect(requests[0]?.signal?.aborted).toBe(true);
+    expect(requests[0]?.signal?.reason).toBe(callerReason);
+    expect(transport.endpoint).not.toBe(
+      HYPERLIQUID_NETWORK_ORIGINS.mainnet.http,
+    );
+  });
+
+  test("bounds a fetch that never settles with an internal deadline", async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    const transport = createInfoHttpTransport({
+      timeoutMs: 5,
+      fetch: (_input, init) => {
+        requestSignal = init?.signal;
+        return new Promise<Response>(() => {});
+      },
+    });
+
+    const outcome = await observeWithin(transport.request({ type: "allMids" }));
+
+    expect(outcome.status).toBe("rejected");
+    if (outcome.status === "rejected") {
+      expect(outcome.reason).toMatchObject({ name: "TimeoutError" });
+      expect(requestSignal?.reason).toBe(outcome.reason);
+    }
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  test("clears the deadline and caller listener after a request settles", async () => {
+    let requestSignal: AbortSignal | null | undefined;
+    const controller = new AbortController();
+    const transport = createInfoHttpTransport({
+      timeoutMs: 5,
+      fetch: async (_input, init) => {
+        requestSignal = init?.signal;
+        return new Response("[]");
       },
     });
 
     await expect(
       transport.request({ type: "allMids" }, { signal: controller.signal }),
-    ).rejects.toMatchObject({ name: "AbortError" });
-    expect(requests).toEqual([
-      {
-        url: HYPERLIQUID_NETWORK_ORIGINS.testnet.http,
-        redirect: "error",
-        signal: controller.signal,
-      },
-    ]);
-    expect(transport.endpoint).not.toBe(
-      HYPERLIQUID_NETWORK_ORIGINS.mainnet.http,
+    ).resolves.toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect(requestSignal?.aborted).toBe(false);
+
+    controller.abort();
+    expect(requestSignal?.aborted).toBe(false);
+  });
+
+  test("validates the configured info request timeout", () => {
+    for (const timeoutMs of [0, 60_001, 1.5, Number.NaN]) {
+      expect(() => createInfoHttpTransport({ timeoutMs })).toThrow(
+        HyperliquidValidationError,
+      );
+    }
+
+    expect(createInfoHttpTransport({ timeoutMs: 60_000 }).network).toBe(
+      "mainnet",
     );
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type {
   AccountLinkResponse,
@@ -15,7 +15,10 @@ import type {
   PushTokenResponse,
   RuleResponse,
 } from "./application";
-import { createNotificationRequestHandler } from "./server";
+import {
+  createNotificationRequestHandler,
+  startNotificationServer,
+} from "./server";
 
 class FakeApplication implements NotificationApplication {
   calls: string[] = [];
@@ -457,5 +460,80 @@ describe("bounded public notification API", () => {
       ).status,
     ).toBe(400);
     expect(application.calls).toEqual([]);
+  });
+});
+
+describe("notification server listener boundary", () => {
+  test("passes externally supplied certificate and key material to Bun.serve", () => {
+    const tls = {
+      cert: "synthetic-certificate-material",
+      key: "synthetic-private-key-material",
+    };
+    const expectedServer = {} as Bun.Server<undefined>;
+    let received: Bun.Serve.Options<undefined> | undefined;
+    const serve = spyOn(Bun, "serve");
+    serve.mockImplementation(((options: Bun.Serve.Options<undefined>) => {
+      received = options;
+      return expectedServer;
+    }) as typeof Bun.serve);
+
+    let server: Bun.Server<undefined>;
+    try {
+      server = startNotificationServer({
+        application: new FakeApplication(),
+        serviceOrigin: "https://notify.example.com",
+        port: 8788,
+        serverBoundary: { transport: "direct-tls", tls },
+      });
+    } finally {
+      serve.mockRestore();
+    }
+
+    expect(server).toBe(expectedServer);
+    expect(received).toMatchObject({
+      port: 8788,
+      tls,
+    });
+  });
+
+  test("rejects missing or mismatched HTTPS listener topology before serving", () => {
+    const serve = spyOn(Bun, "serve");
+    const base = {
+      application: new FakeApplication(),
+      serviceOrigin: "https://notify.example.com",
+      port: 8788,
+    };
+
+    try {
+      expect(() =>
+        startNotificationServer(
+          base as Parameters<typeof startNotificationServer>[0],
+        ),
+      ).toThrow("requires a direct TLS server boundary");
+      expect(() =>
+        startNotificationServer({
+          ...base,
+          serverBoundary: {
+            transport: "trusted-forwarded-origin",
+            tls: {
+              cert: "synthetic-certificate-material",
+              key: "synthetic-private-key-material",
+            },
+          },
+        } as unknown as Parameters<typeof startNotificationServer>[0]),
+      ).toThrow("requires a direct TLS server boundary");
+      expect(() =>
+        startNotificationServer({
+          ...base,
+          serverBoundary: {
+            transport: "direct-tls",
+            tls: { cert: "synthetic-certificate-material" },
+          },
+        } as unknown as Parameters<typeof startNotificationServer>[0]),
+      ).toThrow("certificate and key material");
+      expect(serve).not.toHaveBeenCalled();
+    } finally {
+      serve.mockRestore();
+    }
   });
 });

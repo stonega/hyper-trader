@@ -2533,6 +2533,7 @@ export class PostgresNotificationStore {
 
   async createAlertForRuleMatch(input: {
     readonly ruleId: string;
+    readonly identityDigest: string;
     readonly eventKey: string;
     readonly category: "execution" | "risk" | "price" | "funding";
     readonly routeHint: "trade" | "portfolio";
@@ -2546,6 +2547,7 @@ export class PostgresNotificationStore {
   > {
     if (
       !/^[0-9a-f]{32}$/.test(input.ruleId) ||
+      !/^[0-9a-f]{64}$/.test(input.identityDigest) ||
       !/^[0-9a-f]{64}$/.test(input.eventKey) ||
       !["execution", "risk", "price", "funding"].includes(input.category) ||
       !["trade", "portfolio"].includes(input.routeHint)
@@ -2575,7 +2577,9 @@ export class PostgresNotificationStore {
         LEFT JOIN notification_account_links l
           ON l.account_link_id = r.account_link_id
          AND l.installation_id = r.installation_id AND l.state = 'active'
-        WHERE r.rule_id = ${input.ruleId} AND r.active
+        WHERE r.rule_id = ${input.ruleId}
+          AND r.identity_digest = decode(${input.identityDigest}, 'hex')
+          AND r.active
           AND (r.account_link_id IS NULL OR l.account_link_id IS NOT NULL)
         FOR UPDATE OF r, i
       `;

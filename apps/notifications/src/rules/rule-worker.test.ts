@@ -101,10 +101,81 @@ describe("notification rule worker", () => {
     expect(persisted).toHaveLength(1);
     expect(persisted[0]).toMatchObject({
       ruleId: priceRule.ruleId,
+      identityDigest: priceRule.identityDigest,
       category: "price",
       routeHint: "trade",
     });
     expect(JSON.stringify(persisted)).not.toContain("markPx");
+  });
+
+  test("carries the evaluated identity through a replacement-versus-queued-evaluation race", async () => {
+    let rules: readonly ActiveNotificationRule[] = [priceRule];
+    let activeIdentityDigest = priceRule.identityDigest;
+    let releasePersistence: (() => void) | undefined;
+    let persistenceFinished = false;
+    let createdAlerts = 0;
+    const persisted: unknown[] = [];
+    const persistenceStarted = Promise.withResolvers<void>();
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const source = new Source();
+    const worker = new NotificationRuleWorker({
+      registry: new SharedMonitorRegistry({
+        ownerId: "rule-replacement-race",
+        leases: new Leases(),
+        source,
+      }),
+      store: {
+        listActiveRules: async () => rules,
+        createAlertForRuleMatch: async (input) => {
+          persisted.push(input);
+          persistenceStarted.resolve();
+          await persistenceGate;
+          persistenceFinished = true;
+          if (input.identityDigest !== activeIdentityDigest) {
+            return { created: false as const };
+          }
+          createdAlerts += 1;
+          return {
+            created: true as const,
+            alertId: "86".repeat(16),
+            outboxId: "87".repeat(16),
+          };
+        },
+      },
+    });
+
+    await worker.reconcileRules();
+    source.callbacks?.onDelta({
+      kind: "stream-delta",
+      receivedAt: 2,
+      message: {
+        channel: "activeAssetCtx",
+        data: { coin: "BTC", ctx: { markPx: "100" } },
+      },
+      coinToMarketId: { BTC: "perp:0:0" },
+    });
+    await persistenceStarted.promise;
+
+    const replacement = {
+      ...priceRule,
+      identityDigest: "88".repeat(32),
+      threshold: "200",
+    };
+    rules = [replacement];
+    activeIdentityDigest = replacement.identityDigest;
+    await worker.reconcileRules();
+    releasePersistence?.();
+    await waitUntil(() => persistenceFinished, "stale persistence completion");
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toMatchObject({
+      ruleId: priceRule.ruleId,
+      identityDigest: priceRule.identityDigest,
+    });
+    expect(createdAlerts).toBe(0);
+    await worker.close();
   });
 
   test("normalizes exact execution identities and fails closed on unrelated payloads", () => {

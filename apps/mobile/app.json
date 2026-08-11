@@ -3,6 +3,7 @@
     "name": "Hyper Trader",
     "slug": "hyper-trader",
     "version": "0.1.0",
+    "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hypertrader",

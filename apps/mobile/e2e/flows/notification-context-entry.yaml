@@ -1,0 +1,15 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - notifications
+---
+# acceptance: AE8
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: notification-context-entry
+- assertVisible: "Confirm context change"
+- assertVisible: "This alert targets testnet"
+- tapOn: "Decline"
+- assertVisible: "Context unchanged"
+- assertVisible: "Current alert details were not treated as authority."
