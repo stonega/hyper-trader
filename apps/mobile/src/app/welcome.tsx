@@ -3,10 +3,11 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useEffect, useReducer, useRef } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../components/app-text";
+import { IridescentRibbonBackground } from "../components/onboarding/iridescent-ribbon-background";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { welcomeChoiceRoute } from "../features/onboarding/routes";
 import {
@@ -54,77 +55,70 @@ export default function WelcomeScreen(): JSX.Element {
 
   const transitionDuration = welcomePhaseTransitionDurationMs(reducedMotion);
   return (
-    <ScrollView
-      className="flex-1 bg-background"
-      contentContainerClassName="justify-between gap-10 px-5"
-      contentContainerStyle={{
-        flexGrow: 1,
-        paddingTop: Math.max(insets.top, 32),
-        paddingBottom: Math.max(insets.bottom, 24),
-      }}
-    >
-      <View className="gap-5 pt-8">
-        <Text
-          accessibilityRole="header"
-          className="text-5xl font-semibold tracking-tight text-foreground"
-        >
-          Hyper Trader
-        </Text>
-        <Text className="text-xl leading-8 text-foreground">
-          Explore every validated Hyperliquid market now. Set up trading only
-          when you are ready for a dedicated approval flow.
-        </Text>
-        <Text className="text-base leading-6 text-muted">
-          Hyper Trader never handles your master seed or master private key. A
-          later dedicated API-wallet key will be protected on this device after
-          external master-wallet approval.
-        </Text>
-      </View>
+    <View className="flex-1 bg-background">
+      <IridescentRibbonBackground reducedMotion={reducedMotion} />
+      <ScrollView
+        className="flex-1"
+        contentContainerClassName="justify-between gap-10 px-5"
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingTop: Math.max(insets.top, 32),
+          paddingBottom: Math.max(insets.bottom, 24),
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="gap-5 pt-8">
+          <Text
+            accessibilityRole="header"
+            className="text-5xl font-semibold tracking-tight text-foreground"
+          >
+            Hyper Trader
+          </Text>
+          <Text className="text-xl leading-8 text-foreground">
+            Explore every Hyperliquid market now, then set up secure testnet
+            trading when you’re ready.
+          </Text>
+        </View>
 
-      <Card variant="default" className="gap-4">
-        <Card.Body className="gap-2">
-          <Card.Title>Choose how to begin</Card.Title>
-          <Card.Description>
-            Setup first saves a resumable, untrusted intent, then opens its
-            dedicated testnet flow. Read-only opens Trade without connecting a
-            wallet.
-          </Card.Description>
+        <Card variant="default" className="gap-4">
           {phase === "failed" ? (
-            <Animated.View
-              accessibilityLiveRegion="assertive"
-              entering={FadeIn.duration(transitionDuration).reduceMotion(
-                ReduceMotion.System,
-              )}
-            >
-              <Text accessibilityRole="alert" className="text-sm text-danger">
-                Your choice could not be saved. Nothing changed. Try again.
-              </Text>
-            </Animated.View>
+            <Card.Body>
+              <Animated.View
+                accessibilityLiveRegion="assertive"
+                entering={FadeIn.duration(transitionDuration).reduceMotion(
+                  ReduceMotion.System,
+                )}
+              >
+                <Text accessibilityRole="alert" className="text-sm text-danger">
+                  Your choice could not be saved. Nothing changed. Try again.
+                </Text>
+              </Animated.View>
+            </Card.Body>
           ) : null}
-        </Card.Body>
-        <Card.Footer className="flex-col gap-3">
-          <Button
-            accessibilityHint="Saves a resumable setup intent and opens the dedicated testnet trading setup flow."
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 w-full"
-            isDisabled={phase === "persisting"}
-            onPress={() => void choose("setup")}
-            variant="primary"
-          >
-            {phase === "persisting" ? "Saving choice…" : "Set up trading"}
-          </Button>
-          <Button
-            accessibilityHint="Completes Welcome and opens Trade without a setup intent."
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 w-full"
-            isDisabled={phase === "persisting"}
-            onPress={() => void choose("read_only")}
-            variant="secondary"
-          >
-            Explore read-only
-          </Button>
-        </Card.Footer>
-      </Card>
-    </ScrollView>
+          <Card.Footer className="flex-col gap-3">
+            <Button
+              accessibilityHint="Saves a resumable setup intent and opens the dedicated testnet trading setup flow."
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="min-h-12 w-full"
+              isDisabled={phase === "persisting"}
+              onPress={() => void choose("setup")}
+              variant="primary"
+            >
+              {phase === "persisting" ? "Saving choice…" : "Set up trading"}
+            </Button>
+            <Button
+              accessibilityHint="Completes Welcome and opens Trade without a setup intent."
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="min-h-12 w-full"
+              isDisabled={phase === "persisting"}
+              onPress={() => void choose("read_only")}
+              variant="secondary"
+            >
+              Explore read-only
+            </Button>
+          </Card.Footer>
+        </Card>
+      </ScrollView>
+    </View>
   );
 }

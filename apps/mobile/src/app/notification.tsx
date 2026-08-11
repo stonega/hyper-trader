@@ -4,10 +4,10 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, ScrollView, Text, View } from "react-native";
+import { BackHandler, ScrollView, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../components/app-text";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { useTradingContext } from "../core/context/provider";
 import { useAccountDirectory } from "../features/accounts/account-directory-provider";

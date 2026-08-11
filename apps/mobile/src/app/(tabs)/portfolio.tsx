@@ -12,11 +12,10 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
-  Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { PerformanceChart } from "../../components/chart/performance-chart";
 import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";

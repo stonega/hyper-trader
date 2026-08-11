@@ -1,7 +1,9 @@
 import type { HyperliquidNetwork } from "@hyper-trader/hyperliquid/public";
 import { Chip } from "heroui-native/chip";
 import type { JSX } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
+
+import { AppText as Text } from "./app-text";
 
 export function ScreenHeading({
   title,

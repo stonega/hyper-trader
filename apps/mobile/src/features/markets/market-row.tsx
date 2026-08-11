@@ -3,8 +3,9 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import type { JSX } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   marketDisplayLabel,

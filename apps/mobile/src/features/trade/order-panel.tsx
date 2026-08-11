@@ -7,9 +7,10 @@ import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   controlsForMarket,

@@ -28,6 +28,19 @@ describe("native read-only onboarding", () => {
     mockCompleteOnboarding.mockResolvedValue(undefined);
     render(<WelcomeScreen />);
 
+    expect(screen.getByRole("header", { name: "Hyper Trader" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Explore every Hyperliquid market now, then set up secure testnet trading when you’re ready.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("Choose how to begin")).toBeNull();
+    expect(screen.queryByText(/master seed/)).toBeNull();
+    expect(
+      screen.getByTestId("welcome-ribbon-background", {
+        includeHiddenElements: true,
+      }),
+    ).toHaveProp("importantForAccessibility", "no-hide-descendants");
     expect(screen.getByRole("button", { name: "Set up trading" })).toBeTruthy();
     fireEvent.press(screen.getByRole("button", { name: "Explore read-only" }));
 

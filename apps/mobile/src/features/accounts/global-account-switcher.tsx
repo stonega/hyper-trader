@@ -3,8 +3,9 @@ import { Button } from "heroui-native/button";
 import { Dialog } from "heroui-native/dialog";
 import type { JSX } from "react";
 import { useMemo, useRef, useState } from "react";
-import { ScrollView, Text, View } from "react-native";
+import { ScrollView, View } from "react-native";
 
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { useActionRuntime } from "../actions/runtime-provider";

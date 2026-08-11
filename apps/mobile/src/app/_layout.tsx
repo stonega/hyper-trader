@@ -1,7 +1,14 @@
+import { BarlowSemiCondensed_400Regular } from "@expo-google-fonts/barlow-semi-condensed/400Regular";
+import { BarlowSemiCondensed_500Medium } from "@expo-google-fonts/barlow-semi-condensed/500Medium";
+import { BarlowSemiCondensed_600SemiBold } from "@expo-google-fonts/barlow-semi-condensed/600SemiBold";
+import { BarlowSemiCondensed_700Bold } from "@expo-google-fonts/barlow-semi-condensed/700Bold";
+import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
+import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { HeroUINativeProvider } from "heroui-native/provider";
 import type { JSX } from "react";
+import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -19,7 +26,24 @@ import { ScopedTradingPreferencesProvider } from "../features/settings/preferenc
 
 import "../global.css";
 
-export default function RootLayout(): JSX.Element {
+void SplashScreen.preventAutoHideAsync();
+
+export default function RootLayout(): JSX.Element | null {
+  const [fontsLoaded, fontError] = useFonts({
+    BarlowSemiCondensed_400Regular,
+    BarlowSemiCondensed_500Medium,
+    BarlowSemiCondensed_600SemiBold,
+    BarlowSemiCondensed_700Bold,
+  });
+
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      void SplashScreen.hideAsync();
+    }
+  }, [fontError, fontsLoaded]);
+
+  if (!fontsLoaded && !fontError) return null;
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>

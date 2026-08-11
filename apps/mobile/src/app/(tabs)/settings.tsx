@@ -3,9 +3,9 @@ import { useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
-import { Linking, ScrollView, Share, Text, View } from "react-native";
+import { Linking, ScrollView, Share, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";

@@ -13,11 +13,10 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
-  Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { TextMarketChart } from "../../components/chart/text-market-chart";
 import { MarketActivity } from "../../components/order-book/market-activity";
 import { SetupResumeCard } from "../../components/setup-resume-card";

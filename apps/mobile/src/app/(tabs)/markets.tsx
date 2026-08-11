@@ -12,9 +12,9 @@ import { Skeleton } from "heroui-native/skeleton";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
-import { FlatList, RefreshControl, ScrollView, Text, View } from "react-native";
+import { FlatList, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { ScreenHeading } from "../../components/screen-heading";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";

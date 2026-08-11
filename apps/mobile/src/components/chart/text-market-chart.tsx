@@ -2,9 +2,9 @@ import type { Candle, Market } from "@hyper-trader/hyperliquid/public";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useMemo } from "react";
-import { Text, View } from "react-native";
-
+import { View } from "react-native";
 import { formatMarketPrice } from "../../features/markets/format";
+import { AppText as Text } from "../app-text";
 import { summarizeCandles } from "./text-chart-model";
 
 function Metric({

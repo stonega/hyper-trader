@@ -12,11 +12,10 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Text,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   discoverMarkets,

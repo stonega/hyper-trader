@@ -63,3 +63,19 @@ export const Card = Object.assign(Container, {
 export function Skeleton({ accessibilityLabel }: CommonProps): ReactNode {
   return <View accessibilityLabel={accessibilityLabel} />;
 }
+
+const THEME_COLORS: Record<string, string> = {
+  accent: "#009b86",
+  background: "#f7f7f7",
+  foreground: "#29292d",
+  surface: "#ffffff",
+};
+
+export function useThemeColor(
+  color: string | readonly string[],
+): string | string[] {
+  if (Array.isArray(color)) {
+    return color.map((name) => THEME_COLORS[name] ?? "#000000");
+  }
+  return THEME_COLORS[color as string] ?? "#000000";
+}

@@ -7,8 +7,9 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 
+import { AppText as Text } from "../app-text";
 import { useReducedMotion } from "../use-reduced-motion";
 
 type ActivityMode = "book" | "trades";

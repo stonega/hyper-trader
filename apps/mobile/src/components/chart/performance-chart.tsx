@@ -1,8 +1,8 @@
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
-import { Text, View } from "react-native";
-
+import { View } from "react-native";
 import type { PortfolioRangeData } from "../../features/portfolio/portfolio-model";
+import { AppText as Text } from "../app-text";
 
 const RANGE_LABELS = {
   "24h": "24 hour",

@@ -40,6 +40,36 @@ The official HeroUI Native scaffold provides the required peer versions.
 When adding a HeroUI component, fetch its current Native documentation before
 implementation and follow its compound anatomy.
 
+### App typography
+
+The native app loads the regular, medium, semibold, and bold static weights of
+Barlow Semi Condensed through `expo-font` and
+`@expo-google-fonts/barlow-semi-condensed`. The root layout holds the native
+splash screen until loading finishes, and `global.css` maps those four assets to
+HeroUI and Uniwind font tokens. App-owned React Native text goes through
+`AppText`, which supplies the regular token when a component does not request an
+explicit weight; HeroUI controls consume the same tokens directly.
+
+Static weights are intentional: React Native needs a separate font asset for
+each supported weight, and the named assets keep the family mapping identical
+on iOS and Android.
+
+## Onboarding shader background
+
+The welcome screen uses `expo-gl` for a native OpenGL ES iridescent-ribbon
+background on iOS and Android. The shader reads the active HeroUI background,
+surface, accent, and foreground tokens so its neutral field and teal-led
+material follow both light and dark themes. It intentionally uses the WebGL 1
+shader subset for compatibility with older Android GL implementations.
+
+The effect is decorative and does not receive touches or enter the accessibility
+tree. Reduce Motion renders one static frame instead of starting the animation
+loop, and shader compile or link failure leaves the semantic background color in
+place. During animation, the material travels upward while the centerline uses a
+slow two-frequency sway so movement remains visible without distracting from the
+copy. Rendering is capped at 30 frames per second and disables multisampling to
+bound the cost of the full-screen effect.
+
 ## Hyperliquid client
 
 The shared package exposes `createHyperliquidClient`. It accepts a network and an

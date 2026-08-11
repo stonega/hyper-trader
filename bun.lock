@@ -13,6 +13,7 @@
       "name": "@hyper-trader/mobile",
       "version": "0.1.0",
       "dependencies": {
+        "@expo-google-fonts/barlow-semi-condensed": "^0.4.1",
         "@expo/metro-runtime": "~57.0.9",
         "@gorhom/bottom-sheet": "^5.2.14",
         "@hyper-trader/hyperliquid": "workspace:*",
@@ -30,6 +31,8 @@
         "expo": "~57.0.12",
         "expo-constants": "~57.0.10",
         "expo-crypto": "~57.0.1",
+        "expo-font": "~57.0.1",
+        "expo-gl": "~57.0.2",
         "expo-linking": "~57.0.1",
         "expo-local-authentication": "~57.0.2",
         "expo-network": "~57.0.1",
@@ -317,6 +320,8 @@
     "@ethereumjs/tx": ["@ethereumjs/tx@4.2.0", "", { "dependencies": { "@ethereumjs/common": "^3.2.0", "@ethereumjs/rlp": "^4.0.1", "@ethereumjs/util": "^8.1.0", "ethereum-cryptography": "^2.0.0" } }, "sha512-1nc6VO4jtFd172BbSnTnDQVr9IYBFl1y4xPzZdtkrkKIncBCkdbgfdRV+MiTkJYAtTxvV12GRZLqBFT1PNK6Yw=="],
 
     "@ethereumjs/util": ["@ethereumjs/util@8.1.0", "", { "dependencies": { "@ethereumjs/rlp": "^4.0.1", "ethereum-cryptography": "^2.0.0", "micro-ftch": "^0.3.1" } }, "sha512-zQ0IqbdX8FZ9aw11vP+dZkKDkS+kgIvQPHnSAXzP9pLu+Rfu3D3XEeLbicvoXJTYnhZiPmsZUxgdzXwNKxRPbA=="],
+
+    "@expo-google-fonts/barlow-semi-condensed": ["@expo-google-fonts/barlow-semi-condensed@0.4.1", "", {}, "sha512-L22y4aj2diDuSFDYIAxmP+PwhdNThE0XDjCUL3GLa8H4Ag6SsRem5j7WFl9qvrrtXeSygW9Az5YsS2oOgXOBRA=="],
 
     "@expo-google-fonts/material-symbols": ["@expo-google-fonts/material-symbols@0.4.42", "", {}, "sha512-KZmHZRcthJ3KFZZlpzHjopA9guZgWR9fb3uVZlTR0BNlvG2pw1bnYBCpkze2PB0vRllwGhAM7lWXsfmcWCbXYg=="],
 
@@ -1239,6 +1244,8 @@
     "expo-file-system": ["expo-file-system@57.0.2", "", { "peerDependencies": { "expo": "*", "react-native": "*" } }, "sha512-bPgzpaOJ3NWHZxV++Osj/1QoFzFe/QOo1jBF4EODJdiZgrrxyi2dv+7PLhKuut5QqPBuihUOITRh3s5jhRtA5A=="],
 
     "expo-font": ["expo-font@57.0.1", "", { "dependencies": { "fontfaceobserver": "^2.1.0" }, "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-QyS9L1Kh9sKJg4gfU6rdbpxpmH+DyzBX8z6jVvXMUDoqLr1GqmkO/Wu379KCXjL///kWbhpNlbi7AgBuj4VdIQ=="],
+
+    "expo-gl": ["expo-gl@57.0.2", "", { "dependencies": { "invariant": "^2.2.4" }, "peerDependencies": { "expo": "*", "react": "*", "react-dom": "*", "react-native": "*", "react-native-reanimated": "*", "react-native-web": "*" }, "optionalPeers": ["react-dom", "react-native-reanimated", "react-native-web"] }, "sha512-QP94mm3R40lCbdRne0xRrWgld/aawhkXD6tjBUYT6zrkkMGUzm8YuXGDerxUUzyCrI4arQTp2FKZFnaO3tpNEA=="],
 
     "expo-glass-effect": ["expo-glass-effect@57.0.1", "", { "peerDependencies": { "expo": "*", "react": "*", "react-native": "*" } }, "sha512-m/n8maxqNcHk6ZDhuqXBfD5Kt1Iz3M8xykVgdB0iSCIXvF70IqWXmQhX8Psswhrp8eZ+3r0mAD0Jh/2gFA3QaA=="],
 

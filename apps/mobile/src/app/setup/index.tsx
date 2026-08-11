@@ -3,14 +3,14 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useEffect, useReducer } from "react";
-import { BackHandler, ScrollView, Text, View } from "react-native";
+import { BackHandler, ScrollView, View } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
   ReduceMotion,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   INITIAL_SETUP_FLOW,

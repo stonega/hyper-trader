@@ -2,9 +2,9 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
-import { ScrollView, Text } from "react-native";
+import { ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 
 export default function WalletReturnScreen(): JSX.Element {
