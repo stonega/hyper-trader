@@ -12,6 +12,8 @@ import {
   decryptPushToken,
   encryptPushToken,
   hashInstallationCredential,
+  type MobileAlertResponse,
+  type MobileInstallationSnapshotResponse,
   type NotificationNetwork,
   operationDigest,
   type PushTokenKeyProvider,
@@ -83,6 +85,13 @@ export class StoreUnauthorizedError extends NotificationStoreError {
   constructor(message = "installation credential is not authorized") {
     super(message);
     this.name = "StoreUnauthorizedError";
+  }
+}
+
+export class StoreNotFoundError extends NotificationStoreError {
+  constructor() {
+    super("notification resource is unavailable");
+    this.name = "StoreNotFoundError";
   }
 }
 
@@ -173,6 +182,7 @@ export class PostgresNotificationStore {
           ip,
           kind: "token_change",
         });
+        await lockPushTokenFingerprint(transaction, encrypted.tokenFingerprint);
         const insertedInstallation = await transaction<
           { installation_id: string }[]
         >`
@@ -417,6 +427,7 @@ export class PostgresNotificationStore {
             signature: input.proof.signature,
             now: await databaseNowMilliseconds(transaction),
           });
+          await lockPushTokenFingerprint(transaction, tokenFingerprint);
           const fingerprintOwner = await transaction<
             { installation_id: string }[]
           >`
@@ -483,6 +494,309 @@ export class PostgresNotificationStore {
     const installationId = rows[0]?.installation_id;
     if (!installationId) throw new StoreUnauthorizedError();
     return installationId;
+  }
+
+  async readMobileInstallationSnapshot(input: {
+    readonly installationId: string;
+    readonly credential: string;
+  }): Promise<MobileInstallationSnapshotResponse> {
+    const credentialHash = await hashInstallationCredential(input.credential);
+    return this.#sql.begin(async (transaction) => {
+      await transaction.unsafe(
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
+      );
+      const installations = await transaction<
+        {
+          installation_id: string;
+          token_state: "active" | "invalid";
+          pending_count: number;
+          unknown_count: number;
+          rejected_count: number;
+        }[]
+      >`
+        SELECT i.installation_id,
+               t.delivery_state AS token_state,
+               count(o.outbox_id) FILTER (
+                 WHERE o.state IN ('pending', 'leased', 'provider_submission_started')
+               )::int AS pending_count,
+               count(o.outbox_id) FILTER (
+                 WHERE o.state = 'provider_outcome_unknown'
+               )::int AS unknown_count,
+               count(o.outbox_id) FILTER (
+                 WHERE o.state = 'provider_rejected'
+               )::int AS rejected_count
+        FROM notification_installations i
+        JOIN notification_push_tokens t
+          ON t.installation_id = i.installation_id AND t.provider = 'expo'
+        LEFT JOIN notification_outbox o ON o.installation_id = i.installation_id
+        WHERE i.installation_id = ${input.installationId}
+          AND i.credential_hash = decode(${credentialHash}, 'hex')
+          AND i.state = 'active'
+        GROUP BY i.installation_id, t.delivery_state
+      `;
+      const installation = installations[0];
+      if (!installation) throw new StoreNotFoundError();
+      const accountLinks = await transaction<
+        {
+          account_link_id: string;
+          network: NotificationNetwork;
+          master_account: string;
+          target_account: string;
+        }[]
+      >`
+        SELECT account_link_id, network, master_account, target_account
+        FROM notification_account_links
+        WHERE installation_id = ${input.installationId} AND state = 'active'
+        ORDER BY account_link_id
+        LIMIT ${CONTRACT_LIMITS.maxLinkedAccounts}
+      `;
+      const rules = await transaction<
+        {
+          rule_id: string;
+          account_link_id: string | null;
+          scope: "price" | "account";
+          network: NotificationNetwork;
+          market_id: string;
+          event_type: CreateRuleRequest["eventType"];
+          threshold: string;
+        }[]
+      >`
+        SELECT rule_id, account_link_id, scope, network, market_id, event_type,
+               threshold
+        FROM notification_rules
+        WHERE installation_id = ${input.installationId} AND active
+        ORDER BY rule_id
+        LIMIT ${CONTRACT_LIMITS.maxActiveRules}
+      `;
+      const pending = Number(installation.pending_count);
+      const unknown = Number(installation.unknown_count);
+      const attention =
+        installation.token_state === "invalid" ||
+        unknown > 0 ||
+        Number(installation.rejected_count) > 0;
+      return {
+        installationId: installation.installation_id,
+        state: "active" as const,
+        tokenState: installation.token_state,
+        deliveryHealth: attention
+          ? ("attention" as const)
+          : pending > 0
+            ? ("pending" as const)
+            : ("healthy" as const),
+        pendingDeliveryCount: pending,
+        unknownDeliveryCount: unknown,
+        accountLinks: accountLinks.map((link) => ({
+          accountLinkId: link.account_link_id,
+          network: link.network,
+          masterAccount: link.master_account,
+          targetAccount: link.target_account,
+        })),
+        rules: rules.map((rule) => ({
+          ruleId: rule.rule_id,
+          scope: rule.scope,
+          network: rule.network,
+          marketId: rule.market_id,
+          eventType: rule.event_type,
+          threshold: rule.threshold,
+          ...(rule.account_link_id
+            ? { accountLinkId: rule.account_link_id }
+            : {}),
+        })),
+      };
+    });
+  }
+
+  async readMobileAlert(input: {
+    readonly alertId: string;
+    readonly credential: string;
+  }): Promise<MobileAlertResponse> {
+    const credentialHash = await hashInstallationCredential(input.credential);
+    const rows = await this.#sql<
+      {
+        alert_id: string;
+        category: MobileAlertResponse["category"];
+        network: NotificationNetwork;
+        route_hint: "trade" | "portfolio";
+        created_at: Date | string;
+        delivery_state: MobileAlertResponse["deliveryState"];
+        rule_id: string | null;
+        scope: "price" | "account" | null;
+        market_id: string | null;
+        event_type: CreateRuleRequest["eventType"] | null;
+        account_link_id: string | null;
+        master_account: string | null;
+        target_account: string | null;
+      }[]
+    >`
+      SELECT a.alert_id, a.category, a.network, a.route_hint, a.created_at,
+             o.state AS delivery_state,
+             r.rule_id, r.scope, r.market_id, r.event_type,
+             l.account_link_id, l.master_account, l.target_account
+      FROM notification_alerts a
+      JOIN notification_installations i ON i.installation_id = a.installation_id
+      JOIN notification_outbox o ON o.alert_id = a.alert_id
+      LEFT JOIN notification_rules r
+        ON r.rule_id = a.rule_id AND r.installation_id = a.installation_id
+       AND r.active
+      LEFT JOIN notification_account_links l
+        ON l.account_link_id = a.account_link_id
+       AND l.installation_id = a.installation_id AND l.state = 'active'
+      WHERE a.alert_id = ${input.alertId}
+        AND i.credential_hash = decode(${credentialHash}, 'hex')
+        AND i.state = 'active'
+      LIMIT 1
+    `;
+    const row = rows[0];
+    if (!row) throw new StoreNotFoundError();
+    const account =
+      row.account_link_id && row.master_account && row.target_account
+        ? {
+            accountLinkId: row.account_link_id,
+            masterAccount: row.master_account,
+            targetAccount: row.target_account,
+          }
+        : null;
+    const rule =
+      row.rule_id && row.scope && row.market_id && row.event_type
+        ? {
+            ruleId: row.rule_id,
+            scope: row.scope,
+            marketId: row.market_id,
+            eventType: row.event_type,
+          }
+        : null;
+    const targetAvailable =
+      rule !== null && (rule.scope === "price" || account !== null);
+    return {
+      alertId: row.alert_id,
+      state: targetAvailable ? "active" : "target_unavailable",
+      category: row.category,
+      network: row.network,
+      routeHint: row.route_hint,
+      createdAtMs: new Date(row.created_at).getTime(),
+      deliveryState: row.delivery_state,
+      rule,
+      account: rule?.scope === "account" ? account : null,
+    };
+  }
+
+  async deletePriceRule(input: {
+    readonly installationId: string;
+    readonly ruleId: string;
+    readonly credential: string;
+    readonly ip?: string;
+  }): Promise<{ readonly ruleId: string; readonly state: "deleted" }> {
+    const credentialHash = await hashInstallationCredential(input.credential);
+    return this.#sql.begin(async (transaction) => {
+      await assertMutable(transaction);
+      await lockAuthenticatedInstallation(
+        transaction,
+        input.installationId,
+        credentialHash,
+      );
+      await admitMutationInTransaction(transaction, {
+        installationId: input.installationId,
+        ip: input.ip,
+      });
+      const deleted = await transaction<{ rule_id: string }[]>`
+        DELETE FROM notification_rules
+        WHERE rule_id = ${input.ruleId}
+          AND installation_id = ${input.installationId}
+          AND scope = 'price'
+        RETURNING rule_id
+      `;
+      if (deleted.length !== 1) throw new StoreNotFoundError();
+      return { ruleId: input.ruleId, state: "deleted" as const };
+    });
+  }
+
+  async rebindPriceOnlyPushToken(input: {
+    readonly installationId: string;
+    readonly credential: string;
+    readonly provider: "expo";
+    readonly pushToken: string;
+    readonly ip?: string;
+  }): Promise<{
+    readonly tokenFingerprint: string;
+    readonly state: "active";
+  }> {
+    const credentialHash = await hashInstallationCredential(input.credential);
+    const encrypted = await encryptPushToken(
+      {
+        installationId: input.installationId,
+        provider: input.provider,
+        token: input.pushToken,
+      },
+      this.#dependencies.tokenKeyProvider,
+    );
+    try {
+      return await this.#sql.begin(async (transaction) => {
+        await assertMutable(transaction);
+        await lockAuthenticatedInstallation(
+          transaction,
+          input.installationId,
+          credentialHash,
+        );
+        await admitMutationInTransaction(transaction, {
+          installationId: input.installationId,
+          ip: input.ip,
+          kind: "token_change",
+        });
+        const accountAuthority = await transaction<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM notification_account_links
+            WHERE installation_id = ${input.installationId}
+              AND state IN ('active', 'draining')
+            UNION ALL
+            SELECT 1 FROM notification_rules
+            WHERE installation_id = ${input.installationId}
+              AND scope = 'account' AND active
+          ) AS exists
+        `;
+        if (accountAuthority[0]?.exists) {
+          throw new StoreUnauthorizedError(
+            "fresh account proof is required for token rotation",
+          );
+        }
+        await lockPushTokenFingerprint(transaction, encrypted.tokenFingerprint);
+        const fingerprintOwner = await transaction<
+          { installation_id: string }[]
+        >`
+          SELECT installation_id FROM notification_push_tokens
+          WHERE token_fingerprint = decode(${encrypted.tokenFingerprint}, 'hex')
+            AND installation_id <> ${input.installationId}
+          LIMIT 1
+        `;
+        if (fingerprintOwner.length > 0) throw new StoreConflictError();
+        const recoveryScopeMac = await this.#scopeMac(
+          "push_token",
+          encrypted.tokenFingerprint,
+        );
+        const updated = await transaction<{ token_id: string }[]>`
+          UPDATE notification_push_tokens
+          SET token_fingerprint = decode(${encrypted.tokenFingerprint}, 'hex'),
+              ciphertext = decode(${Buffer.from(encrypted.ciphertext, "base64").toString("hex")}, 'hex'),
+              nonce = decode(${encrypted.nonce}, 'hex'),
+              key_version = ${encrypted.keyVersion},
+              wrapped_dek = decode(${Buffer.from(encrypted.wrappedDek, "base64").toString("hex")}, 'hex'),
+              recovery_scope_mac = decode(${recoveryScopeMac}, 'hex'),
+              recovery_key_version = ${this.#dependencies.tombstoneKeyVersion},
+              delivery_state = 'active', invalidated_at = NULL,
+              updated_at = clock_timestamp()
+          WHERE installation_id = ${input.installationId}
+            AND provider = ${input.provider}
+          RETURNING token_id
+        `;
+        if (updated.length !== 1) throw new StoreConflictError();
+        return {
+          tokenFingerprint: encrypted.tokenFingerprint,
+          state: "active" as const,
+        };
+      });
+    } catch (error) {
+      if (postgresCode(error) === "23505") throw new StoreConflictError();
+      throw error;
+    }
   }
 
   async installationIdForAccountLink(accountLinkId: string): Promise<string> {
@@ -3263,6 +3577,20 @@ async function admitMutationInTransaction(
       kind, installation_id, ip_address, status
     ) VALUES (
       ${kind}, ${input.installationId ?? null}, ${input.ip}::inet, 'committed'
+    )
+  `;
+}
+
+async function lockPushTokenFingerprint(
+  sql: SQL,
+  tokenFingerprint: string,
+): Promise<void> {
+  if (!/^[0-9a-f]{64}$/.test(tokenFingerprint)) {
+    throw new StoreConflictError("push token fingerprint is invalid");
+  }
+  await sql`
+    SELECT pg_advisory_xact_lock(
+      hashtextextended(${`push-token:${tokenFingerprint}`}, 0)
     )
   `;
 }

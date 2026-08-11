@@ -36,6 +36,13 @@
         }
       ],
       [
+        "expo-notifications",
+        {
+          "defaultChannel": "trading-alerts",
+          "enableBackgroundRemoteNotifications": true
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",

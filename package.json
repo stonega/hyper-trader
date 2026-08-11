@@ -18,6 +18,9 @@
     "test": "bun test",
     "test:notifications": "bun apps/notifications/test/run-postgres.ts"
   },
+  "overrides": {
+    "expo-constants": "57.0.10"
+  },
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",
     "typescript": "~6.0.3"

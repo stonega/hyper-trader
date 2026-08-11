@@ -8,12 +8,12 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { DraftRegistryProvider } from "../core/actions/draft-provider";
 import { TradingContextProvider } from "../core/context/provider";
 import { NativeLifecycleProvider } from "../core/lifecycle/provider";
-import { NotificationIntentProvider } from "../core/notifications/intent-provider";
 import { MobileQueryProvider } from "../core/query/provider";
 import { SignerSessionProvider } from "../core/session/provider";
 import { StreamRuntimeProvider } from "../core/streams/provider";
 import { AccountDirectoryProvider } from "../features/accounts/account-directory-provider";
 import { ActionRuntimeProvider } from "../features/actions/runtime-provider";
+import { NotificationRuntimeProvider } from "../features/notifications/provider";
 import { AppearancePreferenceProvider } from "../features/settings/appearance-provider";
 import { ScopedTradingPreferencesProvider } from "../features/settings/preferences-provider";
 
@@ -34,7 +34,7 @@ export default function RootLayout(): JSX.Element {
                         <ScopedTradingPreferencesProvider>
                           <ActionRuntimeProvider>
                             <NativeLifecycleProvider>
-                              <NotificationIntentProvider>
+                              <NotificationRuntimeProvider>
                                 <StatusBar style="auto" />
                                 <Stack screenOptions={{ headerShown: false }}>
                                   <Stack.Screen
@@ -53,8 +53,22 @@ export default function RootLayout(): JSX.Element {
                                       presentation: "modal",
                                     }}
                                   />
+                                  <Stack.Screen
+                                    name="notification-settings"
+                                    options={{
+                                      animation: "none",
+                                      gestureEnabled: false,
+                                    }}
+                                  />
+                                  <Stack.Screen
+                                    name="notification"
+                                    options={{
+                                      animation: "none",
+                                      gestureEnabled: false,
+                                    }}
+                                  />
                                 </Stack>
-                              </NotificationIntentProvider>
+                              </NotificationRuntimeProvider>
                             </NativeLifecycleProvider>
                           </ActionRuntimeProvider>
                         </ScopedTradingPreferencesProvider>

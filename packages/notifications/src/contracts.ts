@@ -84,13 +84,22 @@ export interface RotateInstallationCredentialRequest {
   readonly newCredential: string;
 }
 
-export interface PushTokenRebindRequest {
+export interface PriceOnlyPushTokenRebindRequest {
   readonly installationId: string;
-  readonly accountLinkId: string;
   readonly provider: "expo";
   readonly pushToken: string;
+}
+
+export interface AccountPushTokenRebindRequest
+  extends PriceOnlyPushTokenRebindRequest {
+  readonly installationId: string;
+  readonly accountLinkId: string;
   readonly proof: AccountProofSubmission;
 }
+
+export type PushTokenRebindRequest =
+  | PriceOnlyPushTokenRebindRequest
+  | AccountPushTokenRebindRequest;
 
 export interface RevokeInstallationRequest {
   readonly installationId: string;
@@ -122,20 +131,21 @@ const FORBIDDEN_FIELDS = new Set([
   "signedpayload",
   "signingpayload",
 ]);
-const HEX_128 = /^[0-9a-f]{32}$/;
+export const NOTIFICATION_HEX_128 = /^[0-9a-f]{32}$/;
 const HEX_256 = /^[0-9a-f]{64}$/;
 const DECIMAL = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/;
-const EVENT_TYPES = new Set<NotificationEventType>([
-  "fill",
-  "cancellation",
-  "rejection",
-  "margin_risk",
-  "liquidation_risk",
-  "price_above",
-  "price_below",
-  "funding_above",
-  "funding_below",
-]);
+export const NOTIFICATION_EVENT_TYPES: ReadonlySet<NotificationEventType> =
+  new Set([
+    "fill",
+    "cancellation",
+    "rejection",
+    "margin_risk",
+    "liquidation_risk",
+    "price_above",
+    "price_below",
+    "funding_above",
+    "funding_below",
+  ]);
 
 export class ContractError extends Error {
   readonly status = 400;
@@ -197,7 +207,7 @@ export function parseRegisterInstallationRequest(
     "pushToken",
     CONTRACT_LIMITS.maxPushTokenChars,
   );
-  if (!HEX_128.test(installationId)) {
+  if (!NOTIFICATION_HEX_128.test(installationId)) {
     throw new ContractError("installationId must be 128-bit lowercase hex");
   }
   if (!HEX_256.test(credential)) {
@@ -236,7 +246,7 @@ export function parseCreateRuleRequest(value: unknown): CreateRuleRequest {
   );
   const eventType = boundedString(record.eventType, "eventType", 32);
   const threshold = boundedString(record.threshold, "threshold", 96);
-  if (!HEX_128.test(ruleId))
+  if (!NOTIFICATION_HEX_128.test(ruleId))
     throw new ContractError("ruleId must be lowercase hex");
   if (scope !== "price" && scope !== "account") {
     throw new ContractError("scope is invalid");
@@ -244,7 +254,7 @@ export function parseCreateRuleRequest(value: unknown): CreateRuleRequest {
   if (!/^[\x21-\x7e]+$/.test(marketId)) {
     throw new ContractError("marketId is invalid");
   }
-  if (!EVENT_TYPES.has(eventType as NotificationEventType)) {
+  if (!NOTIFICATION_EVENT_TYPES.has(eventType as NotificationEventType)) {
     throw new ContractError("eventType is invalid");
   }
   if (!DECIMAL.test(threshold)) throw new ContractError("threshold is invalid");
@@ -258,7 +268,10 @@ export function parseCreateRuleRequest(value: unknown): CreateRuleRequest {
     record.accountLinkId === undefined
       ? undefined
       : boundedString(record.accountLinkId, "accountLinkId", 32);
-  if (scope === "account" && (!accountLinkId || !HEX_128.test(accountLinkId))) {
+  if (
+    scope === "account" &&
+    (!accountLinkId || !NOTIFICATION_HEX_128.test(accountLinkId))
+  ) {
     throw new ContractError("accountLinkId is required for account rules");
   }
   return {
@@ -287,7 +300,7 @@ export function parseIssueChallengeRequest(
   const installationId = parseHexId(
     record.installationId,
     "installationId",
-    HEX_128,
+    NOTIFICATION_HEX_128,
   );
   const network = parseNetwork(record.network);
   const masterAccount = parseAddress(record.masterAccount, "masterAccount");
@@ -325,7 +338,7 @@ export function parseRotateInstallationCredentialRequest(
     installationId: parseHexId(
       record.installationId,
       "installationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
     newCredential: parseHexId(record.newCredential, "newCredential", HEX_256),
   };
@@ -335,15 +348,17 @@ export function parsePushTokenRebindRequest(
   value: unknown,
 ): PushTokenRebindRequest {
   assertNoForbiddenFields(value);
-  const record = exactRecord(value, [
-    "installationId",
-    "accountLinkId",
-    "provider",
-    "pushToken",
-    "proof",
-  ]);
+  if (!isRecord(value)) throw new ContractError("request must be an object");
+  const proofBound = "accountLinkId" in value || "proof" in value;
+  const record = exactRecord(
+    value,
+    proofBound
+      ? ["installationId", "accountLinkId", "provider", "pushToken", "proof"]
+      : ["installationId", "provider", "pushToken"],
+  );
   const provider = boundedString(record.provider, "provider", 16);
   if (provider !== "expo") throw new ContractError("provider must be expo");
+  const expoProvider: "expo" = provider;
   const pushToken = boundedString(
     record.pushToken,
     "pushToken",
@@ -352,15 +367,23 @@ export function parsePushTokenRebindRequest(
   if (!/^ExponentPushToken\[[\x21-\x7e]{1,480}\]$/.test(pushToken)) {
     throw new ContractError("pushToken is not a bounded Expo token");
   }
-  return {
+  const shared = {
     installationId: parseHexId(
       record.installationId,
       "installationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
-    accountLinkId: parseHexId(record.accountLinkId, "accountLinkId", HEX_128),
-    provider,
+    provider: expoProvider,
     pushToken,
+  };
+  if (!proofBound) return shared;
+  return {
+    ...shared,
+    accountLinkId: parseHexId(
+      record.accountLinkId,
+      "accountLinkId",
+      NOTIFICATION_HEX_128,
+    ),
     proof: parseAccountProofSubmission(record.proof),
   };
 }
@@ -380,9 +403,13 @@ export function parseVerifyAccountLinkRequest(
     installationId: parseHexId(
       record.installationId,
       "installationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
-    accountLinkId: parseHexId(record.accountLinkId, "accountLinkId", HEX_128),
+    accountLinkId: parseHexId(
+      record.accountLinkId,
+      "accountLinkId",
+      NOTIFICATION_HEX_128,
+    ),
     ...parseAccountProofSubmission({
       challenge: record.challenge,
       message: record.message,
@@ -415,9 +442,13 @@ export function parseRevokeInstallationRequest(
     installationId: parseHexId(
       record.installationId,
       "installationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
-    operationId: parseHexId(record.operationId, "operationId", HEX_128),
+    operationId: parseHexId(
+      record.operationId,
+      "operationId",
+      NOTIFICATION_HEX_128,
+    ),
   };
 }
 
@@ -434,10 +465,18 @@ export function parseUnlinkAccountRequest(
     installationId: parseHexId(
       record.installationId,
       "installationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
-    accountLinkId: parseHexId(record.accountLinkId, "accountLinkId", HEX_128),
-    operationId: parseHexId(record.operationId, "operationId", HEX_128),
+    accountLinkId: parseHexId(
+      record.accountLinkId,
+      "accountLinkId",
+      NOTIFICATION_HEX_128,
+    ),
+    operationId: parseHexId(
+      record.operationId,
+      "operationId",
+      NOTIFICATION_HEX_128,
+    ),
   };
 }
 
@@ -466,7 +505,7 @@ export function parseLostInstallationRevokeRequest(
     throw new ContractError("selected installation count is invalid");
   }
   const selectedInstallationIds = record.selectedInstallationIds.map((id) =>
-    parseHexId(id, "selectedInstallationId", HEX_128),
+    parseHexId(id, "selectedInstallationId", NOTIFICATION_HEX_128),
   );
   for (let index = 1; index < selectedInstallationIds.length; index += 1) {
     if (
@@ -482,9 +521,13 @@ export function parseLostInstallationRevokeRequest(
     requestingInstallationId: parseHexId(
       record.requestingInstallationId,
       "requestingInstallationId",
-      HEX_128,
+      NOTIFICATION_HEX_128,
     ),
-    operationId: parseHexId(record.operationId, "operationId", HEX_128),
+    operationId: parseHexId(
+      record.operationId,
+      "operationId",
+      NOTIFICATION_HEX_128,
+    ),
     network: parseNetwork(record.network),
     masterAccount: parseAddress(record.masterAccount, "masterAccount"),
     targetAccount: parseAddress(record.targetAccount, "targetAccount"),
@@ -501,10 +544,33 @@ function exactRecord(
   value: unknown,
   allowedKeys: readonly string[],
 ): Record<string, unknown> {
-  if (!isRecord(value)) throw new ContractError("request must be an object");
+  return exactContractRecord(value, allowedKeys);
+}
+
+export function exactContractRecord(
+  value: unknown,
+  allowedKeys: readonly string[],
+  options: {
+    readonly label?: "request" | "response";
+    readonly requireAll?: boolean;
+  } = {},
+): Record<string, unknown> {
+  const label = options.label ?? "request";
+  if (!isRecord(value) || Object.getPrototypeOf(value) !== Object.prototype) {
+    throw new ContractError(`${label} must be an object`);
+  }
   const allowed = new Set(allowedKeys);
-  for (const key of Object.keys(value)) {
-    if (!allowed.has(key)) throw new ContractError(`unknown field: ${key}`);
+  const actual = Object.keys(value);
+  for (const key of actual) {
+    if (allowed.has(key)) continue;
+    throw new ContractError(
+      options.requireAll
+        ? `${label} contains an unknown field`
+        : `unknown field: ${key}`,
+    );
+  }
+  if (options.requireAll && actual.length !== allowed.size) {
+    throw new ContractError(`${label} contains an unknown field`);
   }
   return value;
 }

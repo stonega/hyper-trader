@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Public-only notification contracts and security boundaries for Hyper Trader.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./mobile": "./src/mobile.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

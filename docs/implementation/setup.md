@@ -191,6 +191,13 @@ procedures are defined in
 `NOTIFICATION_ENABLE_PROVIDER_WORKERS=true` never bypasses its database and
 dependency activation gates.
 
+Native permission, Expo project configuration, device-token lifecycle,
+background-task limits, safe alert entry, and the release-device matrix are
+defined in [`mobile-notifications.md`](mobile-notifications.md). A release build
+must provide `EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` as one exact reviewed
+HTTPS origin and be linked to its EAS project. Missing APNs/FCM credentials or an
+EAS project ID keeps push registration unavailable.
+
 ### Credential inventory
 
 Before a release, record an owner, storage system, rotation procedure, last drill,

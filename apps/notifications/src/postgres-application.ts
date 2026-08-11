@@ -1,6 +1,9 @@
 import type {
+  DeletePriceRuleRequest,
   IssueChallengeRequest,
   LostInstallationRevokeRequest,
+  MobileAlertResponse,
+  MobileInstallationSnapshotResponse,
   PushTokenRebindRequest,
   PutRuleRequest,
   RegisterInstallationRequest,
@@ -16,6 +19,7 @@ import {
   type AuthenticatedApplicationContext,
   type ChallengeResponse,
   type CredentialRotationResponse,
+  type DeletedRuleResponse,
   type DrainResponse,
   type InstallationResponse,
   type LostRevokeResponse,
@@ -30,6 +34,7 @@ import {
   type PostgresNotificationStore,
   StoreConflictError,
   StoreDependencyUnavailableError,
+  StoreNotFoundError,
   StoreNotReadyError,
   StoreRateLimitError,
   StoreUnauthorizedError,
@@ -202,6 +207,13 @@ export class PostgresNotificationApplication
     context: AuthenticatedApplicationContext,
   ): Promise<PushTokenResponse> {
     return this.#mapErrors(async () => {
+      if (!("accountLinkId" in request)) {
+        return this.#store.rebindPriceOnlyPushToken({
+          ...request,
+          credential: context.credential,
+          ip: context.ip,
+        });
+      }
       return this.#store.rebindPushToken(
         {
           ...request,
@@ -213,6 +225,43 @@ export class PostgresNotificationApplication
     });
   }
 
+  async readInstallationSnapshot(
+    installationId: string,
+    context: AuthenticatedApplicationContext,
+  ): Promise<MobileInstallationSnapshotResponse> {
+    return this.#mapErrors(async () => {
+      return this.#store.readMobileInstallationSnapshot({
+        installationId,
+        credential: context.credential,
+      });
+    });
+  }
+
+  async readAlert(
+    alertId: string,
+    context: AuthenticatedApplicationContext,
+  ): Promise<MobileAlertResponse> {
+    return this.#mapErrors(async () => {
+      return this.#store.readMobileAlert({
+        alertId,
+        credential: context.credential,
+      });
+    });
+  }
+
+  async deletePriceRule(
+    request: DeletePriceRuleRequest,
+    context: AuthenticatedApplicationContext,
+  ): Promise<DeletedRuleResponse> {
+    return this.#mapErrors(async () => {
+      return this.#store.deletePriceRule({
+        ...request,
+        credential: context.credential,
+        ip: context.ip,
+      });
+    });
+  }
+
   async #mapErrors<T>(work: () => Promise<T>): Promise<T> {
     try {
       return await work();
@@ -220,6 +269,9 @@ export class PostgresNotificationApplication
       if (error instanceof ApplicationError) throw error;
       if (error instanceof StoreUnauthorizedError) {
         throw new ApplicationError(401, "notification authority rejected");
+      }
+      if (error instanceof StoreNotFoundError) {
+        throw new ApplicationError(404, "notification resource unavailable");
       }
       if (error instanceof StoreRateLimitError) {
         throw new ApplicationError(

@@ -2,6 +2,7 @@ import {
   assertRequestBodySize,
   CONTRACT_LIMITS,
   ContractError,
+  parseDeletePriceRuleRequest,
   parseIssueChallengeRequest,
   parseLostInstallationRevokeRequest,
   parsePushTokenRebindRequest,
@@ -21,9 +22,12 @@ import {
   parseAccountLinkResponse,
   parseChallengeResponse,
   parseCredentialRotationResponse,
+  parseDeletedRuleResponse,
   parseDrainResponse,
   parseInstallationResponse,
   parseLostRevokeResponse,
+  parseMobileAlertResponse,
+  parseMobileSnapshotResponse,
   parsePushTokenResponse,
   parseRuleResponse,
 } from "./application";
@@ -62,7 +66,12 @@ export function createNotificationRequestHandler(
       if (request.method === "GET" && url.pathname === "/health") {
         return jsonResponse(200, { status: "ok" });
       }
-      if (request.method !== "POST" && request.method !== "PUT") {
+      if (
+        request.method !== "GET" &&
+        request.method !== "POST" &&
+        request.method !== "PUT" &&
+        request.method !== "DELETE"
+      ) {
         return jsonResponse(405, { error: "method_not_allowed" });
       }
       const isRegistration =
@@ -71,11 +80,18 @@ export function createNotificationRequestHandler(
         /^\/v1\/installations\/([0-9a-f]{32})\/credential$/.exec(url.pathname);
       const pushTokenPath =
         /^\/v1\/installations\/([0-9a-f]{32})\/push-token$/.exec(url.pathname);
+      const snapshotPath =
+        /^\/v1\/installations\/([0-9a-f]{32})\/snapshot$/.exec(url.pathname);
+      const alertPath = /^\/v1\/alerts\/([0-9a-f]{32})$/.exec(url.pathname);
+      const deleteRulePath = /^\/v1\/rules\/([0-9a-f]{32})$/.exec(url.pathname);
       const isRule =
         request.method === "PUT" &&
         /^\/v1\/rules\/[0-9a-f]{32}$/.test(url.pathname);
       const isKnownProtectedRoute =
         (request.method === "POST" && PROTECTED_POST_PATHS.has(url.pathname)) ||
+        (request.method === "GET" &&
+          (snapshotPath?.[1] !== undefined || alertPath?.[1] !== undefined)) ||
+        (request.method === "DELETE" && deleteRulePath?.[1] !== undefined) ||
         (request.method === "PUT" &&
           (credentialPath?.[1] !== undefined ||
             pushTokenPath?.[1] !== undefined ||
@@ -86,7 +102,8 @@ export function createNotificationRequestHandler(
       const authenticated = isRegistration
         ? undefined
         : authenticate(request, context);
-      const body = await readBoundedJson(request);
+      const body =
+        request.method === "GET" ? undefined : await readBoundedJson(request);
       if (isRegistration) {
         const result = await options.application.registerInstallation(
           parseRegisterInstallationRequest(body),
@@ -96,6 +113,37 @@ export function createNotificationRequestHandler(
       }
       if (!authenticated)
         throw new ApplicationError(401, "authentication required");
+      if (request.method === "GET" && snapshotPath?.[1]) {
+        return jsonResponse(
+          200,
+          parseMobileSnapshotResponse(
+            await options.application.readInstallationSnapshot(
+              snapshotPath[1],
+              authenticated,
+            ),
+          ),
+        );
+      }
+      if (request.method === "GET" && alertPath?.[1]) {
+        return jsonResponse(
+          200,
+          parseMobileAlertResponse(
+            await options.application.readAlert(alertPath[1], authenticated),
+          ),
+        );
+      }
+      if (request.method === "DELETE" && deleteRulePath?.[1]) {
+        const parsed = parseDeletePriceRuleRequest(body);
+        if (parsed.ruleId !== deleteRulePath[1]) {
+          throw new ContractError("path and body rule IDs differ");
+        }
+        return jsonResponse(
+          200,
+          parseDeletedRuleResponse(
+            await options.application.deletePriceRule(parsed, authenticated),
+          ),
+        );
+      }
       if (request.method === "POST" && url.pathname === "/v1/challenges") {
         return jsonResponse(
           201,

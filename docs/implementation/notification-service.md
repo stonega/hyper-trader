@@ -33,7 +33,10 @@ material, or any other extra field, the server emits only a generic HTTP 500.
 | `POST /v1/challenges` | Creates a five-minute, one-time, credential-bound account proof challenge. |
 | `POST /v1/account-links/verify` | Consumes an exact master proof and creates one verified link in the same transaction. |
 | `PUT /v1/rules/:ruleId` | Replaces a price rule with bearer authority or an account rule with a fresh exact proof. Path and body IDs must match. |
-| `PUT /v1/installations/:id/push-token` | Re-encrypts a replacement token only after a fresh proof bound to its fingerprint and an existing verified link. |
+| `DELETE /v1/rules/:ruleId` | Deletes only an installation-owned price rule with bearer authority. Account-rule deletion is unavailable without exact current proof. |
+| `GET /v1/installations/:id/snapshot` | Returns only the authenticated installation's bounded links, rules, token state, and aggregate delivery health. |
+| `GET /v1/alerts/:alertId` | Returns one authenticated opaque alert target and delivery state; removed/revoked targets are marked unavailable. |
+| `PUT /v1/installations/:id/push-token` | Re-encrypts a replacement token with fresh account proof when account authority exists; bearer-only rebind is allowed only when no active/draining account link or active account rule exists. |
 | `POST /v1/account-links/unlink` | Drains and deletes only the selected link scope. |
 | `POST /v1/installations/revoke` | Authenticated self-revoke; never rate-limited after authentication. |
 | `POST /v1/installations/revoke-lost` | Master-proof recovery revoke over an exact sorted, unique installation set. |
@@ -98,6 +101,12 @@ provider wraps that exact DEK with the active versioned KEK; the row stores the
 wrapped DEK, KEK version, ciphertext, nonce, and SHA-256 fingerprint. Plain DEK
 buffers are zeroed after use. A database backup alone is insufficient to
 decrypt a token.
+
+Registration and both token-rebind paths take the same transaction-scoped
+advisory lock derived from the fingerprint before checking ownership or writing.
+The database unique fingerprint constraint remains the final authority. This
+removes the ownership-check/update race and returns a bounded conflict instead
+of leaving a failed uniqueness transaction open.
 
 Key rotation retains old versions as decrypt-only, decrypts each bounded batch,
 and writes a fresh DEK/nonce wrapped by the active version without changing the

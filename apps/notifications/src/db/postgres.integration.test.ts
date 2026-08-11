@@ -21,6 +21,7 @@ import {
   PostgresNotificationStore,
   StoreConflictError,
   StoreDependencyUnavailableError,
+  StoreNotFoundError,
   StoreRateLimitError,
   StoreUnauthorizedError,
 } from "./notification-store";
@@ -485,6 +486,152 @@ integration("PostgreSQL notification foundation", () => {
       },
       { installationId, credential },
     );
+  });
+
+  test("bounds bearer mobile reads, price deletion, and price-only token rotation", async () => {
+    const ruleId = "9a".repeat(16);
+    const alertId = "9b".repeat(16);
+    const outboxId = "9c".repeat(16);
+    await store.putPriceRule(
+      {
+        ruleId,
+        scope: "price",
+        network: "testnet",
+        marketId: "perp:ETH",
+        eventType: "price_below",
+        threshold: "1000",
+      },
+      { installationId, credential },
+    );
+    await first.unsafe(
+      `
+        INSERT INTO notification_alerts (
+          alert_id, installation_id, rule_id, category, network, route_hint
+        ) VALUES ($1, $2, $3, 'price', 'testnet', 'trade')
+      `,
+      [alertId, installationId, ruleId],
+    );
+    await first.unsafe(
+      `
+        INSERT INTO notification_outbox (
+          outbox_id, alert_id, installation_id, network, revocation_generation,
+          state
+        ) VALUES ($1, $2, $3, 'testnet', 0, 'provider_accepted')
+      `,
+      [outboxId, alertId, installationId],
+    );
+
+    await expect(
+      store.readMobileInstallationSnapshot({ installationId, credential }),
+    ).resolves.toMatchObject({
+      installationId,
+      state: "active",
+      tokenState: "active",
+    });
+    await expect(
+      store.readMobileInstallationSnapshot({
+        installationId,
+        credential: secondCredential,
+      }),
+    ).rejects.toThrow(StoreNotFoundError);
+    await expect(
+      store.readMobileAlert({ alertId, credential }),
+    ).resolves.toMatchObject({
+      alertId,
+      state: "active",
+      routeHint: "trade",
+      rule: { ruleId, scope: "price", marketId: "perp:ETH" },
+      account: null,
+    });
+    await expect(
+      store.readMobileAlert({ alertId, credential: secondCredential }),
+    ).rejects.toThrow(StoreNotFoundError);
+
+    await expect(
+      store.rebindPriceOnlyPushToken({
+        installationId,
+        credential,
+        provider: "expo",
+        pushToken: "ExponentPushToken[proof-required]",
+      }),
+    ).rejects.toThrow(StoreUnauthorizedError);
+    await expect(
+      peer.rebindPriceOnlyPushToken({
+        installationId: secondInstallationId,
+        credential: secondCredential,
+        provider: "expo",
+        pushToken: "ExponentPushToken[price-only-rotation]",
+      }),
+    ).resolves.toMatchObject({ state: "active" });
+    await peer.rebindPriceOnlyPushToken({
+      installationId: secondInstallationId,
+      credential: secondCredential,
+      provider: "expo",
+      pushToken: "ExponentPushToken[foundation-b]",
+    });
+
+    await expect(
+      store.deletePriceRule({ installationId, credential, ruleId }),
+    ).resolves.toEqual({ ruleId, state: "deleted" });
+    await expect(
+      store.deletePriceRule({ installationId, credential, ruleId }),
+    ).rejects.toThrow(StoreNotFoundError);
+    await expect(
+      store.readMobileAlert({ alertId, credential }),
+    ).resolves.toMatchObject({ state: "target_unavailable", rule: null });
+    await first.unsafe(`DELETE FROM notification_outbox WHERE outbox_id = $1`, [
+      outboxId,
+    ]);
+    await first.unsafe(`DELETE FROM notification_alerts WHERE alert_id = $1`, [
+      alertId,
+    ]);
+  });
+
+  test("resolves concurrent price-only token collisions through the unique constraint", async () => {
+    const thirdInstallationId = "16".repeat(16);
+    const thirdCredential = "17".repeat(32);
+    await store.registerInstallation({
+      installationId: thirdInstallationId,
+      credential: thirdCredential,
+      provider: "expo",
+      pushToken: "ExponentPushToken[foundation-c]",
+    });
+    const collidingToken = "ExponentPushToken[price-race]";
+
+    const outcomes = await Promise.allSettled([
+      store.rebindPriceOnlyPushToken({
+        installationId: secondInstallationId,
+        credential: secondCredential,
+        provider: "expo",
+        pushToken: collidingToken,
+      }),
+      peer.rebindPriceOnlyPushToken({
+        installationId: thirdInstallationId,
+        credential: thirdCredential,
+        provider: "expo",
+        pushToken: collidingToken,
+      }),
+    ]);
+
+    expect(
+      outcomes.filter((outcome) => outcome.status === "fulfilled"),
+    ).toHaveLength(1);
+    const rejected = outcomes.find((outcome) => outcome.status === "rejected");
+    expect(rejected).toMatchObject({
+      status: "rejected",
+      reason: expect.any(StoreConflictError),
+    });
+
+    await first.unsafe(
+      `DELETE FROM notification_installations WHERE installation_id = $1`,
+      [thirdInstallationId],
+    );
+    await peer.rebindPriceOnlyPushToken({
+      installationId: secondInstallationId,
+      credential: secondCredential,
+      provider: "expo",
+      pushToken: "ExponentPushToken[foundation-b]",
+    });
   });
 
   test("consumes a fresh exact proof with each account-rule replacement", async () => {

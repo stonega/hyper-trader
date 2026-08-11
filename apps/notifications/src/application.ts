@@ -1,6 +1,9 @@
 import type {
+  DeletePriceRuleRequest,
   IssueChallengeRequest,
   LostInstallationRevokeRequest,
+  MobileAlertResponse,
+  MobileInstallationSnapshotResponse,
   PushTokenRebindRequest,
   PutRuleRequest,
   RegisterInstallationRequest,
@@ -8,6 +11,15 @@ import type {
   RotateInstallationCredentialRequest,
   UnlinkAccountRequest,
   VerifyAccountLinkRequest,
+} from "@hyper-trader/notifications";
+import {
+  parseMobileAlertResponse as parseSharedMobileAlertResponse,
+  parseMobileInstallationSnapshotResponse as parseSharedMobileInstallationSnapshotResponse,
+} from "@hyper-trader/notifications";
+
+export type {
+  MobileAlertResponse,
+  MobileInstallationSnapshotResponse,
 } from "@hyper-trader/notifications";
 
 export interface NotificationApplicationContext {
@@ -40,6 +52,11 @@ export interface AccountLinkResponse {
 export interface RuleResponse {
   readonly ruleId: string;
   readonly state: "active";
+}
+
+export interface DeletedRuleResponse {
+  readonly ruleId: string;
+  readonly state: "deleted";
 }
 
 export interface CredentialRotationResponse {
@@ -103,6 +120,18 @@ export interface NotificationApplication {
     request: PushTokenRebindRequest,
     context: AuthenticatedApplicationContext,
   ): Promise<PushTokenResponse>;
+  readInstallationSnapshot(
+    installationId: string,
+    context: AuthenticatedApplicationContext,
+  ): Promise<MobileInstallationSnapshotResponse>;
+  readAlert(
+    alertId: string,
+    context: AuthenticatedApplicationContext,
+  ): Promise<MobileAlertResponse>;
+  deletePriceRule(
+    request: DeletePriceRuleRequest,
+    context: AuthenticatedApplicationContext,
+  ): Promise<DeletedRuleResponse>;
 }
 
 export class ResponseContractError extends Error {
@@ -156,6 +185,32 @@ export function parseRuleResponse(value: unknown): RuleResponse {
     ruleId: hex(record.ruleId, 32),
     state: literal(record.state, "active"),
   };
+}
+
+export function parseDeletedRuleResponse(value: unknown): DeletedRuleResponse {
+  const record = exactResponse(value, ["ruleId", "state"]);
+  return {
+    ruleId: hex(record.ruleId, 32),
+    state: literal(record.state, "deleted"),
+  };
+}
+
+export function parseMobileSnapshotResponse(
+  value: unknown,
+): MobileInstallationSnapshotResponse {
+  try {
+    return parseSharedMobileInstallationSnapshotResponse(value);
+  } catch {
+    throw new ResponseContractError();
+  }
+}
+
+export function parseMobileAlertResponse(value: unknown): MobileAlertResponse {
+  try {
+    return parseSharedMobileAlertResponse(value);
+  } catch {
+    throw new ResponseContractError();
+  }
 }
 
 export function parseCredentialRotationResponse(

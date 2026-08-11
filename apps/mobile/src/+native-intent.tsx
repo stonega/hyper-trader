@@ -1,3 +1,4 @@
+import { parseNotificationSystemPath } from "./features/notifications/intent";
 import { parseWalletReturn } from "./platform/wallet/callback";
 
 export function redirectSystemPath({
@@ -6,6 +7,8 @@ export function redirectSystemPath({
   path: string;
   initial: boolean;
 }) {
+  const notificationPath = parseNotificationSystemPath(path);
+  if (notificationPath) return notificationPath;
   const walletReturn = parseWalletReturn(path);
   if (walletReturn) {
     return `/setup/return?attemptId=${encodeURIComponent(walletReturn.attemptId)}&connectorSessionId=${encodeURIComponent(walletReturn.connectorSessionId)}`;

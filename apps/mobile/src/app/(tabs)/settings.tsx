@@ -31,6 +31,7 @@ import {
   buildRedactedDiagnosticExport,
   diagnosticExportJson,
 } from "../../features/diagnostics/diagnostic-export";
+import { useNotificationRuntime } from "../../features/notifications/provider";
 import { useOnboardingPreference } from "../../features/onboarding/provider";
 import { useDeviceAuthStatus } from "../../features/security/device-auth-status";
 import { sessionStatusText } from "../../features/security/session-presentation";
@@ -63,6 +64,7 @@ export default function SettingsScreen(): JSX.Element {
   const scopedPreferences = useScopedTradingPreferences();
   const appearance = useAppearancePreference();
   const onboarding = useOnboardingPreference();
+  const notifications = useNotificationRuntime();
   const deviceAuth = useDeviceAuthStatus();
   const [message, setMessage] = useState<string | null>(null);
   const activeAccount = useMemo(
@@ -176,7 +178,15 @@ export default function SettingsScreen(): JSX.Element {
               : null,
         },
         actions: [],
-        notification: null,
+        notification: {
+          tokenState:
+            notifications.status === "error"
+              ? "error"
+              : notifications.snapshot === null
+                ? "absent"
+                : "registered",
+          tokenSuffix: null,
+        },
       });
       await Share.share({
         title: "Hyper Trader redacted diagnostics",
@@ -570,13 +580,20 @@ export default function SettingsScreen(): JSX.Element {
 
       <SettingsSection
         title="Notifications"
-        description="Notification permission, device-token lifecycle, alert rules, and server deletion are owned by the notification integration. No placeholder control here claims a token or rule changed."
+        description="Manage contextual permission, device-token delivery, price alerts, proof-bound account alerts, and verified server deletion."
       >
         <Text className="text-sm leading-5 text-muted">
-          Notification controls are unavailable until the verified installation
-          and account-link runtime is wired. Account unlink remains blocked from
-          claiming completion without scoped server deletion evidence.
+          Permission is requested only after you add an alert. Notification taps
+          open an opaque record, then refresh authoritative Hyperliquid state.
         </Text>
+        <Button
+          animation={reducedMotion ? "disable-all" : undefined}
+          className="min-h-12 w-full"
+          onPress={() => router.push("/notification-settings")}
+          variant="secondary"
+        >
+          Manage notifications
+        </Button>
       </SettingsSection>
 
       <SettingsSection

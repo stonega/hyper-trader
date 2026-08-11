@@ -4,9 +4,12 @@ import type {
   AccountLinkResponse,
   ChallengeResponse,
   CredentialRotationResponse,
+  DeletedRuleResponse,
   DrainResponse,
   InstallationResponse,
   LostRevokeResponse,
+  MobileAlertResponse,
+  MobileInstallationSnapshotResponse,
   NotificationApplication,
   NotificationApplicationContext,
   PushTokenResponse,
@@ -74,6 +77,45 @@ class FakeApplication implements NotificationApplication {
     this.calls.push("rebind-token");
     return { tokenFingerprint: "29".repeat(32), state: "active" };
   }
+
+  async readInstallationSnapshot(): Promise<MobileInstallationSnapshotResponse> {
+    this.calls.push("snapshot");
+    return {
+      installationId: "11".repeat(16),
+      state: "active",
+      tokenState: "active",
+      deliveryHealth: "healthy",
+      pendingDeliveryCount: 0,
+      unknownDeliveryCount: 0,
+      accountLinks: [],
+      rules: [],
+    };
+  }
+
+  async readAlert(): Promise<MobileAlertResponse> {
+    this.calls.push("alert");
+    return {
+      alertId: "30".repeat(16),
+      state: "active",
+      category: "price",
+      network: "testnet",
+      routeHint: "trade",
+      createdAtMs: 1_800_000_000_000,
+      deliveryState: "provider_accepted",
+      rule: {
+        ruleId: "25".repeat(16),
+        scope: "price",
+        marketId: "perp:BTC",
+        eventType: "price_above",
+      },
+      account: null,
+    };
+  }
+
+  async deletePriceRule(): Promise<DeletedRuleResponse> {
+    this.calls.push("delete-price-rule");
+    return { ruleId: "25".repeat(16), state: "deleted" };
+  }
 }
 
 function request(
@@ -92,6 +134,12 @@ function request(
       ),
     },
     body: JSON.stringify(body),
+  });
+}
+
+function getRequest(path: string, credential = "33".repeat(32)): Request {
+  return new Request(`https://notify.example.com${path}`, {
+    headers: { authorization: `Bearer ${credential}` },
   });
 }
 
@@ -311,5 +359,103 @@ describe("bounded public notification API", () => {
     const body = await response.text();
     expect(JSON.parse(body)).toEqual({ error: "internal_error" });
     expect(body).not.toContain("must-not-escape");
+  });
+
+  test("authenticates bounded mobile snapshot and opaque alert reads", async () => {
+    const application = new FakeApplication();
+    const handler = createNotificationRequestHandler({
+      application,
+      serviceOrigin: "https://notify.example.com",
+    });
+    const context = { ip: "192.0.2.1" };
+    expect(
+      (
+        await handler(
+          getRequest(`/v1/installations/${"11".repeat(16)}/snapshot`),
+          context,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await handler(getRequest(`/v1/alerts/${"30".repeat(16)}`), context))
+        .status,
+    ).toBe(200);
+    expect(application.calls).toEqual(["snapshot", "alert"]);
+  });
+
+  test("routes bearer-only price deletion and price-only token rotation", async () => {
+    const application = new FakeApplication();
+    const handler = createNotificationRequestHandler({
+      application,
+      serviceOrigin: "https://notify.example.com",
+    });
+    const context = { ip: "192.0.2.1" };
+    const installationId = "11".repeat(16);
+    const ruleId = "25".repeat(16);
+    expect(
+      (
+        await handler(
+          request(
+            `/v1/rules/${ruleId}`,
+            { installationId, ruleId },
+            undefined,
+            "DELETE",
+          ),
+          context,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await handler(
+          request(
+            `/v1/installations/${installationId}/push-token`,
+            {
+              installationId,
+              provider: "expo",
+              pushToken: "ExponentPushToken[price-only-replacement]",
+            },
+            undefined,
+            "PUT",
+          ),
+          context,
+        )
+      ).status,
+    ).toBe(200);
+    expect(application.calls).toEqual(["delete-price-rule", "rebind-token"]);
+  });
+
+  test("does not dispatch malformed mobile read or delete paths", async () => {
+    const application = new FakeApplication();
+    const handler = createNotificationRequestHandler({
+      application,
+      serviceOrigin: "https://notify.example.com",
+    });
+    const context = { ip: "192.0.2.1" };
+    expect(
+      (
+        await handler(
+          getRequest(`/v1/installations/${"11".repeat(15)}/snapshot`),
+          context,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await handler(
+          request(
+            `/v1/rules/${"25".repeat(16)}`,
+            {
+              installationId: "11".repeat(16),
+              ruleId: "26".repeat(16),
+            },
+            undefined,
+            "DELETE",
+          ),
+          context,
+        )
+      ).status,
+    ).toBe(400);
+    expect(application.calls).toEqual([]);
   });
 });
