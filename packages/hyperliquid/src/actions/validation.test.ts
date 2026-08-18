@@ -1,0 +1,339 @@
+import { describe, expect, test } from "bun:test";
+
+import { validateTradingAction } from "./validation";
+
+const context = {
+  network: "testnet" as const,
+  masterAccount: "0x1111111111111111111111111111111111111111",
+  targetAccount: "0x2222222222222222222222222222222222222222",
+  capturedContextEpoch: 7,
+  currentContextEpoch: 7,
+  currentNetwork: "testnet" as const,
+  currentMasterAccount: "0x1111111111111111111111111111111111111111",
+  currentTargetAccount: "0x2222222222222222222222222222222222222222",
+  reviewedAtMs: 1_725_000_000_000,
+  reviewExpiresAtMs: 1_725_000_030_000,
+  nowMs: 1_725_000_001_000,
+};
+
+const market = {
+  canonicalId: "perp:BTC",
+  metadataFingerprint: "metadata-v1",
+  orderAssetId: 0,
+  family: "perp" as const,
+  lifecycle: "active" as const,
+  orderAvailability: "enabled" as const,
+  sizeDecimals: 3,
+  pricePrecision: { maxSignificantFigures: 5 as const, maxDecimalPlaces: 2 },
+  maxLeverage: 25,
+  onlyIsolated: false,
+  referencePrice: "100",
+  minimumNotional: "10",
+};
+
+describe("action boundary validation", () => {
+  test("normalizes a decimal-safe limit order against current context", () => {
+    const result = validateTradingAction({
+      context,
+      market,
+      account: {
+        availableMargin: "1000",
+        leverage: 5,
+        positionSize: "0",
+        version: 4,
+      },
+      controls: { slippageBps: null, trigger: null },
+      intent: {
+        type: "limit_order",
+        assetId: 0,
+        side: "buy",
+        size: "0.100",
+        limitPrice: "100.00",
+        timeInForce: "Gtc",
+        reduceOnly: false,
+        cloid: "0x00000000000000000000000000000001",
+      },
+    });
+
+    expect(result.intent.size).toBe("0.1");
+    expect(
+      result.intent.type === "limit_order" && result.intent.limitPrice,
+    ).toBe("100");
+    expect(result.notional).toBe("10");
+  });
+
+  test("accepts integer prices while rejecting forged precision metadata", () => {
+    const input = {
+      context,
+      market,
+      account: {
+        availableMargin: "100000",
+        leverage: 5,
+        marginMode: "cross" as const,
+        positionSize: "0",
+        version: 4,
+      },
+      controls: { slippageBps: null, trigger: null },
+      intent: {
+        type: "limit_order" as const,
+        assetId: 0,
+        side: "buy" as const,
+        size: "0.1",
+        limitPrice: "100000",
+        timeInForce: "Gtc" as const,
+        reduceOnly: false,
+        cloid: "0x00000000000000000000000000000007",
+      },
+    };
+    expect(validateTradingAction(input).intent).toMatchObject({
+      limitPrice: "100000",
+    });
+    expect(() =>
+      validateTradingAction({
+        ...input,
+        market: {
+          ...market,
+          pricePrecision: {
+            maxSignificantFigures: 5,
+            maxDecimalPlaces: 8,
+          },
+        },
+      }),
+    ).toThrow("precision");
+  });
+
+  test.each([
+    [
+      "notional",
+      { availableMargin: "1" },
+      { slippageBps: null, trigger: null },
+    ],
+    ["slippage", {}, { slippageBps: 10, trigger: null }],
+    [
+      "trigger",
+      {},
+      { slippageBps: null, trigger: { price: "101", direction: "above" } },
+    ],
+  ] as const)(
+    "rejects invalid applicable %s state",
+    (_label, accountMutation, controls) => {
+      expect(() =>
+        validateTradingAction({
+          context,
+          market,
+          account: {
+            availableMargin: "1000",
+            leverage: 5,
+            marginMode: "cross",
+            positionSize: "0",
+            version: 4,
+            ...accountMutation,
+          },
+          controls: controls as never,
+          intent: {
+            type: "limit_order",
+            assetId: 0,
+            side: "buy",
+            size: "0.1",
+            limitPrice: "100",
+            timeInForce: "Gtc",
+            reduceOnly: false,
+            cloid: "0x00000000000000000000000000000008",
+          },
+        }),
+      ).toThrow();
+    },
+  );
+
+  test("rejects extraneous intent fields and unavailable markets", () => {
+    const input = {
+      context,
+      market,
+      account: {
+        availableMargin: "1000",
+        leverage: 5,
+        marginMode: "cross" as const,
+        positionSize: "0",
+        version: 4,
+      },
+      controls: { slippageBps: null, trigger: null },
+      intent: {
+        type: "limit_order" as const,
+        assetId: 0,
+        side: "buy" as const,
+        size: "0.1",
+        limitPrice: "100",
+        timeInForce: "Gtc" as const,
+        reduceOnly: false,
+        cloid: "0x00000000000000000000000000000009",
+      },
+    };
+    expect(() =>
+      validateTradingAction({
+        ...input,
+        intent: { ...input.intent, aggressiveLimitPrice: "101" } as never,
+      }),
+    ).toThrow("fields");
+    expect(() =>
+      validateTradingAction({
+        ...input,
+        market: { ...market, lifecycle: "delisted" },
+      }),
+    ).toThrow("available");
+  });
+
+  test("rejects precision drift, insufficient margin, and mainnet before action work", () => {
+    expect(() =>
+      validateTradingAction({
+        context,
+        market: { ...market, sizeDecimals: 2 },
+        account: {
+          availableMargin: "1000",
+          leverage: 5,
+          positionSize: "0",
+          version: 5,
+        },
+        controls: { slippageBps: null, trigger: null },
+        intent: {
+          type: "limit_order",
+          assetId: 0,
+          side: "buy",
+          size: "0.001",
+          limitPrice: "100",
+          timeInForce: "Gtc",
+          reduceOnly: false,
+          cloid: "0x00000000000000000000000000000002",
+        },
+      }),
+    ).toThrow("size");
+
+    expect(() =>
+      validateTradingAction({
+        context: { ...context, network: "mainnet" },
+        market,
+        account: {
+          availableMargin: "1",
+          leverage: 1,
+          positionSize: "0",
+          version: 5,
+        },
+        controls: { slippageBps: null, trigger: null },
+        intent: {
+          type: "market_order",
+          assetId: 0,
+          side: "buy",
+          size: "1",
+          aggressiveLimitPrice: "101",
+          cloid: "0x00000000000000000000000000000003",
+        },
+      }),
+    ).toThrow("mainnet");
+  });
+
+  test("requires a full opposite-side reduce-only close", () => {
+    expect(() =>
+      validateTradingAction({
+        context,
+        market,
+        account: {
+          availableMargin: "100",
+          leverage: 5,
+          positionSize: "2",
+          version: 5,
+        },
+        controls: { slippageBps: 100, trigger: null },
+        intent: {
+          type: "reduce_only_close",
+          assetId: 0,
+          side: "sell",
+          size: "1",
+          aggressiveLimitPrice: "99",
+          cloid: "0x00000000000000000000000000000004",
+        },
+      }),
+    ).toThrow("full position size");
+  });
+
+  test("requires an explicit exact current context", () => {
+    const forged = {
+      context: { ...context },
+      market,
+      account: {
+        availableMargin: "1000",
+        leverage: 5,
+        positionSize: "0",
+        version: 4,
+      },
+      controls: { slippageBps: null, trigger: null },
+      intent: {
+        type: "limit_order",
+        assetId: 0,
+        side: "buy",
+        size: "0.1",
+        limitPrice: "100",
+        timeInForce: "Gtc",
+        reduceOnly: false,
+        cloid: "0x00000000000000000000000000000005",
+      },
+    };
+    delete (forged.context as Partial<typeof context>).currentTargetAccount;
+    expect(() =>
+      validateTradingAction(
+        forged as unknown as Parameters<typeof validateTradingAction>[0],
+      ),
+    ).toThrow("currentTargetAccount");
+  });
+
+  test.each([
+    ["side", { side: "hold" }],
+    ["timeInForce", { timeInForce: "Never" }],
+    ["reduceOnly", { reduceOnly: "yes" }],
+  ] as const)("rejects forged order discriminator %s", (_label, mutation) => {
+    expect(() =>
+      validateTradingAction({
+        context,
+        market,
+        account: {
+          availableMargin: "1000",
+          leverage: 5,
+          positionSize: "0",
+          version: 4,
+        },
+        controls: { slippageBps: null, trigger: null },
+        intent: {
+          type: "limit_order",
+          assetId: 0,
+          side: "buy",
+          size: "0.1",
+          limitPrice: "100",
+          timeInForce: "Gtc",
+          reduceOnly: false,
+          cloid: "0x00000000000000000000000000000006",
+          ...mutation,
+        } as never,
+      }),
+    ).toThrow();
+  });
+
+  test("rejects a forged leverage margin mode", () => {
+    expect(() =>
+      validateTradingAction({
+        context,
+        market,
+        account: {
+          availableMargin: "1000",
+          leverage: 5,
+          positionSize: "0",
+          version: 4,
+        },
+        controls: { slippageBps: null, trigger: null },
+        intent: {
+          type: "update_leverage",
+          assetId: 0,
+          leverage: 2,
+          marginMode: "portfolio",
+        } as never,
+      }),
+    ).toThrow("marginMode");
+  });
+});

@@ -1,0 +1,17 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - portfolio
+---
+# acceptance: AE7
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: portfolio-close
+- tapOn: "Portfolio"
+- tapOn: "Close"
+- assertVisible: "Close size"
+- tapOn: "Review close"
+- assertVisible: "Reduce only"
+- assertVisible: "Yes"
+- assertVisible: "Testnet"

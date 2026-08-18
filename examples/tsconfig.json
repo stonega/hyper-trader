@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["bun"]
+  },
+  "include": [
+    "notification-account-baseline.ts",
+    "notification-proof-digests.ts",
+    "testnet-action-encoding.ts",
+    "testnet-order-workflow.ts"
+  ]
+}

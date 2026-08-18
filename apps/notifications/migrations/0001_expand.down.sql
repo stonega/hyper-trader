@@ -1,0 +1,16 @@
+DROP TABLE IF EXISTS notification_deletion_tombstones;
+DROP TABLE IF EXISTS notification_revocation_operations;
+DROP TABLE IF EXISTS notification_monitor_leases;
+DROP TABLE IF EXISTS notification_delivery_receipts;
+DROP TABLE IF EXISTS notification_provider_tickets;
+DROP TABLE IF EXISTS notification_dispatch_permits;
+DROP TABLE IF EXISTS notification_outbox;
+DROP TABLE IF EXISTS notification_alerts;
+DROP TABLE IF EXISTS notification_event_dedupe_keys;
+DROP TABLE IF EXISTS notification_rules;
+DROP TABLE IF EXISTS notification_account_links;
+DROP TABLE IF EXISTS notification_account_link_challenges;
+DROP TABLE IF EXISTS notification_push_tokens;
+DROP TABLE IF EXISTS notification_installations;
+DROP TABLE IF EXISTS notification_admission_events;
+DROP TABLE IF EXISTS notification_service_state;

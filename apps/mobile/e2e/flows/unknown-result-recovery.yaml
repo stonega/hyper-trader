@@ -1,0 +1,18 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - recovery
+---
+# acceptance: AE6
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: unknown-result-recovery
+- assertVisible: "Outcome still reconciling"
+- assertVisible: "It will not be submitted again."
+- stopApp
+- launchApp:
+    clearState: false
+    arguments:
+      HT_E2E_FIXTURE: unknown-result-recovery
+- assertVisible: "Outcome still reconciling"

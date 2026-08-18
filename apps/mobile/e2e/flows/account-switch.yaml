@@ -1,0 +1,14 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - accounts
+---
+# acceptance: AE1
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: account-switch
+- tapOn: "Switch account"
+- tapOn: "Use Fixture account B"
+- assertVisible: "Account switched. Prior private state and signing session were isolated."
+- assertNotVisible: "Fixture account A draft"

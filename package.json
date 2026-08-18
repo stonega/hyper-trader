@@ -14,8 +14,16 @@
     "mobile:ios": "bun --cwd apps/mobile ios",
     "check": "biome check .",
     "check:fix": "biome check --write .",
-    "typecheck": "bun run --filter '*' typecheck",
-    "test": "bun test"
+    "check:secrets": "bun scripts/check-secrets.ts",
+    "typecheck": "bun run --filter '*' typecheck && tsc -p examples/tsconfig.json",
+    "test": "bun test",
+    "test:mobile": "bun --cwd apps/mobile test:mobile",
+    "test:e2e:mobile": "bun scripts/check-mobile-e2e.ts",
+    "test:e2e:mobile:device": "bash scripts/run-mobile-e2e-device.sh",
+    "test:notifications": "bun apps/notifications/test/run-postgres.ts"
+  },
+  "overrides": {
+    "expo-constants": "57.0.10"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",

@@ -1,8 +1,10 @@
 # Hyper Trader
 
-Hyper Trader is a mobile-first Hyperliquid client built as a Bun monorepo. The
-starter app displays live perpetual-market mid prices through Hyperliquid's public
-API and establishes the safety boundaries for adding wallet-backed trading.
+Hyper Trader is a native iOS and Android Hyperliquid client built as a Bun
+monorepo. It provides runtime market discovery, Trade and Portfolio workflows,
+target-scoped testnet action boundaries, account/security controls, and a
+portable notification service while keeping live integration behind explicit
+release gates.
 
 ## Stack
 
@@ -51,6 +53,9 @@ project target.
 bun run check
 bun run typecheck
 bun test
+bun run test:mobile
+bun run test:e2e:mobile
+bun run check:secrets
 ```
 
 Or run the complete local gate:
@@ -59,24 +64,30 @@ Or run the complete local gate:
 ./scripts/check.sh
 ```
 
+`test:e2e:mobile` validates deterministic fixture contracts only. See
+[`apps/mobile/e2e/README.md`](apps/mobile/e2e/README.md) before any device run.
+
 ## Current capabilities
 
-- Fetch live prices from Hyperliquid's public `POST /info` endpoint using the
-  `allMids` request.
-- Show BTC, ETH, SOL, and HYPE mid prices with pull-to-refresh and background
-  refresh.
-- Switch between mainnet and testnet in the shared client configuration.
-- Keep API response parsing and decimal price strings inside a reusable,
-  deterministic package.
+- Discover validated native perpetual, HIP-3, spot, and outcome-market metadata
+  at runtime with safe stale/offline/quarantine presentation.
+- Provide the four-tab native shell, read-only onboarding, progressive Trade,
+  unified Portfolio, multi-account settings, and safe notification entry.
+- Keep protocol parsing, action validation/encoding, mainnet denial, target
+  binding, nonce/reconciliation rules, and public-only notification imports at
+  typed boundaries with deterministic offline tests.
+- Run the portable Bun/PostgreSQL notification monitor and outbox integration
+  suite against ephemeral dependencies with Hyperliquid and Expo mocked.
 
-Authenticated trading is deliberately not enabled yet. Before order submission
-is added, the project requires a reviewed key-custody design, testnet-first
-signing, order validation, and an explicit confirmation screen.
+Live wallet approval and testnet submission remain disabled until the conditional
+security review becomes unconditional for one release revision. Mainnet signing
+and submission are compile-denied and have no enablement path.
 
 ## Documentation
 
 - [Architecture](docs/design/architecture.md)
 - [Local setup](docs/implementation/setup.md)
+- [Release evidence](docs/implementation/release-evidence.md)
 - [Safety and current app behavior](docs/user/getting-started.md)
 - [HeroUI Native documentation](https://heroui.com/en/docs/native/getting-started/quick-start)
 - [Hyperliquid API documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api)

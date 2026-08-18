@@ -7,6 +7,16 @@
    level up from this src/global.css file. */
 @source "../node_modules/heroui-native/lib";
 
+@theme {
+  --font-sans: "BarlowSemiCondensed_400Regular";
+  --font-normal: "BarlowSemiCondensed_400Regular";
+  --font-medium: "BarlowSemiCondensed_500Medium";
+  --font-semibold: "BarlowSemiCondensed_600SemiBold";
+  --font-bold: "BarlowSemiCondensed_700Bold";
+  --color-onboarding-background: #153026;
+  --color-onboarding-foreground: #f7fbf8;
+}
+
 @layer theme {
   @variant light {
     --accent: oklch(0.63 0.13 178);
