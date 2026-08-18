@@ -8,6 +8,7 @@ import type {
   ClearinghouseState,
   HistoricalOrder,
   MarginSummary,
+  NamedApiWalletRegistration,
   OpenOrder,
   OrderStatus,
   PortfolioPeriod,
@@ -17,6 +18,8 @@ import type {
   UserFundingRecord,
   VaultDetails,
 } from "./types";
+
+const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 
 function object(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -54,6 +57,41 @@ function number(value: unknown, path: string): number {
     throw new HyperliquidValidationError(path, "expected a finite number");
   }
   return value;
+}
+
+export function parseNamedApiWalletRegistrations(
+  payload: unknown,
+  path = "extraAgents",
+): readonly NamedApiWalletRegistration[] {
+  return list(payload, path).map((entry, index) => {
+    const entryPath = `${path}[${index}]`;
+    const source = object(entry, entryPath);
+    const name = text(source.name, `${entryPath}.name`);
+    const address = text(source.address, `${entryPath}.address`);
+    const validUntil =
+      source.validUntil === null
+        ? null
+        : integer(source.validUntil, `${entryPath}.validUntil`);
+    if (!/^[\x20-\x7e]{1,16}$/.test(name)) {
+      throw new HyperliquidValidationError(
+        `${entryPath}.name`,
+        "expected 1 to 16 printable ASCII characters",
+      );
+    }
+    if (!ADDRESS_PATTERN.test(address)) {
+      throw new HyperliquidValidationError(
+        `${entryPath}.address`,
+        "expected a 42-character hexadecimal address",
+      );
+    }
+    if (validUntil !== null && validUntil <= 0) {
+      throw new HyperliquidValidationError(
+        `${entryPath}.validUntil`,
+        "expected a positive millisecond timestamp",
+      );
+    }
+    return { name, address: address.toLowerCase(), validUntil };
+  });
 }
 
 function marginSummary(value: unknown, path: string): MarginSummary {

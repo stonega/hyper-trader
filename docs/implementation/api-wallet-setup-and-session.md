@@ -2,13 +2,18 @@
 
 ## Runtime status
 
-Hyper Trader now has deterministic API-wallet setup, custody, and signer-session
-contracts for native iOS and Android. The external Reown wallet runtime remains
-compile-disabled. The security checklist still has conditional runtime evidence,
-and this repository has no reviewed Reown project identifier or redirect
-allowlist. The app therefore renders a clear unavailable state and continues to
-support read-only browsing; it does not create a connector session or send a
-live `approveAgent` request.
+Hyper Trader now has a deterministic manual API-wallet setup, custody, and
+signer-session contract for native iOS and Android. The app generates and stages
+a testnet agent locally, shows only its public address and user-defined name, and opens
+the official Hyperliquid testnet API page for authorization. It never sends the
+private scalar or a prebuilt signed action to the page. The user confirmation is
+not authority: activation still requires a fixed-origin `extraAgents` response
+that matches the exact master, generated address, and acceptable finite expiry.
+The wallet name is not authorization evidence.
+
+The external Reown wallet runtime remains compile-disabled because the repository
+still has no reviewed project identifier or redirect allowlist. Manual setup does
+not depend on Reown or a callback.
 
 No mainnet key generation, secret read, signing, or exchange action is enabled.
 Mainnet is denied before authoritative setup queries, randomness, device
@@ -18,10 +23,11 @@ authentication, or SecureStore access.
 
 The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 
-1. Require testnet and normalize the connected master and selected target.
-2. Query an injected authoritative adapter for current server time, target-role
-   proof, named agents, and named-slot capacity.
-3. Compute the stable 16-character logical registration name.
+1. Require testnet, normalize the entered public master address, and bind the
+   first manual flow to that same master target.
+2. Query the fixed testnet info origin for current HTTP server time, named
+   agents, and named-slot capacity.
+3. Validate and persist the user's 1–16 character API-wallet name.
 4. Retire an expired local attempt for the same target by deleting its staged
    secret before cancelling its durable checkpoint. An unexpired attempt must
    be resumed or explicitly cancelled; a second key is not created.
@@ -31,13 +37,17 @@ The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 6. Stage the immutable target-bound secret in authenticated SecureStore.
 7. Insert the non-secret, random 256-bit setup checkpoint into SQLite. If this
    insert fails, delete the staged record.
-8. Build the exact codec-owned `approveAgent` typed data for a fixed 30-day
-   requested expiry and send it only through the injected wallet adapter.
-9. Treat every callback as parse-only input. Match the live connector session
-   and ten-minute attempt before making an authoritative registration query.
-10. Require the exact target relationship, logical name, agent address, and an
-   expiry no later than requested. A shorter expiry requires explicit user
-   confirmation and a fresh verification.
+8. Persist the public attempt in AsyncStorage as a presentation checkpoint and
+   show its agent address, user-defined name, 30-day requested expiry, and master
+   account. `expo-clipboard` copies only the public address or name.
+9. Open `https://app.hyperliquid-testnet.xyz/API`. The user connects the same
+   master account, creates the named API wallet there, and enters `30` in
+   **Days valid** instead of leaving it blank. A 24-hour local attempt permits
+   app termination and a later resume without generating another key.
+10. Require the exact target relationship and generated agent address. Accept
+    only a finite expiry bounded to 30 days from verification and to the local
+    setup window; do not compare the returned name. A shorter expiry requires
+    explicit user confirmation and a fresh verification.
 11. Consume the attempt and activate the public binding in one SQLite
     transaction. A replay loses the conditional update and is inert.
 
@@ -54,19 +64,17 @@ cannot reopen a later phase.
 
 | Phase | Back behavior |
 |---|---|
-| Connect | Exit setup; read-only state remains usable. |
-| Target | Return to Connect without changing the selected master. |
-| Slot | Return to Target without dropping prior authoritative input. |
-| Review | Return to Slot; a staged attempt remains scoped and resumable. |
-| External handoff | Consume Back after handoff begins. Safe cancellation happens before handoff or through the external-wallet result. |
+| Account | Exit setup; read-only state remains usable. |
+| Protection | Return to Account while retaining the public master-address draft. |
+| Authorization | Exit to Trade read-only; the staged attempt remains scoped and resumable. |
 | Verifying | Consume Back while authoritative proof is checked. |
 | Atomic activation | Consume Back until the local transaction finishes. |
-| Recoverable failure | Keep one opaque mounted shell with Retry and Continue read-only. |
+| Recoverable failure | Keep one opaque mounted shell with Retry and Finish later. |
 | Ready | Replace the route with Trade. |
 
-The screen is text-only. It keeps an opaque `bg-background` root and one mounted
-HeroUI Native card shell. Only its inner phase content fades. Motion is restrained
-to 160 ms, and system Reduced Motion removes the staged transition.
+The screen keeps an opaque `bg-background` root and one mounted HeroUI Native
+card shell. Only its inner phase content fades. Motion is restrained to 160 ms,
+and system Reduced Motion removes the staged transition.
 
 ## Credential records
 
@@ -113,7 +121,9 @@ before and after the asynchronous signer result.
 ## Wallet dependency provenance and deferred wiring
 
 - Expo SDK 57 resolved versions: `expo-secure-store 57.0.1`,
-  `expo-local-authentication 57.0.2`, and `expo-crypto 57.0.1`.
+  `expo-local-authentication 57.0.2`, `expo-crypto 57.0.1`, and
+  `expo-clipboard 57.0.1`. Clipboard access exists only for the public agent
+  address and user-defined registration name; secret material never reaches it.
 - Reown resolved versions: `@reown/appkit-react-native 2.0.6` and
   `@reown/appkit-wagmi-react-native 2.0.6`.
 - WalletConnect compatibility: `@walletconnect/react-native-compat 2.23.10`
@@ -138,7 +148,10 @@ signer adapters plus a real local SQLite database. They cover mainnet denial,
 wrong targets, forged and duplicate callbacks, expiry, shorter expiry review,
 process restart, exact-binding mismatch, late unlock completion, non-sliding
 timeout, target isolation, expired-attempt recovery, manifest-first staging and
-rollback, manifest separation, and reinstall quarantine.
+rollback, manifest separation, and reinstall quarantine. Manual-flow tests also
+cover strict `extraAgents` parsing, HTTP server-time enforcement, public-only
+progress persistence, checkpoint recovery after activation, and the native
+generate → verify → save → Trade path.
 
 Simulator and static build checks are development evidence only. This document
 does not claim Face ID, Android strong-biometric, reinstall, notification-drawer,

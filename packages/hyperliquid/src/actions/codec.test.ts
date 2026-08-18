@@ -277,4 +277,20 @@ describe("approveAgent typed data", () => {
       }),
     ).toThrow("within 180 days");
   });
+
+  test("allows a user-defined agent name with internal spaces", () => {
+    const nonce = 1_725_000_000_000;
+    const validUntil = nonce + 30 * 24 * 60 * 60 * 1_000;
+    const payload = buildApproveAgentTypedData({
+      network: "testnet",
+      agentAddress: fixture.approveAgent.testnet.agentAddress,
+      agentBaseName: "Stone API",
+      nonce,
+      validUntil,
+    });
+
+    expect(payload.action.agentName).toBe(
+      `Stone API valid_until ${validUntil}`,
+    );
+  });
 });

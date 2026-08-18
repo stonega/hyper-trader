@@ -36,11 +36,14 @@ describe("native read-only onboarding", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Choose how to begin")).toBeNull();
     expect(screen.queryByText(/master seed/)).toBeNull();
-    expect(
-      screen.getByTestId("welcome-ribbon-background", {
-        includeHiddenElements: true,
-      }),
-    ).toHaveProp("importantForAccessibility", "no-hide-descendants");
+    const ribbonBackground = screen.getByTestId("welcome-ribbon-background", {
+      includeHiddenElements: true,
+    });
+    expect(ribbonBackground).toHaveProp(
+      "importantForAccessibility",
+      "no-hide-descendants",
+    );
+    expect(ribbonBackground).toHaveStyle({ backgroundColor: "#153026" });
     expect(screen.getByRole("button", { name: "Set up trading" })).toBeTruthy();
     fireEvent.press(screen.getByRole("button", { name: "Explore read-only" }));
 

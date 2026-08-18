@@ -16,6 +16,7 @@ import {
 const MASTER = "0x1111111111111111111111111111111111111111";
 const TARGET = "0x2222222222222222222222222222222222222222";
 const AGENT = "0x3333333333333333333333333333333333333333";
+const REGISTRATION_NAME = "Stone API";
 const SERVER_TIME = 1_800_000_000_000;
 const CONNECTOR_SESSION = "connector-session-7";
 
@@ -31,7 +32,9 @@ function bindingFor(attempt: SetupAttempt): SignerBinding {
 
 function createHarness(
   options: {
-    readonly registeredExpiry?: number;
+    readonly registeredExpiry?: number | null;
+    readonly registeredAddress?: string;
+    readonly registeredName?: string;
     readonly authorizedTarget?: boolean;
     readonly verificationTime?: number;
     readonly deleteFails?: boolean;
@@ -102,14 +105,24 @@ function createHarness(
     },
     async verify(input) {
       events.push("authority:verify");
+      const attempt = [...attempts.values()].find(
+        (candidate) => candidate.agentAddress === input.agentAddress,
+      );
       return {
         authoritativeTime: options.verificationTime ?? SERVER_TIME + 2_000,
         targetAuthorized: true,
-        registration: {
-          agentAddress: input.agentAddress,
-          registrationName: input.registrationName,
-          validUntil: options.registeredExpiry ?? input.requestedExpiry,
-        },
+        registration:
+          attempt === undefined
+            ? null
+            : {
+                agentAddress: options.registeredAddress ?? input.agentAddress,
+                registrationName:
+                  options.registeredName ?? attempt.registrationName,
+                validUntil:
+                  options.registeredExpiry === undefined
+                    ? attempt.requestedExpiry
+                    : options.registeredExpiry,
+              },
       };
     },
   };
@@ -158,6 +171,7 @@ async function prepare(harness: ReturnType<typeof createHarness>) {
     connectorSessionId: CONNECTOR_SESSION,
     connectedMasterAccount: MASTER,
     targetAccount: TARGET,
+    registrationName: REGISTRATION_NAME,
   });
 }
 
@@ -170,7 +184,7 @@ describe("API-wallet setup coordinator", () => {
       SERVER_TIME + AGENT_AUTHORIZATION_DURATION_MS,
     );
     expect(attempt.expiresAt).toBe(SERVER_TIME + SETUP_ATTEMPT_DURATION_MS);
-    expect(attempt.registrationName).toBe("ht-d11947405bc06");
+    expect(attempt.registrationName).toBe(REGISTRATION_NAME);
     expect(bindingFor(attempt)).toEqual({
       network: "testnet",
       masterAccount: MASTER,
@@ -197,6 +211,7 @@ describe("API-wallet setup coordinator", () => {
         connectorSessionId: CONNECTOR_SESSION,
         connectedMasterAccount: MASTER,
         targetAccount: TARGET,
+        registrationName: REGISTRATION_NAME,
       }),
     ).rejects.toThrow("mainnet signing is disabled");
     expect(harness.events).toEqual([]);
@@ -262,6 +277,59 @@ describe("API-wallet setup coordinator", () => {
     expect(harness.active.size).toBe(1);
   });
 
+  test("verifies by exact address when the returned name differs and 30 days starts at approval", async () => {
+    const verificationTime = SERVER_TIME + 2_000;
+    const harness = createHarness({
+      registeredName: "Different label",
+      registeredExpiry: verificationTime + AGENT_AUTHORIZATION_DURATION_MS,
+      verificationTime,
+    });
+    const attempt = await prepare(harness);
+
+    const result = await harness.coordinator.verifyExternalReturn({
+      attemptId: attempt.id,
+      connectorSessionId: CONNECTOR_SESSION,
+    });
+
+    expect(result.status).toBe("activated");
+    expect(harness.active.size).toBe(1);
+  });
+
+  test("keeps an address with no authoritative expiry inactive", async () => {
+    const harness = createHarness({ registeredExpiry: null });
+    const attempt = await prepare(harness);
+
+    await expect(
+      harness.coordinator.verifyExternalReturn({
+        attemptId: attempt.id,
+        connectorSessionId: CONNECTOR_SESSION,
+      }),
+    ).resolves.toEqual({
+      status: "inert",
+      reason: "registration_unverified",
+    });
+    expect(harness.active.size).toBe(0);
+  });
+
+  test("does not activate when only the wallet name matches", async () => {
+    const harness = createHarness({
+      registeredAddress: "0x4444444444444444444444444444444444444444",
+      registeredName: REGISTRATION_NAME,
+    });
+    const attempt = await prepare(harness);
+
+    await expect(
+      harness.coordinator.verifyExternalReturn({
+        attemptId: attempt.id,
+        connectorSessionId: CONNECTOR_SESSION,
+      }),
+    ).resolves.toEqual({
+      status: "inert",
+      reason: "registration_unverified",
+    });
+    expect(harness.active.size).toBe(0);
+  });
+
   test("authoritative time expires an attempt even after local clock rollback", async () => {
     const harness = createHarness({
       verificationTime: SERVER_TIME + SETUP_ATTEMPT_DURATION_MS,
@@ -321,8 +389,8 @@ describe("API-wallet setup coordinator", () => {
           targetAuthorized: true,
           registration: {
             agentAddress: input.agentAddress,
-            registrationName: input.registrationName,
-            validUntil: input.requestedExpiry,
+            registrationName: attempt.registrationName,
+            validUntil: attempt.requestedExpiry,
           },
         }),
       },

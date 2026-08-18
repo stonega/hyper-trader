@@ -44,8 +44,8 @@ export default function WalletReturnScreen(): JSX.Element {
           </Card.Title>
           <Card.Description>
             A link cannot activate trading. This build keeps the return inert; a
-            reviewed build must match one live ten-minute attempt and then
-            verify the exact registration from Hyperliquid.
+            reviewed build must match one live 24-hour attempt and then verify
+            the exact registration from Hyperliquid.
           </Card.Description>
         </Card.Body>
         <Card.Footer className="flex-col gap-3">

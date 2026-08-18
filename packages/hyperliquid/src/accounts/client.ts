@@ -10,6 +10,7 @@ import {
 import {
   parseClearinghouseState,
   parseHistoricalOrders,
+  parseNamedApiWalletRegistrations,
   parseOpenOrders,
   parseOrderStatus,
   parsePortfolio,
@@ -24,6 +25,7 @@ import type {
   AccountTarget,
   ClearinghouseState,
   HistoricalOrder,
+  NamedApiWalletRegistration,
   OpenOrder,
   OrderStatus,
   PortfolioPeriod,
@@ -106,6 +108,10 @@ export interface AccountDataClient {
     target: AccountTarget,
     options?: InfoRequestOptions,
   ): Promise<AccountDataResult<readonly PortfolioPeriod[]>>;
+  getNamedApiWallets(
+    master: Extract<AccountTarget, { readonly kind: "master" }>,
+    options?: InfoRequestOptions,
+  ): Promise<AccountDataResult<readonly NamedApiWalletRegistration[]>>;
 }
 
 function result<T>(
@@ -270,6 +276,19 @@ export function createAccountDataClientFromTransport(
         parsePortfolio(
           await transport.request(
             { type: "portfolio", user: target.address },
+            options,
+          ),
+        ),
+      );
+    },
+    async getNamedApiWallets(master, options = {}) {
+      validateAccountTarget(master);
+      return result(
+        master,
+        null,
+        parseNamedApiWalletRegistrations(
+          await transport.request(
+            { type: "extraAgents", user: master.address },
             options,
           ),
         ),

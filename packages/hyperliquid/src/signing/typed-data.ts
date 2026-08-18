@@ -84,12 +84,12 @@ export function formatExpiringAgentName(
   if (
     baseName.length < 1 ||
     baseName.length > 16 ||
-    !/^[\x21-\x7e]+$/.test(baseName) ||
+    !/^[\x21-\x7e](?:[\x20-\x7e]{0,14}[\x21-\x7e])?$/.test(baseName) ||
     baseName.includes(AGENT_NAME_SUFFIX)
   ) {
     throw new HyperliquidValidationError(
       "agentName",
-      "expected 1-16 visible ASCII characters without an expiry suffix",
+      "expected 1-16 printable ASCII characters without surrounding spaces or an expiry suffix",
     );
   }
   if (!Number.isSafeInteger(validUntil) || validUntil <= 0) {

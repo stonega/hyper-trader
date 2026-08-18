@@ -54,13 +54,33 @@ Static weights are intentional: React Native needs a separate font asset for
 each supported weight, and the named assets keep the family mapping identical
 on iOS and Android.
 
+## Floating bottom navigation
+
+The four Expo Router destinations use an app-owned custom tab renderer with a
+58-point floating capsule and a safe-area-aware progressive blur. The layered
+mask algorithm is adapted from
+[beautiful-expo's progressive blur](https://github.com/davidmokos/beautiful-expo/tree/main/registry/default/progressive-blur)
+under its MIT license; the retained notice is in
+[`third-party-notices.md`](third-party-notices.md).
+
+`expo-blur`, `expo-linear-gradient`, and
+`@react-native-masked-view/masked-view` implement the effect with public Expo
+APIs. iOS renders the layered native blur; Android uses the same masks plus the
+theme-aware gradient and translucent capsule because React Navigation does not
+expose its scene container as the sibling `BlurTargetView` required for reliable
+Android backdrop sampling. Navigation still emits the standard `tabPress` and
+`tabLongPress` events, preserves the existing route names and test identifiers,
+hides with the keyboard, and exposes selected state to assistive technology.
+
 ## Onboarding shader background
 
 The welcome screen uses `expo-gl` for a native OpenGL ES iridescent-ribbon
-background on iOS and Android. The shader reads the active HeroUI background,
-surface, accent, and foreground tokens so its neutral field and teal-led
-material follow both light and dark themes. It intentionally uses the WebGL 1
-shader subset for compatibility with older Android GL implementations.
+background on iOS and Android. The canvas, its pre-GL fallback, and the shader's
+base field use the onboarding background token (`#153026`); the title and
+subtitle use its paired light foreground token. HeroUI surface, accent, and
+foreground tokens grade the ribbon material for both light and dark themes. It
+intentionally uses the WebGL 1 shader subset for compatibility with older
+Android GL implementations.
 
 The effect is decorative and does not receive touches or enter the accessibility
 tree. Reduce Motion renders one static frame instead of starting the animation
@@ -127,8 +147,9 @@ are documented in
 
 ### Local data classes
 
-- AsyncStorage: public market cache, install sentinel, and presentation/trading
-  preferences scoped as the design requires.
+- AsyncStorage: public market cache, install sentinel, public resumable setup
+  presentation checkpoint, and presentation/trading preferences scoped as the
+  design requires.
 - SQLite: non-secret setup checkpoints, context state, nonce scopes, action
   journals, reconciliation leases, and retired signer tombstones.
 - SecureStore: one authenticated API-wallet secret per immutable binding, a
@@ -147,6 +168,10 @@ are documented in
   `@tanstack/query-async-storage-persister` provide the restore-before-refetch
   gate and lifecycle-scoped persistence subscription. Hyper Trader sanitizes on
   both write and restore, persists no mutations, and removes corrupt records.
+- `expo-clipboard` copies only the generated public agent address and
+  user-defined registration name into Hyperliquid's manual setup flow.
+  Private-key bytes are
+  never exposed to its API.
 
 Never put secrets in `.env`, Expo `extra`, EAS plain-text variables, fixtures,
 logs, screenshots, or support bundles. Development uses synthetic keys committed

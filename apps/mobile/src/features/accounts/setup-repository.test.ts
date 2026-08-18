@@ -17,7 +17,7 @@ const ATTEMPT: SetupAttempt = {
   approvalNonce: 1_800_000_000_000,
   requestedExpiry: 1_802_592_000_000,
   createdAt: 1_800_000_000_000,
-  expiresAt: 1_800_000_600_000,
+  expiresAt: 1_800_086_400_000,
 };
 
 describe("SQLite setup repository", () => {
@@ -33,6 +33,7 @@ describe("SQLite setup repository", () => {
         targetAccount: ATTEMPT.masterAccount,
       }),
     ).toBe(1);
+    expect(repository.getLatestPendingAttempt()).toEqual(ATTEMPT);
 
     expect(
       repository.consumeAndActivate({
@@ -42,6 +43,15 @@ describe("SQLite setup repository", () => {
         now: ATTEMPT.createdAt + 2_000,
       }),
     ).toBe(true);
+    expect(repository.getActivatedAttempt(ATTEMPT.id)).toMatchObject({
+      attemptId: ATTEMPT.id,
+      binding: {
+        agentAddress: ATTEMPT.agentAddress,
+        generation: ATTEMPT.registrationGeneration,
+      },
+      registrationName: ATTEMPT.registrationName,
+      effectiveExpiry: ATTEMPT.requestedExpiry,
+    });
     expect(
       repository.consumeAndActivate({
         attemptId: ATTEMPT.id,
@@ -50,6 +60,26 @@ describe("SQLite setup repository", () => {
         now: ATTEMPT.createdAt + 3_000,
       }),
     ).toBe(false);
+    database.close();
+  });
+
+  test("accepts a bounded 30-day expiry that starts during the setup window", () => {
+    const database = new Database(":memory:");
+    const repository = new SqliteSetupRepository(bunSqliteConnection(database));
+    const effectiveExpiry = ATTEMPT.requestedExpiry + 60_000;
+    repository.createAttempt(ATTEMPT);
+
+    expect(
+      repository.consumeAndActivate({
+        attemptId: ATTEMPT.id,
+        expected: ATTEMPT,
+        effectiveExpiry,
+        now: ATTEMPT.createdAt + 2_000,
+      }),
+    ).toBe(true);
+    expect(repository.getActivatedAttempt(ATTEMPT.id)?.effectiveExpiry).toBe(
+      effectiveExpiry,
+    );
     database.close();
   });
 

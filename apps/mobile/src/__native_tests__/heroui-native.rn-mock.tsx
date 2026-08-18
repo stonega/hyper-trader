@@ -1,5 +1,5 @@
-import type { PropsWithChildren, ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import type { ComponentProps, PropsWithChildren, ReactNode } from "react";
+import { Pressable, Text, TextInput, View } from "react-native";
 
 type CommonProps = PropsWithChildren<{
   readonly accessibilityHint?: string;
@@ -62,6 +62,15 @@ export const Card = Object.assign(Container, {
 
 export function Skeleton({ accessibilityLabel }: CommonProps): ReactNode {
   return <View accessibilityLabel={accessibilityLabel} />;
+}
+
+export const TextField = Container;
+export const Description = Copy;
+export const FieldError = Copy;
+export const Label = Copy;
+
+export function Input(props: ComponentProps<typeof TextInput>): ReactNode {
+  return <TextInput {...props} />;
 }
 
 const THEME_COLORS: Record<string, string> = {

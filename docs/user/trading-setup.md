@@ -6,9 +6,12 @@ build.
 
 ## What setup authorizes
 
-Hyper Trader creates a dedicated API wallet on your device. Your external master
-wallet approves that API wallet for one exact account target. Hyper Trader never
-asks for or stores your seed phrase or master private key.
+Hyper Trader creates a dedicated API wallet on your device. Enter only your
+public master-wallet address; Hyper Trader never asks for or stores your seed
+phrase or master private key. Choose your own 1–16 character API-wallet name.
+After system authentication, copy the generated public API-wallet address and
+name to the official Hyperliquid testnet API page, connect the same master wallet
+there, and add the named API wallet.
 
 The requested API-wallet authorization lasts 30 days. It is bound to the shown
 network, master account, and selected master account, sub-account, or vault. A
@@ -19,20 +22,23 @@ Before approving, check:
 - the network says Hyperliquid testnet;
 - the connected master account is the one you intended;
 - the selected target is correct;
-- the stable named-agent slot and replacement warning are expected; and
-- the absolute expiry and remaining duration are acceptable.
+- the named-agent slot and replacement warning are expected; and
+- **Days valid** is set to `30` and is not left blank.
 
-Returning from an external wallet does not prove success. Hyper Trader enables
+Tapping **I've added it — verify** does not prove success. Hyper Trader enables
 the credential only after Hyperliquid authoritatively reports the exact agent
-name, address, target relationship, and acceptable expiry.
+address under the intended master account and an acceptable finite expiry. The
+wallet name is only a label and is not compared during verification.
 
 ## Device protection
 
 The API-wallet key is stored in device-protected storage and is never displayed,
-copied, backed up, or offered as a recovery phrase. Strong device authentication
-unlocks one five-minute signing session. The timer starts at unlock and does not
-extend when you sign. Every order, cancellation, leverage change, or position
-close still has a separate review screen.
+copied, backed up, or offered as a recovery phrase. The system authentication
+prompt uses strong enrolled biometrics and may offer the device passcode fallback
+managed by iOS or Android; Hyper Trader never creates or stores its own six-digit
+PIN. Authentication unlocks one five-minute signing session. The timer starts at
+unlock and does not extend when you sign. Every order, cancellation, leverage
+change, or position close still has a separate review screen.
 
 The session locks immediately when you lock it manually, change account or
 network, background the app, lose Android focus, change the credential
@@ -40,14 +46,16 @@ generation, encounter an authentication error, or reach five minutes.
 
 ## Paused or unavailable setup
 
-You can always choose **Continue read-only**. A rejected wallet request, invalid
-return link, unavailable device authentication, expired ten-minute setup
-attempt, or registration mismatch never enables trading. Resume setup from its
-entry point rather than repeating Welcome.
+You can always choose **Finish later** and continue read-only. The public setup
+phase is saved locally, and a staged API wallet can resume for 24 hours without
+generating a second key. Unavailable device authentication, an expired attempt,
+or a registration mismatch never enables trading. After 24 hours the staged key
+is removed and setup must generate a fresh address; do not reuse the expired
+agent address.
 
-The current repository build deliberately keeps live external wallet approval
-disabled until its release security and physical-device checks are approved. It
-does not submit a real authorization while that notice is shown.
+Manual authorization is available on Hyperliquid testnet. The optional in-app
+Reown wallet connection remains disabled until its release security and
+physical-device checks are approved.
 
 ## Loss, expiry, or device change
 

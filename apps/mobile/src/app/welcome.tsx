@@ -55,7 +55,7 @@ export default function WelcomeScreen(): JSX.Element {
 
   const transitionDuration = welcomePhaseTransitionDurationMs(reducedMotion);
   return (
-    <View className="flex-1 bg-background">
+    <View className="flex-1 bg-onboarding-background">
       <IridescentRibbonBackground reducedMotion={reducedMotion} />
       <ScrollView
         className="flex-1"
@@ -70,11 +70,11 @@ export default function WelcomeScreen(): JSX.Element {
         <View className="gap-5 pt-8">
           <Text
             accessibilityRole="header"
-            className="text-5xl font-semibold tracking-tight text-foreground"
+            className="text-5xl font-semibold tracking-tight text-onboarding-foreground"
           >
             Hyper Trader
           </Text>
-          <Text className="text-xl leading-8 text-foreground">
+          <Text className="text-xl leading-8 text-onboarding-foreground">
             Explore every Hyperliquid market now, then set up secure testnet
             trading when you’re ready.
           </Text>

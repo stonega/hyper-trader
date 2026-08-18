@@ -18,15 +18,24 @@ export class DeviceAuthenticationUnavailableError extends Error {
   }
 }
 
+export class DeviceAuthenticationFailedError extends Error {
+  constructor() {
+    super("Device authentication did not complete.");
+    this.name = "DeviceAuthenticationFailedError";
+  }
+}
+
 export interface DeviceAuthenticationPort {
   assess(): Promise<DeviceAuthenticationAssessment>;
   assertAvailable(): Promise<void>;
+  authenticate(): Promise<void>;
 }
 
 export function createDeviceAuthenticationPort(adapter: {
   hasHardware(): Promise<boolean>;
   isEnrolled(): Promise<boolean>;
   enrolledSecurityLevel(): Promise<number>;
+  authenticate(): Promise<{ readonly success: boolean }>;
   readonly strongBiometricLevel: number;
 }): DeviceAuthenticationPort {
   const assess = async (): Promise<DeviceAuthenticationAssessment> => {
@@ -51,6 +60,15 @@ export function createDeviceAuthenticationPort(adapter: {
         throw new DeviceAuthenticationUnavailableError(result.reason);
       }
     },
+    async authenticate() {
+      const result = await assess();
+      if (result.status === "unavailable") {
+        throw new DeviceAuthenticationUnavailableError(result.reason);
+      }
+      if (!(await adapter.authenticate()).success) {
+        throw new DeviceAuthenticationFailedError();
+      }
+    },
   };
 }
 
@@ -60,6 +78,14 @@ export async function createExpoDeviceAuthenticationPort(): Promise<DeviceAuthen
     hasHardware: authentication.hasHardwareAsync,
     isEnrolled: authentication.isEnrolledAsync,
     enrolledSecurityLevel: authentication.getEnrolledLevelAsync,
+    authenticate: () =>
+      authentication.authenticateAsync({
+        promptMessage: "Protect your Hyper Trader API wallet",
+        promptSubtitle: "Your key stays on this device",
+        fallbackLabel: "Use device passcode",
+        disableDeviceFallback: false,
+        biometricsSecurityLevel: "strong",
+      }),
     strongBiometricLevel: authentication.SecurityLevel.BIOMETRIC_STRONG,
   });
 }

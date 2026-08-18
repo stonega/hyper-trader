@@ -1,6 +1,8 @@
 import type { HyperliquidNetwork } from "@hyper-trader/hyperliquid/public";
 import { getAddress } from "viem";
 
+import { AGENT_REGISTRATION_NAME_PATTERN } from "../../platform/wallet/setup-identifiers";
+
 export type SavedAccountTarget =
   | {
       readonly kind: "master";
@@ -59,7 +61,6 @@ export interface SavedAccount {
 }
 
 const ACCOUNT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const REGISTRATION_NAME_PATTERN = /^[\x21-\x7e]{1,16}$/;
 export const AGENT_REGISTRATION_STATES = [
   "active",
   "inactive",
@@ -238,7 +239,7 @@ function normalizeAuthorization(
   }
   if (
     input.registrationName !== null &&
-    !REGISTRATION_NAME_PATTERN.test(input.registrationName as string)
+    !AGENT_REGISTRATION_NAME_PATTERN.test(input.registrationName as string)
   ) {
     throw new TypeError("The API-wallet registration name is malformed.");
   }

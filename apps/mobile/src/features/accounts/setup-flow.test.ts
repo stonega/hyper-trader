@@ -7,30 +7,50 @@ import {
 } from "./setup-flow";
 
 describe("setup flow phases", () => {
-  test("backs through review phases while retaining one generation", () => {
-    let state = INITIAL_SETUP_FLOW;
-    state = reduceSetupFlow(state, { type: "NEXT" });
-    state = reduceSetupFlow(state, { type: "NEXT" });
-    state = reduceSetupFlow(state, { type: "NEXT" });
-    expect(state.phase).toBe("review");
-    state = reduceSetupFlow(state, { type: "BACK" });
-    expect(state.phase).toBe("slot");
-    state = reduceSetupFlow(state, { type: "BACK" });
-    expect(state.phase).toBe("target");
+  test("hydrates saved protection and authorization phases", () => {
+    expect(
+      reduceSetupFlow(INITIAL_SETUP_FLOW, {
+        type: "HYDRATE",
+        phase: "protection",
+      }),
+    ).toMatchObject({ phase: "protection", readiness: "idle" });
+    expect(
+      reduceSetupFlow(INITIAL_SETUP_FLOW, {
+        type: "HYDRATE",
+        phase: "authorization",
+      }),
+    ).toMatchObject({ phase: "authorization", readiness: "idle" });
   });
 
-  test("consumes Back during external handoff, verification, and activation", () => {
-    for (const phase of ["handoff", "verifying", "activating"] as const) {
+  test("moves through protected generation without exposing an intermediate phase", () => {
+    let state = reduceSetupFlow(INITIAL_SETUP_FLOW, {
+      type: "HYDRATE",
+      phase: "account",
+    });
+    state = reduceSetupFlow(state, { type: "MASTER_SAVED" });
+    state = reduceSetupFlow(state, { type: "START_PREPARE", generation: 1 });
+    expect(state).toMatchObject({ phase: "protection", readiness: "working" });
+    state = reduceSetupFlow(state, { type: "PREPARED", generation: 1 });
+    expect(state).toMatchObject({ phase: "authorization", readiness: "idle" });
+    state = reduceSetupFlow(state, { type: "BACK" });
+    expect(state.phase).toBe("authorization");
+  });
+
+  test("consumes Back only while loading, verifying, or activating", () => {
+    for (const phase of ["loading", "verifying", "activating"] as const) {
       expect(setupConsumesBack(phase)).toBe(true);
-      const state = { ...INITIAL_SETUP_FLOW, phase };
-      expect(reduceSetupFlow(state, { type: "BACK" })).toBe(state);
     }
+    expect(setupConsumesBack("authorization")).toBe(false);
   });
 
   test("ignores stale asynchronous completions after interruption", () => {
     const working = reduceSetupFlow(
-      { ...INITIAL_SETUP_FLOW, phase: "review", returnPhase: "review" },
-      { type: "START_HANDOFF" },
+      {
+        ...INITIAL_SETUP_FLOW,
+        phase: "authorization",
+        returnPhase: "authorization",
+      },
+      { type: "START_VERIFY", generation: 1 },
     );
     const interrupted = reduceSetupFlow(working, { type: "INTERRUPT" });
     expect(
@@ -41,19 +61,26 @@ describe("setup flow phases", () => {
     ).toBe(interrupted);
   });
 
-  test("reports a gated wallet runtime as one atomic failure", () => {
-    const state = reduceSetupFlow(INITIAL_SETUP_FLOW, {
-      type: "RUNTIME_UNAVAILABLE",
-      reason: "security_review_pending",
+  test("returns recoverable verification failures to authorization", () => {
+    const verifying = reduceSetupFlow(
+      {
+        ...INITIAL_SETUP_FLOW,
+        phase: "authorization",
+        returnPhase: "authorization",
+      },
+      { type: "START_VERIFY", generation: 2 },
+    );
+    const failed = reduceSetupFlow(verifying, {
+      type: "FAIL",
+      generation: 2,
+      reason: "registration_unverified",
     });
-
-    expect(state).toEqual({
+    expect(failed).toMatchObject({
       phase: "failure",
-      readiness: "failed",
-      generation: 1,
-      returnPhase: "review",
-      failureReason: "security_review_pending",
+      returnPhase: "authorization",
     });
-    expect(reduceSetupFlow(state, { type: "NEXT" })).toBe(state);
+    expect(reduceSetupFlow(failed, { type: "RETRY" }).phase).toBe(
+      "authorization",
+    );
   });
 });

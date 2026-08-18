@@ -10,6 +10,58 @@ import { createAccountDataClient } from "./client";
 import type { AccountTarget } from "./types";
 
 describe("account data client", () => {
+  test("validates named API-wallet registrations for a master account", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const client = createAccountDataClient({
+      network: "testnet",
+      fetch: async (_input, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Response.json([
+          {
+            name: "ht-123456789abcd",
+            address: AGENT_ADDRESS.toUpperCase().replace("0X", "0x"),
+            validUntil: 1_802_592_000_000,
+          },
+          {
+            name: "No expiry",
+            address: VAULT_ADDRESS,
+            validUntil: null,
+          },
+        ]);
+      },
+    });
+
+    await expect(
+      client.getNamedApiWallets({ kind: "master", address: MASTER_ADDRESS }),
+    ).resolves.toMatchObject({
+      data: [
+        {
+          name: "ht-123456789abcd",
+          address: AGENT_ADDRESS,
+          validUntil: 1_802_592_000_000,
+        },
+        {
+          name: "No expiry",
+          address: VAULT_ADDRESS,
+          validUntil: null,
+        },
+      ],
+    });
+    expect(bodies).toEqual([{ type: "extraAgents", user: MASTER_ADDRESS }]);
+  });
+
+  test("rejects malformed named API-wallet registrations", async () => {
+    const client = createAccountDataClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json([{ name: "", address: AGENT_ADDRESS, validUntil: -1 }]),
+    });
+
+    await expect(
+      client.getNamedApiWallets({ kind: "master", address: MASTER_ADDRESS }),
+    ).rejects.toThrow("extraAgents[0].name");
+  });
+
   test("uses the target address and preserves source identity and decimals", async () => {
     const bodies: Record<string, unknown>[] = [];
     const client = createAccountDataClient({

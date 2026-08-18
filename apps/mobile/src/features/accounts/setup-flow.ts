@@ -1,66 +1,55 @@
 export type SetupVisiblePhase =
-  | "connect"
-  | "target"
-  | "slot"
-  | "review"
-  | "handoff"
+  | "loading"
+  | "account"
+  | "protection"
+  | "authorization"
   | "verifying"
   | "activating"
   | "failure"
   | "ready";
 
 export type SetupReadiness = "idle" | "working" | "ready" | "failed";
+type SetupReturnPhase = "account" | "protection" | "authorization";
 
 export interface SetupFlowState {
   readonly phase: SetupVisiblePhase;
   readonly readiness: SetupReadiness;
   readonly generation: number;
-  readonly returnPhase: Exclude<SetupVisiblePhase, "failure" | "ready">;
+  readonly returnPhase: SetupReturnPhase;
   readonly failureReason: string | null;
 }
 
 export type SetupFlowAction =
-  | { readonly type: "NEXT" }
-  | { readonly type: "BACK" }
-  | { readonly type: "START_HANDOFF" }
-  | { readonly type: "START_VERIFY" }
-  | { readonly type: "START_ACTIVATE" }
-  | { readonly type: "RUNTIME_UNAVAILABLE"; readonly reason: string }
+  | {
+      readonly type: "HYDRATE";
+      readonly phase: SetupReturnPhase | "activating";
+    }
+  | { readonly type: "MASTER_SAVED" }
+  | { readonly type: "START_PREPARE"; readonly generation: number }
+  | { readonly type: "PREPARED"; readonly generation: number }
+  | { readonly type: "START_VERIFY"; readonly generation: number }
+  | { readonly type: "START_ACTIVATE"; readonly generation: number }
   | { readonly type: "COMPLETE"; readonly generation: number }
   | {
       readonly type: "FAIL";
       readonly generation: number;
       readonly reason: string;
+      readonly returnPhase?: SetupReturnPhase;
     }
   | { readonly type: "RETRY" }
+  | { readonly type: "BACK" }
   | { readonly type: "INTERRUPT" };
 
 export const INITIAL_SETUP_FLOW: SetupFlowState = {
-  phase: "connect",
-  readiness: "idle",
+  phase: "loading",
+  readiness: "working",
   generation: 0,
-  returnPhase: "connect",
+  returnPhase: "account",
   failureReason: null,
 };
 
-const PREVIOUS: Partial<
-  Record<SetupVisiblePhase, SetupFlowState["returnPhase"]>
-> = {
-  target: "connect",
-  slot: "target",
-  review: "slot",
-};
-
-const NEXT_PHASE: Partial<
-  Record<SetupVisiblePhase, SetupFlowState["returnPhase"]>
-> = {
-  connect: "target",
-  target: "slot",
-  slot: "review",
-};
-
 export function setupConsumesBack(phase: SetupVisiblePhase): boolean {
-  return phase === "handoff" || phase === "verifying" || phase === "activating";
+  return phase === "loading" || phase === "verifying" || phase === "activating";
 }
 
 export function reduceSetupFlow(
@@ -68,60 +57,58 @@ export function reduceSetupFlow(
   action: SetupFlowAction,
 ): SetupFlowState {
   switch (action.type) {
-    case "NEXT": {
-      const next = NEXT_PHASE[state.phase];
-      if (!next) return state;
+    case "HYDRATE":
+      if (state.phase !== "loading") return state;
       return {
         ...state,
-        phase: next,
-        returnPhase: next,
+        phase: action.phase,
+        returnPhase:
+          action.phase === "activating" ? "authorization" : action.phase,
+        readiness: action.phase === "activating" ? "working" : "idle",
       };
-    }
-    case "BACK": {
-      if (setupConsumesBack(state.phase)) return state;
-      const previous = PREVIOUS[state.phase];
-      return previous
-        ? {
-            ...state,
-            phase: previous,
-            returnPhase: previous,
-            readiness: "idle",
-            failureReason: null,
-          }
-        : state;
-    }
-    case "START_HANDOFF":
-      if (state.phase === "handoff") return state;
+    case "MASTER_SAVED":
       return {
         ...state,
-        phase: "handoff",
-        returnPhase: "review",
-        readiness: "working",
-        generation: state.generation + 1,
+        phase: "protection",
+        returnPhase: "protection",
+        readiness: "idle",
         failureReason: null,
       };
+    case "START_PREPARE":
+      return {
+        ...state,
+        phase: "protection",
+        returnPhase: "protection",
+        readiness: "working",
+        generation: action.generation,
+        failureReason: null,
+      };
+    case "PREPARED":
+      return action.generation === state.generation
+        ? {
+            ...state,
+            phase: "authorization",
+            returnPhase: "authorization",
+            readiness: "idle",
+          }
+        : state;
     case "START_VERIFY":
-      if (state.phase === "verifying") return state;
       return {
         ...state,
         phase: "verifying",
+        returnPhase: "authorization",
         readiness: "working",
+        generation: action.generation,
+        failureReason: null,
       };
     case "START_ACTIVATE":
-      if (state.phase === "activating") return state;
       return {
         ...state,
         phase: "activating",
+        returnPhase: "authorization",
         readiness: "working",
-      };
-    case "RUNTIME_UNAVAILABLE":
-      return {
-        ...state,
-        phase: "failure",
-        returnPhase: "review",
-        readiness: "failed",
-        generation: state.generation + 1,
-        failureReason: action.reason,
+        generation: action.generation,
+        failureReason: null,
       };
     case "COMPLETE":
       return action.generation === state.generation
@@ -132,6 +119,7 @@ export function reduceSetupFlow(
         ? {
             ...state,
             phase: "failure",
+            returnPhase: action.returnPhase ?? state.returnPhase,
             readiness: "failed",
             failureReason: action.reason,
           }
@@ -144,9 +132,20 @@ export function reduceSetupFlow(
         readiness: "idle",
         failureReason: null,
       };
+    case "BACK":
+      if (state.phase !== "protection") return state;
+      return {
+        ...state,
+        phase: "account",
+        returnPhase: "account",
+        readiness: "idle",
+        failureReason: null,
+      };
     case "INTERRUPT":
       return {
         ...INITIAL_SETUP_FLOW,
+        phase: "account",
+        readiness: "idle",
         generation: state.generation + 1,
       };
   }

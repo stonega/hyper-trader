@@ -11,22 +11,21 @@ import {
   startIridescentRibbonShader,
 } from "./iridescent-ribbon-shader";
 
-const THEME_COLOR_NAMES = [
-  "background",
-  "surface",
-  "accent",
-  "foreground",
-] as const;
+const THEME_COLOR_NAMES = ["surface", "accent", "foreground"] as const;
+const ONBOARDING_BACKGROUND_COLOR = "#153026";
+const ONBOARDING_BACKGROUND_RGB = [
+  21 / 255,
+  48 / 255,
+  38 / 255,
+] as const satisfies RgbColor;
 
 const LIGHT_FALLBACK = {
-  background: [0.96, 0.96, 0.96],
   surface: [1, 1, 1],
   accent: [0, 0.62, 0.54],
   foreground: [0.2, 0.2, 0.22],
 } as const satisfies Record<string, RgbColor>;
 
 const DARK_FALLBACK = {
-  background: [0.055, 0.055, 0.065],
   surface: [0.19, 0.19, 0.21],
   accent: [0.19, 0.84, 0.72],
   foreground: [0.97, 0.97, 0.98],
@@ -88,18 +87,17 @@ export function IridescentRibbonBackground({
   readonly reducedMotion: boolean;
 }): JSX.Element {
   const { theme } = useUniwind();
-  const [background, surface, accent, foreground] =
-    useThemeColor(THEME_COLOR_NAMES);
+  const [surface, accent, foreground] = useThemeColor(THEME_COLOR_NAMES);
   const fallback = theme === "dark" ? DARK_FALLBACK : LIGHT_FALLBACK;
   const palette = useMemo<RibbonShaderPalette>(
     () => ({
-      background: resolveRgb(background, fallback.background),
+      background: ONBOARDING_BACKGROUND_RGB,
       surface: resolveRgb(surface, fallback.surface),
       accent: resolveRgb(accent, fallback.accent),
       foreground: resolveRgb(foreground, fallback.foreground),
       dark: theme === "dark",
     }),
-    [accent, background, fallback, foreground, surface, theme],
+    [accent, fallback, foreground, surface, theme],
   );
 
   return (
@@ -108,12 +106,15 @@ export function IridescentRibbonBackground({
       accessible={false}
       importantForAccessibility="no-hide-descendants"
       pointerEvents="none"
-      style={StyleSheet.absoluteFill}
+      style={[
+        StyleSheet.absoluteFill,
+        { backgroundColor: ONBOARDING_BACKGROUND_COLOR },
+      ]}
       testID="welcome-ribbon-background"
     >
       <RibbonGlSurface
-        backgroundColor={background}
-        key={`${theme}:${background}:${surface}:${accent}:${foreground}:${reducedMotion}`}
+        backgroundColor={ONBOARDING_BACKGROUND_COLOR}
+        key={`${theme}:${surface}:${accent}:${foreground}:${reducedMotion}`}
         palette={palette}
         reducedMotion={reducedMotion}
       />

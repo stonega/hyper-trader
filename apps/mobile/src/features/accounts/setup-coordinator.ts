@@ -5,13 +5,17 @@ import {
   normalizeSignerBinding,
   type SignerBinding,
 } from "@hyper-trader/hyperliquid";
-import { getAddress, keccak256, stringToHex, toHex } from "viem";
+import { getAddress, toHex } from "viem";
 
 import { isValidSecp256k1Secret } from "../../platform/security/secret-material";
-import { isConnectorSessionId } from "../../platform/wallet/setup-identifiers";
+import {
+  isConnectorSessionId,
+  normalizeAgentRegistrationName,
+} from "../../platform/wallet/setup-identifiers";
 
 export const AGENT_AUTHORIZATION_DURATION_MS = 30 * 24 * 60 * 60 * 1_000;
-export const SETUP_ATTEMPT_DURATION_MS = 10 * 60 * 1_000;
+export const SETUP_ATTEMPT_DURATION_MS = 24 * 60 * 60 * 1_000;
+const AUTHORITY_TIME_TOLERANCE_MS = 5_000;
 
 export interface SecretMaterial {
   readonly bytes: Uint8Array;
@@ -53,12 +57,6 @@ export interface SetupRepository {
     readonly now: number;
   }): boolean;
   cancelAttempt(id: string, reason?: string): void;
-  hasConflictingRegistrationHistory?(input: {
-    readonly network: "testnet";
-    readonly masterAccount: string;
-    readonly targetAccount: string;
-    readonly registrationName: string;
-  }): boolean;
 }
 
 export interface AgentCredentialVault {
@@ -74,7 +72,7 @@ export interface AgentCredentialVault {
 export interface NamedAgentRegistration {
   readonly agentAddress: string;
   readonly registrationName: string;
-  readonly validUntil: number;
+  readonly validUntil: number | null;
 }
 
 export interface AgentRegistrationAuthority {
@@ -94,8 +92,6 @@ export interface AgentRegistrationAuthority {
     readonly masterAccount: string;
     readonly targetAccount: string;
     readonly agentAddress: string;
-    readonly registrationName: string;
-    readonly requestedExpiry: number;
   }): Promise<{
     readonly authoritativeTime: number;
     readonly targetAuthorized: boolean;
@@ -147,6 +143,7 @@ export interface ApiWalletSetupCoordinator {
     readonly connectorSessionId: string;
     readonly connectedMasterAccount: string;
     readonly targetAccount: string;
+    readonly registrationName: string;
     readonly replaceExisting?: boolean;
   }): Promise<SetupAttempt>;
   requestApproval(
@@ -169,6 +166,14 @@ function assertSafeTime(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${field} must be a positive millisecond timestamp.`);
   }
+}
+
+export function maximumAgentRegistrationExpiry(
+  attempt: Pick<SetupAttempt, "expiresAt">,
+): number {
+  const maximum = attempt.expiresAt + AGENT_AUTHORIZATION_DURATION_MS;
+  assertSafeTime(maximum, "maximum agent registration expiry");
+  return maximum;
 }
 
 export function normalizeSetupAddress(value: string): string {
@@ -235,20 +240,6 @@ async function generateAttemptId(
   throw new Error("Unable to generate a setup attempt identifier.");
 }
 
-export function stableAgentRegistrationName(input: {
-  readonly network: "testnet";
-  readonly masterAccount: string;
-  readonly targetAccount: string;
-}): string {
-  const source = [
-    "hyper-trader-agent-name/v1",
-    input.network,
-    normalizeSetupAddress(input.masterAccount),
-    normalizeSetupAddress(input.targetAccount),
-  ].join("\0");
-  return `ht-${keccak256(stringToHex(source)).slice(2, 15)}`;
-}
-
 export function bindingFromAttempt(attempt: SetupAttempt): SignerBinding {
   return normalizeSignerBinding({
     network: attempt.network,
@@ -266,9 +257,7 @@ function exactRegistration(
   if (!registration) return false;
   try {
     return (
-      normalizeSetupAddress(registration.agentAddress) ===
-        attempt.agentAddress &&
-      registration.registrationName === attempt.registrationName
+      normalizeSetupAddress(registration.agentAddress) === attempt.agentAddress
     );
   } catch {
     return false;
@@ -311,8 +300,6 @@ export function createApiWalletSetupCoordinator(options: {
       masterAccount: attempt.masterAccount,
       targetAccount: attempt.targetAccount,
       agentAddress: attempt.agentAddress,
-      registrationName: attempt.registrationName,
-      requestedExpiry: attempt.requestedExpiry,
     });
     assertSafeTime(proof.authoritativeTime, "authoritativeTime");
     if (proof.authoritativeTime >= attempt.expiresAt) {
@@ -320,37 +307,43 @@ export function createApiWalletSetupCoordinator(options: {
       return { status: "inert", reason: "expired" };
     }
     const registration = proof.registration;
+    const validUntil = registration?.validUntil;
+    const maximumExpiry = maximumAgentRegistrationExpiry(attempt);
+    const maximumRemainingExpiry =
+      proof.authoritativeTime +
+      AGENT_AUTHORIZATION_DURATION_MS +
+      AUTHORITY_TIME_TOLERANCE_MS;
     if (
       !proof.targetAuthorized ||
       !exactRegistration(attempt, registration) ||
-      !Number.isSafeInteger(registration.validUntil) ||
-      registration.validUntil <= proof.authoritativeTime ||
-      registration.validUntil > attempt.requestedExpiry
+      validUntil === null ||
+      validUntil === undefined ||
+      !Number.isSafeInteger(validUntil) ||
+      validUntil <= proof.authoritativeTime ||
+      validUntil > maximumExpiry ||
+      validUntil > maximumRemainingExpiry
     ) {
       return { status: "inert", reason: "registration_unverified" };
     }
-    if (
-      registration.validUntil < attempt.requestedExpiry &&
-      acceptedExpiry !== registration.validUntil
-    ) {
+    if (validUntil < attempt.requestedExpiry && acceptedExpiry !== validUntil) {
       return {
         status: "expiry_confirmation_required",
         attemptId: attempt.id,
         requestedExpiry: attempt.requestedExpiry,
-        effectiveExpiry: registration.validUntil,
+        effectiveExpiry: validUntil,
       };
     }
     const activated = options.repository.consumeAndActivate({
       attemptId: attempt.id,
       expected: attempt,
-      effectiveExpiry: registration.validUntil,
+      effectiveExpiry: validUntil,
       now,
     });
     return activated
       ? {
           status: "activated",
           binding: bindingFromAttempt(attempt),
-          effectiveExpiry: registration.validUntil,
+          effectiveExpiry: validUntil,
         }
       : { status: "inert", reason: "activation_lost" };
   };
@@ -366,11 +359,9 @@ export function createApiWalletSetupCoordinator(options: {
         masterAccount: input.connectedMasterAccount,
         targetAccount: input.targetAccount,
       });
-      const registrationName = stableAgentRegistrationName({
-        network,
-        masterAccount,
-        targetAccount,
-      });
+      const registrationName = normalizeAgentRegistrationName(
+        input.registrationName,
+      );
       const inspection = await options.authority.inspect({
         network,
         masterAccount,
@@ -393,9 +384,10 @@ export function createApiWalletSetupCoordinator(options: {
       for (const namedAgent of inspection.namedAgents) {
         normalizeSetupAddress(namedAgent.agentAddress);
         if (
-          !/^[\x21-\x7e]{1,16}$/.test(namedAgent.registrationName) ||
-          !Number.isSafeInteger(namedAgent.validUntil) ||
-          namedAgent.validUntil <= 0
+          !/^[\x20-\x7e]{1,16}$/.test(namedAgent.registrationName) ||
+          (namedAgent.validUntil !== null &&
+            (!Number.isSafeInteger(namedAgent.validUntil) ||
+              namedAgent.validUntil <= 0))
         ) {
           throw new Error("Authoritative named-agent slot state is malformed.");
         }
@@ -425,19 +417,6 @@ export function createApiWalletSetupCoordinator(options: {
       ) {
         throw new Error("No reviewed named-agent slot is available.");
       }
-      if (
-        options.repository.hasConflictingRegistrationHistory?.({
-          network,
-          masterAccount,
-          targetAccount,
-          registrationName,
-        })
-      ) {
-        throw new Error(
-          "The stable registration name has conflicting local history.",
-        );
-      }
-
       const generation = options.repository.nextGeneration({
         network,
         masterAccount,

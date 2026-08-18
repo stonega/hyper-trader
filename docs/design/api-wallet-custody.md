@@ -33,7 +33,8 @@ BindingV1 = (
 - `masterAccount`, `targetAccount`, and `agentAddress` are normalized,
   checksummed Ethereum addresses. The target is the master account itself or an
   authoritatively verified sub-account or vault relationship.
-- `registrationName` is stable for `(network, masterAccount, targetAccount)`.
+- `registrationName` is the user's locally persisted 1–16 character label. It
+  is not authorization evidence; the generated agent address is.
 - `registrationGeneration` is a monotonically increasing local integer. A new
   private key always creates a new generation and address.
 
@@ -67,30 +68,19 @@ for another target or after retirement.
 
 The setup attempt is a random 256-bit, single-use identifier bound to the
 connector session, network, master, target, generated agent address, registration
-name, requested expiry, creation time, and a ten-minute expiry. It contains no
+name, requested expiry, creation time, and a 24-hour expiry. It contains no
 private key, signature, signed payload, or wallet session secret. App termination
 may leave this checkpoint and the authenticated SecureStore record so setup can
 resume.
 
-### Stable replacement name and slot policy
+### User-defined name and slot policy
 
 Hyper Trader uses a named API-wallet slot and never the unnamed slot. The
-version-one base name is exactly:
-
-```text
-"ht-" + first13LowerHex(
-  keccak256(utf8(
-    "hyper-trader-agent-name/v1" + NUL +
-    network + NUL + lower(masterAccount) + NUL + lower(targetAccount)
-  ))
-)
-```
-
-The resulting base name is 16 ASCII characters. The approval codec owns any
-official protocol representation that attaches an expiry to this logical name;
-that byte representation must be frozen in compatibility vectors before setup
-is enabled. The authoritative registration query must return the same logical
-base name, agent address, and expiry requested by the review screen.
+user chooses a 1–16 character printable ASCII base name before key generation.
+The name is stored as display and replacement metadata, but verification never
+uses it as proof of authorization. The approval codec owns the official protocol
+representation that attaches an expiry to the base name; that byte
+representation remains frozen in compatibility vectors.
 
 At the time of this contract, Hyperliquid documents one unnamed wallet and up to
 three named wallets for an account, with two additional named agents for a
@@ -98,31 +88,35 @@ sub-account. Hyper Trader does not assume that a documented slot is available:
 before approval it queries authoritative agent state for the intended account.
 It may proceed only when either:
 
-- the exact stable name is already present and the flow is an explicit
+- the chosen name is already present and the flow is an explicit
   replacement, or
 - a named slot is authoritatively available.
 
-A same-name record with an unexpected local target history is a collision and
-fails closed. The UI must show the slot limit, existing name/address suffix,
-target, requested expiry, and replacement effect. It must never silently replace
-the unnamed wallet or a differently named agent. These constraints follow the
+A same-name record requires explicit replacement review. The UI must show the
+slot limit, existing name/address suffix, target, requested expiry, and
+replacement effect. It must never silently replace the unnamed wallet or a
+differently named agent. These constraints follow the
 official [exchange endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 and [nonce and API-wallet guidance](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets);
 the pinned protocol fixtures remain the implementation authority.
 
 ### Expiry policy
 
-New authorizations request a fixed 30-day expiry. Renewal is not an extension of
-the old credential: it creates a new private key, increments the generation, and
-uses the same stable base name to replace the prior address. The review screen
-shows the absolute expiry and remaining duration. Local state becomes
+New authorizations require `30` in Hyperliquid's **Days valid** field. The web
+flow computes the expiry when authorization is submitted, so the authoritative
+expiry may be later than the timestamp recorded when the local setup attempt was
+created. Renewal is not an extension of the old credential: it creates a new
+private key and increments the generation. The review screen shows the absolute
+expiry and remaining duration. Local state becomes
 `expired` when either local time or authoritative registration state says the
 credential is expired; signing stops immediately.
 
-An absent, malformed, unexpectedly long, or later-than-requested authoritative
-expiry is a registration failure. A shorter authoritative expiry may be accepted
-only after it is shown to the user and the exact value is persisted. Clock
-rollback handling is defined in
+An absent, `null`, malformed, expired, or unexpectedly long authoritative
+expiry is a registration failure. A finite expiry is bounded to 30 days from
+the authoritative verification time (with a small transport-clock tolerance)
+and cannot extend beyond the 24-hour setup window plus 30 days. A shorter
+authoritative expiry may be accepted only after it is shown to the user and the
+exact value is persisted. Clock rollback handling is defined in
 [`action-lifecycle.md`](action-lifecycle.md); setup and renewal require a fresh
 authoritative time sample.
 
@@ -135,14 +129,16 @@ binding, switch context, or mark an agent registered.
 Setup advances only when all of the following are true:
 
 1. A live, unexpired, unconsumed local setup attempt matches the connector
-   session, network, master, target, agent, name, and expiry.
+   session, network, master, target, generated agent address, and local expiry
+   bounds.
 2. The connected wallet account is the intended master account and the current
    public Hyperliquid role data proves the intended target relationship.
 3. The external wallet presents the exact `approveAgent` intent for human
    approval; cancellation or a wrong network/account leaves setup pending or
    failed without changing authority.
 4. After return, an authoritative Hyperliquid query—not the callback—shows the
-   exact logical registration name, agent address, and acceptable expiry.
+   exact generated agent address under the intended master and an acceptable
+   finite expiry. The returned wallet name is not compared.
 5. A local transaction consumes the attempt and activates the already-stored
    binding. A competing replay loses the single-use update and is inert.
 

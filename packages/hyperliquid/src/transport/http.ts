@@ -52,6 +52,7 @@ const DOCUMENTED_WEIGHT_TWENTY = new Set([
   "candleSnapshot",
   "clearinghouseState",
   "exchangeStatus",
+  "extraAgents",
   "frontendOpenOrders",
   "fundingHistory",
   "historicalOrders",

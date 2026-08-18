@@ -138,3 +138,9 @@ export interface OrderStatus {
   readonly status: string;
   readonly raw: Readonly<Record<string, unknown>>;
 }
+
+export interface NamedApiWalletRegistration {
+  readonly name: string;
+  readonly address: string;
+  readonly validUntil: number | null;
+}

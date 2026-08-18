@@ -31,7 +31,7 @@ remains closed.
 
 ### Protocol and action integrity
 
-- [ ] API-agent address derivation, stable name, expiry representation,
+- [ ] API-agent address derivation, user-defined name, expiry representation,
   named-slot behavior, authoritative registration query, and replacement match a
   pinned official Python SDK/protocol revision.
 - [ ] `approveAgent`, market, limit, cancel, reduce-only close, leverage,
@@ -168,7 +168,7 @@ path, not merely expiry.
 | Hyperliquid registration/time/account state | External public authority; protocol | Fixed-origin authenticated TLS queries | Protocol-owned; local cache expires | Mismatch, stale time, or unavailable proof keeps restricted/read-only |
 | API-wallet private key | Device secret; mobile custody | Authenticated device-only SecureStore; five-minute signer memory | Rotation/unlink/emergency deletion; no backup | Binding/auth/integrity failure or mainnet blocks access |
 | In-memory signing session | Ephemeral secret; signer adapter | Exact binding only | Timeout, background, context, lock, invalidation, termination | Missing review or epoch mismatch |
-| External-wallet setup attempt | Durable non-secret; mobile | SQLite exact binding, ten minutes | Consume or expiry cleanup | Callback alone never advances |
+| External-wallet setup attempt | Durable non-secret; mobile | SQLite exact binding, 24 hours | Consume or expiry cleanup | User confirmation or callback alone never advances |
 | Custody manifest/install sentinel | Durable non-secret; mobile | SecureStore public manifest/app-data sentinel | Unlink cleanup or app removal | Missing sentinel + manifest quarantines |
 | Binding/registration record | Durable non-secret; mobile | Local target-scoped repository | Unlink after tombstone | Authoritative mismatch/read-only |
 | Public cache/preferences/recents | Durable non-secret; mobile | AsyncStorage, context-scoped where private preference leaks matter | Unlink/context cleanup or retention | Context mismatch discards rather than merges |

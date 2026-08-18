@@ -13,6 +13,7 @@ import {
 import {
   AGENT_AUTHORIZATION_DURATION_MS,
   bindingFromAttempt,
+  maximumAgentRegistrationExpiry,
   normalizeSetupTarget,
   SETUP_ATTEMPT_DURATION_MS,
   type SetupAttempt,
@@ -34,6 +35,29 @@ interface SetupAttemptRow {
   readonly effective_expiry: number | null;
   readonly created_at: number;
   readonly expires_at: number;
+}
+
+interface ActivatedSetupRow {
+  readonly attempt_id: string;
+  readonly network: "testnet";
+  readonly master_account: string;
+  readonly target_account: string;
+  readonly agent_address: string;
+  readonly registration_name: string;
+  readonly registration_generation: number;
+  readonly requested_expiry: number;
+  readonly effective_expiry: number;
+  readonly expires_at: number;
+  readonly activated_at: number;
+}
+
+export interface ActivatedSetupRecord {
+  readonly attemptId: string;
+  readonly binding: ReturnType<typeof normalizeSignerBinding>;
+  readonly registrationName: string;
+  readonly requestedExpiry: number;
+  readonly effectiveExpiry: number;
+  readonly activatedAt: number;
 }
 
 function assertAttemptContract(attempt: SetupAttempt): void {
@@ -247,6 +271,67 @@ export class SqliteSetupRepository implements SetupRepository {
     return row === null ? null : attemptFromRow(row);
   }
 
+  getLatestPendingAttempt(): SetupAttempt | null {
+    const row = this.database.getFirstSync<SetupAttemptRow>(
+      `SELECT attempt_id, status, network, connector_session_id,
+              master_account, target_account, agent_address,
+              registration_name, registration_generation, approval_nonce,
+              requested_expiry, effective_expiry, created_at, expires_at
+       FROM api_wallet_setup_attempts
+       WHERE status = 'pending'
+       ORDER BY created_at DESC, attempt_id DESC
+       LIMIT 1`,
+    );
+    return row === null ? null : attemptFromRow(row);
+  }
+
+  getActivatedAttempt(attemptId: string): ActivatedSetupRecord | null {
+    const row = this.database.getFirstSync<ActivatedSetupRow>(
+      `SELECT a.attempt_id, a.network, a.master_account, a.target_account,
+              a.agent_address, a.registration_name,
+              a.registration_generation, a.requested_expiry,
+              a.effective_expiry, a.expires_at, b.activated_at
+       FROM api_wallet_setup_attempts AS a
+       INNER JOIN api_wallet_bindings AS b
+         ON b.network = a.network
+        AND b.master_account = a.master_account
+        AND b.target_account = a.target_account
+        AND b.agent_address = a.agent_address
+        AND b.registration_generation = a.registration_generation
+       WHERE a.attempt_id = ? AND a.status = 'consumed'
+         AND a.effective_expiry IS NOT NULL AND b.status = 'active'`,
+      [attemptId],
+    );
+    if (row === null) return null;
+    const binding = normalizeSignerBinding({
+      network: row.network,
+      masterAccount: row.master_account,
+      targetAccount: row.target_account,
+      agentAddress: row.agent_address,
+      generation: row.registration_generation,
+    });
+    if (
+      !AGENT_REGISTRATION_NAME_PATTERN.test(row.registration_name) ||
+      !Number.isSafeInteger(row.requested_expiry) ||
+      !Number.isSafeInteger(row.effective_expiry) ||
+      !Number.isSafeInteger(row.expires_at) ||
+      !Number.isSafeInteger(row.activated_at) ||
+      row.effective_expiry <= row.activated_at ||
+      row.effective_expiry >
+        maximumAgentRegistrationExpiry({ expiresAt: row.expires_at })
+    ) {
+      throw new Error("The activated API-wallet checkpoint is malformed.");
+    }
+    return {
+      attemptId: row.attempt_id,
+      binding,
+      registrationName: row.registration_name,
+      requestedExpiry: row.requested_expiry,
+      effectiveExpiry: row.effective_expiry,
+      activatedAt: row.activated_at,
+    };
+  }
+
   getPendingAttemptForTarget(input: {
     readonly network: "testnet";
     readonly masterAccount: string;
@@ -278,7 +363,7 @@ export class SqliteSetupRepository implements SetupRepository {
     if (
       !Number.isSafeInteger(input.effectiveExpiry) ||
       input.effectiveExpiry <= input.now ||
-      input.effectiveExpiry > input.expected.requestedExpiry
+      input.effectiveExpiry > maximumAgentRegistrationExpiry(input.expected)
     ) {
       throw new TypeError("The authoritative credential expiry is invalid.");
     }
@@ -350,38 +435,5 @@ export class SqliteSetupRepository implements SetupRepository {
        WHERE attempt_id = ? AND status = 'pending'`,
       [reason.slice(0, 64), id],
     );
-  }
-
-  hasConflictingRegistrationHistory(input: {
-    readonly network: "testnet";
-    readonly masterAccount: string;
-    readonly targetAccount: string;
-    readonly registrationName: string;
-  }): boolean {
-    assertTestnetSigningCapability(input.network);
-    const target = normalizeSetupTarget(input);
-    const row = this.database.getFirstSync<{ one: number }>(
-      `SELECT 1 AS one
-       WHERE EXISTS (
-         SELECT 1 FROM api_wallet_bindings
-         WHERE registration_name = ?
-           AND (network <> ? OR master_account <> ? OR target_account <> ?)
-       ) OR EXISTS (
-         SELECT 1 FROM api_wallet_setup_attempts
-         WHERE registration_name = ?
-           AND (network <> ? OR master_account <> ? OR target_account <> ?)
-       )`,
-      [
-        input.registrationName,
-        target.network,
-        target.masterAccount,
-        target.targetAccount,
-        input.registrationName,
-        target.network,
-        target.masterAccount,
-        target.targetAccount,
-      ],
-    );
-    return row !== null;
   }
 }
