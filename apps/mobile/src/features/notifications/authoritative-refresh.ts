@@ -2,14 +2,17 @@ import { createPublicHyperliquidClient } from "@hyper-trader/hyperliquid/public"
 import type { MobileAlertResponse } from "@hyper-trader/notifications/mobile";
 
 interface NotificationRefreshClient {
-  getMarketCatalog(options?: { readonly signal?: AbortSignal }): Promise<{
+  getMarketCatalog(options?: {
+    readonly scope?: "core";
+    readonly signal?: AbortSignal;
+  }): Promise<{
     readonly markets: readonly {
       readonly canonicalId: string;
       readonly lifecycle: "active" | "delisted";
     }[];
   }>;
   getNotificationAccountGlobalSnapshot(
-    input: { readonly user: string },
+    input: { readonly user: string; readonly fundingStartTime: number },
     options?: { readonly signal?: AbortSignal },
   ): Promise<unknown>;
 }
@@ -27,7 +30,11 @@ export async function refreshAuthoritativeNotificationTarget(
   }
   const client =
     options.client ?? createPublicHyperliquidClient({ network: alert.network });
-  const catalog = await client.getMarketCatalog({ signal: options.signal });
+  const observedAtMs = (options.now ?? Date.now)();
+  const catalog = await client.getMarketCatalog({
+    scope: "core",
+    signal: options.signal,
+  });
   const market = catalog.markets.find(
     (candidate) => candidate.canonicalId === alert.rule?.marketId,
   );
@@ -39,9 +46,12 @@ export async function refreshAuthoritativeNotificationTarget(
       throw new Error("The notification account target is unavailable.");
     }
     await client.getNotificationAccountGlobalSnapshot(
-      { user: alert.account.targetAccount },
+      {
+        user: alert.account.targetAccount,
+        fundingStartTime: Math.max(0, observedAtMs - 7 * 24 * 60 * 60 * 1_000),
+      },
       { signal: options.signal },
     );
   }
-  return { observedAtMs: (options.now ?? Date.now)() };
+  return { observedAtMs };
 }

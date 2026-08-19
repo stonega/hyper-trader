@@ -125,7 +125,7 @@ export function reduceActionFlow(
         ...state,
         phase: "reconciling",
         journalId: action.journalId,
-        message: "The exchange outcome is not yet authoritative.",
+        message: "Hyperliquid has not confirmed the result yet.",
       };
     case "TERMINAL":
       if (

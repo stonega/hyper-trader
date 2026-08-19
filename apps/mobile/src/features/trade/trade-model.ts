@@ -61,6 +61,19 @@ export type TradeConnectivity =
   | "offline"
   | "reconnecting";
 
+export type CatalogFreshness = "fresh" | "refreshing" | "stale" | "offline";
+
+export function tradeConnectivityFromCatalogFreshness(
+  freshness: CatalogFreshness,
+): TradeConnectivity {
+  if (freshness === "offline") return "offline";
+  if (freshness === "stale") return "stale";
+  // A background catalog refetch keeps the last validated snapshot current.
+  // Reconnecting is reserved for an authority feed that has actually lost its
+  // current snapshot, not ordinary polling while cached data remains valid.
+  return "current";
+}
+
 export type TradeSignerState = "missing" | "unlocked" | "locked" | "expired";
 
 export interface TradeAuthority {
@@ -80,10 +93,8 @@ export type TradeGateCode =
   | "offline"
   | "reconnecting"
   | "read_only"
-  | "locked"
   | "expired_agent"
-  | "stale_account"
-  | "action_runtime_unavailable";
+  | "stale_account";
 
 export type TradeGate =
   | { readonly enabled: true; readonly code: "ready"; readonly reason: string }
@@ -124,7 +135,7 @@ export function cloidFromRandomBytes(bytes: Uint8Array): Cloid {
   return parseCloid(toHex(bytes));
 }
 
-function marketFingerprint(market: Market): string {
+export function tradeMarketFingerprint(market: Market): string {
   return marketMetadataFingerprint({
     canonicalId: market.canonicalId,
     orderAssetId: market.orderAssetId,
@@ -151,8 +162,8 @@ export function tradeReviewScopeKey(input: {
 }): string {
   const account = input.authority.account;
   return JSON.stringify([
-    marketFingerprint(input.market),
-    currentPrice(input.market),
+    tradeMarketFingerprint(input.market),
+    tradeReferencePrice(input.market),
     input.context.network,
     input.context.masterAccount,
     input.context.targetAccount,
@@ -186,7 +197,7 @@ export function tradeDraftValueKey(draft: TradeDraft): string {
   ]);
 }
 
-function currentPrice(market: Market): string {
+export function tradeReferencePrice(market: Market): string {
   return market.midPx ?? market.markPx ?? "";
 }
 
@@ -252,12 +263,12 @@ export function createTradeDraft(input: {
     binding: bindDraftContext({
       context: input.context,
       marketCanonicalId: input.market.canonicalId,
-      metadataFingerprint: marketFingerprint(input.market),
+      metadataFingerprint: tradeMarketFingerprint(input.market),
     }),
     side: "buy",
     orderType,
     size: "",
-    limitPrice: currentPrice(input.market),
+    limitPrice: tradeReferencePrice(input.market),
     leverage:
       input.market.family === "perp" ? (input.account?.leverage ?? null) : null,
     timeInForce: "Gtc",
@@ -281,7 +292,7 @@ export function reconcileTradeDraft(
   const validation = validateDraftContext(draft.binding, {
     context: input.context,
     marketCanonicalId: input.market.canonicalId,
-    metadataFingerprint: marketFingerprint(input.market),
+    metadataFingerprint: tradeMarketFingerprint(input.market),
   });
   if (validation.valid) {
     return { draft, preserved: true };
@@ -343,46 +354,31 @@ export function evaluateTradeGate(input: {
 }): TradeGate {
   const { account, connectivity, signerState } = input.authority;
   if (!Number.isSafeInteger(input.nowMs) || input.nowMs < 0) {
-    return disabled(
-      "invalid_time",
-      "Current device time is invalid. Refresh authoritative time before review.",
-    );
+    return disabled("invalid_time", "Check your device time, then refresh.");
   }
   if (input.context.network !== "testnet") {
-    return disabled(
-      "mainnet",
-      "Mainnet is browse-only. This build can review testnet actions only.",
-    );
+    return disabled("mainnet", "Switch to testnet to trade.");
   }
   if (!hasSupportedOrderMetadata(input.market)) {
     return disabled(
       "market_unavailable",
-      "Current validated metadata does not permit an order for this market.",
+      "Trading is not available for this market.",
     );
   }
   if (input.market.family === "perp" && input.market.dexIndex !== 0) {
     return disabled(
       "hip3_release_gate",
-      "HIP-3 order review is gated until create-with-cloid and timeout reconciliation pass the live testnet safety probe.",
+      "Trading is not available for this builder market.",
     );
   }
   if (connectivity === "offline") {
-    return disabled(
-      "offline",
-      "Offline data remains browseable, but current authority cannot be revalidated.",
-    );
+    return disabled("offline", "Connect to the internet to review an order.");
   }
   if (connectivity === "reconnecting") {
-    return disabled(
-      "reconnecting",
-      "Market data is reconnecting. Review stays closed until a current snapshot arrives.",
-    );
+    return disabled("reconnecting", "Reconnecting to market data…");
   }
   if (connectivity === "stale") {
-    return disabled(
-      "stale_metadata",
-      "Market metadata is stale. Refresh current trading rules before review.",
-    );
+    return disabled("stale_metadata", "Refresh market data before review.");
   }
   if (
     input.context.masterAccount === null ||
@@ -393,19 +389,13 @@ export function evaluateTradeGate(input: {
   ) {
     return disabled(
       "read_only",
-      "No exact testnet account, target, and API-wallet binding is active. Set up trading to continue.",
+      "Set up a testnet account to review this order.",
     );
   }
   if (signerState === "expired") {
     return disabled(
       "expired_agent",
-      "The bound API wallet expired or became invalid. Reauthorize before review.",
-    );
-  }
-  if (signerState === "locked") {
-    return disabled(
-      "locked",
-      "The trading session is locked. Unlock and revalidate this preserved draft before review.",
+      "This API wallet is no longer active. Add a new one to continue.",
     );
   }
   if (
@@ -413,22 +403,16 @@ export function evaluateTradeGate(input: {
     account.observedAtMs > input.nowMs + 5_000 ||
     input.nowMs - account.observedAtMs > ACCOUNT_FRESHNESS_WINDOW_MS
   ) {
-    return disabled(
-      "stale_account",
-      "Available funds and account rules are stale. Refresh them before review.",
-    );
-  }
-  if (!input.authority.actionRuntimeAvailable) {
-    return disabled(
-      "action_runtime_unavailable",
-      "The reviewed action runtime is release-gated in this build. Drafting remains available without signer or transport access.",
-    );
+    return disabled("stale_account", "Refresh your account before review.");
   }
   return {
     enabled: true,
     code: "ready",
-    reason:
-      "Current testnet market, account, and signer authority are ready for review.",
+    reason: !input.authority.actionRuntimeAvailable
+      ? "Ready for review. Order submission is currently unavailable."
+      : signerState === "locked"
+        ? "Ready for review. You’ll confirm on this device only when signing is required."
+        : "Ready for review.",
   };
 }
 
@@ -582,7 +566,7 @@ export function buildTradeReview(input: {
   const draftValidation = validateDraftContext(input.draft.binding, {
     context: input.context,
     marketCanonicalId: input.market.canonicalId,
-    metadataFingerprint: marketFingerprint(input.market),
+    metadataFingerprint: tradeMarketFingerprint(input.market),
   });
   if (!draftValidation.valid) {
     throw new Error(draftValidation.message);
@@ -594,7 +578,7 @@ export function buildTradeReview(input: {
   if (input.draft.size.trim() === "") {
     throw new Error("Enter an order size before review.");
   }
-  const reference = currentPrice(input.market);
+  const reference = tradeReferencePrice(input.market);
   if (reference === "") {
     throw new Error("A current reference price is required for review.");
   }
@@ -662,7 +646,7 @@ export function buildTradeReview(input: {
       },
       market: {
         canonicalId: input.market.canonicalId,
-        metadataFingerprint: marketFingerprint(input.market),
+        metadataFingerprint: tradeMarketFingerprint(input.market),
         orderAssetId: input.market.orderAssetId,
         family: input.market.family,
         lifecycle: input.market.lifecycle,

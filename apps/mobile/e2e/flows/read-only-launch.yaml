@@ -1,0 +1,13 @@
+appId: ${APP_ID}
+tags:
+  - fixture
+  - launch
+---
+# acceptance: AE4
+- launchApp:
+    clearState: true
+    arguments:
+      HT_E2E_FIXTURE: read-only-launch
+- assertVisible: "Trade"
+- assertVisible: "Read only"
+- assertVisible: "Set up trading"

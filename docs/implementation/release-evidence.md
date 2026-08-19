@@ -76,7 +76,7 @@ adapter/build described in `apps/mobile/e2e/README.md` is reviewed and installed
 | AE1 | context supervisor, draft registry, account switch fixture contract | Maestro device receipt pending |
 | AE2 | catalog/discovery tests for native perp, HIP-3, spot and quarantined data | market-search Maestro receipt pending |
 | AE3 | catalog state and trade-gate tests | device browse-only check pending |
-| AE4 | onboarding state/routes and read-only fixture contract | Maestro device receipt pending |
+| AE4 | direct read-only launch route and fixture contract | Maestro device receipt pending |
 | AE5 | session manager, draft fingerprint, trade-model tests | physical auth/revalidation pending |
 | AE6 | action journal, orchestrator, reconciler and recovery fixture contract | restart-on-device receipt pending |
 | AE7 | portfolio model/review and close fixture contract | Maestro device receipt pending |

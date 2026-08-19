@@ -63,6 +63,24 @@ describe("catalog presentation state", () => {
     expect(partial.hasPartialSources).toBe(true);
     expect(partial.hasQuarantinedMarkets).toBe(true);
     expect(partial.canRetry).toBe(true);
-    expect(partial.statusLabel).toContain("sources");
+    expect(partial.statusLabel).toBe(
+      "2 market sources could not refresh. Validated markets from other sources remain available.",
+    );
+  });
+
+  test("summarizes the previous partial pass while a retry is active", () => {
+    const refreshing = deriveCatalogPresentationState({
+      ...base,
+      hasData: true,
+      marketCount: 4,
+      isFetching: true,
+      sourceErrorCount: 37,
+    });
+
+    expect(refreshing.freshness).toBe("refreshing");
+    expect(refreshing.canRetry).toBe(false);
+    expect(refreshing.statusLabel).toBe(
+      "Refreshing market coverage. 37 market sources could not refresh in the last pass.",
+    );
   });
 });

@@ -52,6 +52,18 @@ describe("SQLite setup repository", () => {
       registrationName: ATTEMPT.registrationName,
       effectiveExpiry: ATTEMPT.requestedExpiry,
     });
+    expect(repository.getActiveBindingForTarget(ATTEMPT)).toMatchObject({
+      binding: {
+        network: ATTEMPT.network,
+        masterAccount: ATTEMPT.masterAccount,
+        targetAccount: ATTEMPT.targetAccount,
+        agentAddress: ATTEMPT.agentAddress,
+        generation: ATTEMPT.registrationGeneration,
+      },
+      registrationName: ATTEMPT.registrationName,
+      requestedExpiry: ATTEMPT.requestedExpiry,
+      effectiveExpiry: ATTEMPT.requestedExpiry,
+    });
     expect(
       repository.consumeAndActivate({
         attemptId: ATTEMPT.id,
@@ -63,10 +75,11 @@ describe("SQLite setup repository", () => {
     database.close();
   });
 
-  test("accepts a bounded 30-day expiry that starts during the setup window", () => {
+  test("accepts any finite future authoritative expiry", () => {
     const database = new Database(":memory:");
     const repository = new SqliteSetupRepository(bunSqliteConnection(database));
-    const effectiveExpiry = ATTEMPT.requestedExpiry + 60_000;
+    const effectiveExpiry =
+      ATTEMPT.requestedExpiry + 365 * 24 * 60 * 60 * 1_000;
     repository.createAttempt(ATTEMPT);
 
     expect(

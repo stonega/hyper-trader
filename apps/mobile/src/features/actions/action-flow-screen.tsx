@@ -24,68 +24,56 @@ const STATUS_COPY: Readonly<
 > = {
   review: {
     title: "Review action",
-    description:
-      "Nothing is signed on entry. Confirm only after checking every current detail below.",
+    description: "Check the details below. Nothing is signed yet.",
   },
   unlocking: {
-    title: "Unlock trading session",
-    description:
-      "Device authentication is checking this exact testnet signer binding.",
+    title: "Authenticating",
+    description: "Confirm on this device to continue.",
   },
   refreshing: {
-    title: "Refresh current conditions",
-    description:
-      "Market rules, margin, position, and order evidence are being revalidated.",
+    title: "Authenticating",
+    description: "Checking the latest market and account details.",
   },
   reserving: {
-    title: "Reserve action identity",
-    description:
-      "A nonce and secret-free recovery record are being committed atomically.",
+    title: "Authenticating",
+    description: "Preparing your confirmed action.",
   },
   signing: {
-    title: "Sign reviewed action",
-    description:
-      "The exact refreshed action is being signed in protected memory.",
+    title: "Authenticating",
+    description: "Signing the action on this device.",
   },
   submission_start: {
-    title: "Commit submission boundary",
-    description:
-      "The write-once marker must be durable before exchange transport begins.",
+    title: "Submitting",
+    description: "Sending the action to Hyperliquid.",
   },
   submitting: {
-    title: "Submit once",
-    description:
-      "The one-shot transport permit is in use. Back is paused to prevent duplicates.",
+    title: "Submitting",
+    description: "Sending the action to Hyperliquid.",
   },
   reconciling: {
-    title: "Outcome still reconciling",
-    description:
-      "The action will only use authoritative order, fill, position, or account evidence. It will not be submitted again.",
+    title: "Checking result",
+    description: "Confirming the result with Hyperliquid.",
   },
   accepted: {
     title: "Action accepted",
-    description:
-      "Hyperliquid returned or reconciliation found authoritative acceptance evidence.",
+    description: "Hyperliquid accepted the action.",
   },
   rejected: {
     title: "Action rejected",
-    description:
-      "The exchange returned a definitive rejection. No retry was attempted.",
+    description: "Hyperliquid rejected the action.",
   },
   expired: {
     title: "Action expired",
-    description:
-      "Fresh authoritative evidence found no applicable completed action after expiry.",
+    description: "The action expired before it completed.",
   },
   ambiguous: {
     title: "Manual review required",
     description:
-      "Current evidence conflicts or cannot attribute the change safely. No duplicate is allowed.",
+      "The result is unclear. Check your account before trying again.",
   },
   failed_before_submission: {
-    title: "Stopped before submission",
-    description:
-      "The action stopped safely. Review refreshed details before trying a new action.",
+    title: "Not submitted",
+    description: "Review the current details before trying again.",
   },
 };
 
@@ -235,10 +223,21 @@ export function ActionFlowScreen({
                 {failure}
               </Text>
             ) : null}
+            {review !== null &&
+            flow.phase === "review" &&
+            !runtime.available ? (
+              <Text
+                accessibilityRole="alert"
+                className="text-sm leading-5 text-warning"
+              >
+                Order submission is currently unavailable. You can still review
+                the order details.
+              </Text>
+            ) : null}
           </Animated.View>
         </Card.Body>
         <Card.Footer className="flex-col gap-3">
-          {flow.phase === "review" ? (
+          {flow.phase === "review" && runtime.available ? (
             <Button
               animation={reducedMotion ? "disable-all" : undefined}
               className="min-h-12 w-full"
@@ -246,7 +245,9 @@ export function ActionFlowScreen({
               onPress={() => void confirm()}
               variant="primary"
             >
-              Confirm testnet action
+              {review === null
+                ? "Confirm action"
+                : `Confirm ${review.presentation.action.toLowerCase()}`}
             </Button>
           ) : null}
           {flow.phase === "failed_before_submission" ? (

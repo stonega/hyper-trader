@@ -211,16 +211,18 @@ integration("PostgreSQL notification foundation", () => {
         await getNotificationMigrationStatus(transaction);
       }),
     ).rejects.toThrow("continuous");
+    await migrateNotifications(first, { target: 5 });
     await expect(
       first.begin(async (transaction) => {
         await transaction`
           INSERT INTO notification_migration_history (
             version, name, up_checksum, down_checksum
-          ) VALUES (5, 'unknown', ${"2".repeat(64)}, ${"3".repeat(64)})
+          ) VALUES (6, 'unknown', ${"2".repeat(64)}, ${"3".repeat(64)})
         `;
         await getNotificationMigrationStatus(transaction);
       }),
     ).rejects.toThrow("unknown");
+    await rollbackNotificationMigrations(first, { target: 4 });
     await expect(
       first.begin(async (transaction) => {
         await transaction`

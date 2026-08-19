@@ -13,8 +13,6 @@
   --font-medium: "BarlowSemiCondensed_500Medium";
   --font-semibold: "BarlowSemiCondensed_600SemiBold";
   --font-bold: "BarlowSemiCondensed_700Bold";
-  --color-onboarding-background: #153026;
-  --color-onboarding-foreground: #f7fbf8;
 }
 
 @layer theme {

@@ -59,6 +59,7 @@ const MIGRATIONS: readonly MigrationDefinition[] = [
   { version: 2, name: "migrate" },
   { version: 3, name: "contract" },
   { version: 4, name: "workers", concurrentIndexes: WORKER_INDEXES },
+  { version: 5, name: "market_catalog" },
 ];
 
 export interface NotificationMigrationStatus {

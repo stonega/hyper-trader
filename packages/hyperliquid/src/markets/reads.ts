@@ -8,11 +8,30 @@ export interface MidPrice {
   readonly price: DecimalString;
 }
 
+export const CANDLE_INTERVALS = [
+  "1m",
+  "3m",
+  "5m",
+  "15m",
+  "30m",
+  "1h",
+  "2h",
+  "4h",
+  "8h",
+  "12h",
+  "1d",
+  "3d",
+  "1w",
+  "1M",
+] as const;
+
+export type CandleInterval = (typeof CANDLE_INTERVALS)[number];
+
 export interface Candle {
   readonly openTime: number;
   readonly closeTime: number;
   readonly symbol: string;
-  readonly interval: string;
+  readonly interval: CandleInterval;
   readonly open: DecimalString;
   readonly close: DecimalString;
   readonly high: DecimalString;
@@ -82,6 +101,17 @@ function nonNegativeInteger(value: unknown, path: string): number {
   return value as number;
 }
 
+function candleInterval(value: unknown, path: string): CandleInterval {
+  const interval = text(value, path);
+  if (!(CANDLE_INTERVALS as readonly string[]).includes(interval)) {
+    throw new HyperliquidValidationError(
+      path,
+      "expected a supported candle interval",
+    );
+  }
+  return interval as CandleInterval;
+}
+
 export function parseAllMids(payload: unknown): MidPrice[] {
   if (
     typeof payload !== "object" ||
@@ -107,14 +137,20 @@ export function parseAllMids(payload: unknown): MidPrice[] {
     .sort((left, right) => left.symbol.localeCompare(right.symbol));
 }
 
-export function parseCandles(payload: unknown): Candle[] {
+export function parseCandles(
+  payload: unknown,
+  expected?: {
+    readonly coin: string;
+    readonly interval: CandleInterval;
+  },
+): Candle[] {
   return list(payload, "candleSnapshot").map((value, index) => {
     const candle = object(value, `candleSnapshot[${index}]`);
-    return {
+    const parsed = {
       openTime: nonNegativeInteger(candle.t, `candleSnapshot[${index}].t`),
       closeTime: nonNegativeInteger(candle.T, `candleSnapshot[${index}].T`),
       symbol: text(candle.s, `candleSnapshot[${index}].s`),
-      interval: text(candle.i, `candleSnapshot[${index}].i`),
+      interval: candleInterval(candle.i, `candleSnapshot[${index}].i`),
       open: parseDecimalString(candle.o, `candleSnapshot[${index}].o`),
       close: parseDecimalString(candle.c, `candleSnapshot[${index}].c`),
       high: parseDecimalString(candle.h, `candleSnapshot[${index}].h`),
@@ -122,6 +158,25 @@ export function parseCandles(payload: unknown): Candle[] {
       volume: parseDecimalString(candle.v, `candleSnapshot[${index}].v`),
       tradeCount: nonNegativeInteger(candle.n, `candleSnapshot[${index}].n`),
     };
+    if (parsed.closeTime < parsed.openTime) {
+      throw new HyperliquidValidationError(
+        `candleSnapshot[${index}].T`,
+        "expected close time at or after open time",
+      );
+    }
+    if (expected && parsed.symbol !== expected.coin) {
+      throw new HyperliquidValidationError(
+        `candleSnapshot[${index}].s`,
+        `expected requested coin ${expected.coin}`,
+      );
+    }
+    if (expected && parsed.interval !== expected.interval) {
+      throw new HyperliquidValidationError(
+        `candleSnapshot[${index}].i`,
+        `expected requested interval ${expected.interval}`,
+      );
+    }
+    return parsed;
   });
 }
 

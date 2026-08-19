@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-hyper-trader-v1.png",
     "scheme": "hypertrader",
     "updates": {
       "enabled": false
@@ -17,8 +17,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "foregroundImage": "./assets/images/adaptive-icon-hyper-trader-v1.png",
+        "monochromeImage": "./assets/images/adaptive-icon-monochrome-hyper-trader-v1.png",
+        "backgroundColor": "#071511"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -43,6 +44,15 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "barcodeScannerEnabled": true,
+          "cameraPermission": "Allow Hyper Trader to scan a public wallet address QR code.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-notifications",
         {
           "defaultChannel": "trading-alerts",
@@ -52,9 +62,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/splash-icon-hyper-trader-v1.png",
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#071511"
         }
       ],
       "expo-status-bar",

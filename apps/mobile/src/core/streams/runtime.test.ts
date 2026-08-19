@@ -6,13 +6,15 @@ describe("stream runtime declarations", () => {
   test("stays disconnected when empty and tears down the last declaration", async () => {
     let connections = 0;
     let closes = 0;
+    const openedNetworks: string[] = [];
     let baselineApplied: () => void = () => undefined;
     const applied = new Promise<void>((resolve) => {
       baselineApplied = resolve;
     });
     const runtime = createStreamRuntime({
-      openConnection: async () => {
+      openConnection: async ({ network }) => {
         connections += 1;
+        openedNetworks.push(network);
         return {
           subscribe: () => () => undefined,
           ping: () => undefined,
@@ -42,6 +44,7 @@ describe("stream runtime declarations", () => {
     });
     await applied;
     expect(connections).toBe(1);
+    expect(openedNetworks).toEqual(["testnet"]);
 
     remove();
     await Promise.resolve();

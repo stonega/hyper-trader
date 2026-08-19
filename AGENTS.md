@@ -55,10 +55,19 @@ Run EAS and native Expo commands from `apps/mobile`.
 
 ## Mobile UI Rules
 
+- Act as an experienced decentralized-exchange product manager. Continuously
+  reduce unnecessary steps, inputs, screens, controls, and explanatory copy to
+  improve the user experience. Every visible element and required action must
+  have a clear user-facing purpose; do not expose internal architecture,
+  defensive implementation details, or future functionality as UI.
 - Use HeroUI Native, never HeroUI React web components.
 - Fetch current HeroUI Native component documentation before using a component.
 - Use Uniwind/Tailwind CSS v4 classes and semantic theme tokens.
 - Use HeroUI compound component anatomy and React Native `onPress` handlers.
+- Minimize required user input. Do not ask for values the app can safely derive,
+  retrieve, or supply with a stable default, and do not add redundant actions
+  for those values. Keep explicit review and confirmation at security-sensitive
+  boundaries.
 - Keep `GestureHandlerRootView` outermost and `HeroUINativeProvider` directly
   beneath it.
 - Target iOS and Android. HeroUI Native web support is not a project target.

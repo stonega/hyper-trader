@@ -413,7 +413,7 @@ describe("portfolio quick-action intents", () => {
       side: "SELL",
       size: "2.5",
       reduceOnly: "Yes",
-      slippage: "50 bps",
+      slippage: "0.5%",
     });
     expect(margin.presentation).toMatchObject({
       action: "Update leverage",

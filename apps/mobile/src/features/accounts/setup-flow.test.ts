@@ -83,4 +83,21 @@ describe("setup flow phases", () => {
       "authorization",
     );
   });
+
+  test("keeps a not-yet-visible authorization on the second task", () => {
+    const verifying = reduceSetupFlow(
+      {
+        ...INITIAL_SETUP_FLOW,
+        phase: "authorization",
+        returnPhase: "authorization",
+      },
+      { type: "START_VERIFY", generation: 3 },
+    );
+    expect(
+      reduceSetupFlow(verifying, {
+        type: "VERIFY_PENDING",
+        generation: 3,
+      }),
+    ).toMatchObject({ phase: "authorization", readiness: "idle" });
+  });
 });

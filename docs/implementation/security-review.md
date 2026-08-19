@@ -2,10 +2,19 @@
 
 ## Gate state
 
-This is the blocking sign-off record for U1. U5-U7 may implement deterministic,
-offline components, but no live external-wallet registration, signer access, or
-`/exchange` transport may be enabled until all four review owners approve the
-same evidence revision. Missing, expired, or conditional approval means **stop**.
+This is the blocking release sign-off record for U1. U5-U7 may implement
+deterministic, offline components, but no distributed or release build may
+enable live external-wallet registration, signer access, or `/exchange`
+transport until all four review owners approve the same evidence revision.
+Missing, expired, or conditional approval means **stop** for distribution.
+
+An explicitly operator-authorized source development build may exercise the
+fixed testnet origin with a disposable API wallet. That narrow path is compiled
+only under `__DEV__`, retains every confirmation, custody, context, clock,
+nonce/journal, and mainnet-denial boundary, and is not release evidence by
+itself. It cannot be enabled by environment, remote configuration, OTA, or UI.
+The closure sequence and all 28 unfinished checks are tracked in
+[`2026-08-19-testnet-runtime-and-security-closure.md`](../plans/2026-08-19-testnet-runtime-and-security-closure.md).
 
 | Review | Required owner | Evidence revision | Decision/date |
 |---|---|---|---|

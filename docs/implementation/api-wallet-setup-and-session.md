@@ -4,12 +4,12 @@
 
 Hyper Trader now has a deterministic manual API-wallet setup, custody, and
 signer-session contract for native iOS and Android. The app generates and stages
-a testnet agent locally, shows only its public address and user-defined name, and opens
-the official Hyperliquid testnet API page for authorization. It never sends the
-private scalar or a prebuilt signed action to the page. The user confirmation is
-not authority: activation still requires a fixed-origin `extraAgents` response
-that matches the exact master, generated address, and acceptable finite expiry.
-The wallet name is not authorization evidence.
+a testnet agent locally, shows only its public address and fixed app-supplied
+name, and opens the official Hyperliquid testnet API page for authorization. It
+never sends the private scalar or a prebuilt signed action to the page. The user
+confirmation is not authority: activation still requires a fixed-origin
+`extraAgents` response that matches the exact master, generated address, and
+acceptable finite expiry. The wallet name is not authorization evidence.
 
 The external Reown wallet runtime remains compile-disabled because the repository
 still has no reviewed project identifier or redirect allowlist. Manual setup does
@@ -23,11 +23,15 @@ authentication, or SecureStore access.
 
 The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 
-1. Require testnet, normalize the entered public master address, and bind the
-   first manual flow to that same master target.
-2. Query the fixed testnet info origin for current HTTP server time, named
-   agents, and named-slot capacity.
-3. Validate and persist the user's 1–16 character API-wallet name.
+1. Require testnet, normalize the entered or QR-scanned public master address,
+   and bind the first manual flow to that same master target. The scanner accepts
+   a plain Ethereum address or an `ethereum:` URI and passes only the extracted
+   public address into the existing validation boundary.
+2. Query the fixed testnet info origin for current HTTP server time and the
+   intended account relationship. Named-slot capacity is left to the official
+   Hyperliquid API page and never blocks local key generation.
+3. Persist `Hyper Trader` as the API-wallet registration name without asking
+   the user for another setup value.
 4. Retire an expired local attempt for the same target by deleting its staged
    secret before cancelling its durable checkpoint. An unexpired attempt must
    be resumed or explicitly cancelled; a second key is not created.
@@ -38,16 +42,20 @@ The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 7. Insert the non-secret, random 256-bit setup checkpoint into SQLite. If this
    insert fails, delete the staged record.
 8. Persist the public attempt in AsyncStorage as a presentation checkpoint and
-   show its agent address, user-defined name, 30-day requested expiry, and master
-   account. `expo-clipboard` copies only the public address or name.
+   show its agent address as selectable text and a scan-safe QR code alongside
+   the master account. The fixed app-supplied name appears only as short help
+   when the official page asks for a label.
+   `expo-clipboard` copies only the public address, and the QR code encodes only
+   the public agent address.
 9. Open `https://app.hyperliquid-testnet.xyz/API`. The user connects the same
-   master account, creates the named API wallet there, and enters `30` in
-   **Days valid** instead of leaving it blank. A 24-hour local attempt permits
-   app termination and a later resume without generating another key.
+   master account, creates the named API wallet there, and chooses the expiry.
+   Returning the app to the foreground triggers verification automatically;
+   **Check again** remains available as a fallback. A 24-hour local attempt
+   permits app termination and a later resume without generating another key.
 10. Require the exact target relationship and generated agent address. Accept
-    only a finite expiry bounded to 30 days from verification and to the local
-    setup window; do not compare the returned name. A shorter expiry requires
-    explicit user confirmation and a fresh verification.
+    any safe finite future expiry returned for that address and persist the
+    authoritative value without comparing it with a product-recommended duration.
+    Do not compare the returned name.
 11. Consume the attempt and activate the public binding in one SQLite
     transaction. A replay loses the conditional update and is inert.
 
@@ -56,9 +64,12 @@ target. Replacing an active generation marks the prior binding retiring in the
 same activation transaction. Rotation still uses the nonce-journal retirement
 tombstone and pending-action rules before deleting an old secret.
 
-## Visible phases and Back behavior
+## Internal phases and visible tasks
 
-Navigation readiness and visible phase are separate state. Every asynchronous
+The state machine retains recovery checkpoints, but the screen presents only
+two user tasks: generate the wallet, then add it on Hyperliquid. Verifying and
+activation are working states inside the second task, not additional numbered
+steps. Navigation readiness and internal phase are separate state. Every asynchronous
 completion includes the captured generation, so a completion after interruption
 cannot reopen a later phase.
 
@@ -105,6 +116,14 @@ to an unauthenticated read.
 
 ## Five-minute signer session
 
+On launch and account selection, the app restores a signer identity only when
+the saved account summary matches both the active SQLite binding and the
+non-secret custody-manifest record for the exact network, master, target, agent,
+and generation. This restoration does not read the protected key or prompt for
+device authentication. A missing, expired, or mismatched record leaves the
+selected account read-only; the protected key is still read only after explicit
+order confirmation needs a signing session.
+
 The signer-session manager is single-flight and owns only one exact normalized
 binding. Unlock captures its session epoch, context epoch, and binding before
 checking strong device-auth availability and reading SecureStore. It publishes
@@ -121,9 +140,14 @@ before and after the asynchronous signer result.
 ## Wallet dependency provenance and deferred wiring
 
 - Expo SDK 57 resolved versions: `expo-secure-store 57.0.1`,
-  `expo-local-authentication 57.0.2`, `expo-crypto 57.0.1`, and
-  `expo-clipboard 57.0.1`. Clipboard access exists only for the public agent
-  address and user-defined registration name; secret material never reaches it.
+  `expo-local-authentication 57.0.2`, `expo-crypto 57.0.1`,
+  `expo-clipboard 57.0.1`, and `expo-camera 57.0.3`. Camera access is limited to
+  scanning a public master-wallet address QR code; microphone access is disabled.
+  Clipboard access exists only for the public agent address; secret material
+  never reaches either boundary.
+- `react-native-qrcode-styled 0.4.0` renders the generated public agent address
+  with the existing `react-native-svg 15.15.4` runtime. The QR code uses a fixed
+  dark-on-white palette and quiet zone for scanner reliability.
 - Reown resolved versions: `@reown/appkit-react-native 2.0.6` and
   `@reown/appkit-wagmi-react-native 2.0.6`.
 - WalletConnect compatibility: `@walletconnect/react-native-compat 2.23.10`
@@ -145,7 +169,7 @@ revision of `security-review.md`.
 
 Automated tests use fake wallet, authority, vault, authentication, clock, and
 signer adapters plus a real local SQLite database. They cover mainnet denial,
-wrong targets, forged and duplicate callbacks, expiry, shorter expiry review,
+wrong targets, forged and duplicate callbacks, finite future expiry acceptance,
 process restart, exact-binding mismatch, late unlock completion, non-sliding
 timeout, target isolation, expired-attempt recovery, manifest-first staging and
 rollback, manifest separation, and reinstall quarantine. Manual-flow tests also

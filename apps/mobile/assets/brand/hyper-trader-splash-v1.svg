@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Hyper Trader splash mark</title>
+  <g
+    fill="none"
+    stroke="#5DE6C2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path
+      d="M324 708C246 642 246 548 324 488C382 444 384 362 326 316"
+      stroke-width="132"
+    />
+    <path
+      d="M700 316C778 382 778 476 700 536C642 580 640 662 698 708"
+      stroke-width="132"
+    />
+    <path d="M354 559C448 604 576 420 670 465" stroke-width="108"/>
+  </g>
+</svg>

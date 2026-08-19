@@ -298,9 +298,13 @@ export function createForegroundStreamManager(
       if (!isCurrent(run) || !run.connection) {
         return;
       }
-      run.connection.ping();
+      try {
+        run.connection.ping();
+      } catch (error) {
+        failRun(run, error);
+      }
       run.heartbeatTimer = null;
-      if (schedulerReturned) {
+      if (schedulerReturned && isCurrent(run)) {
         scheduleHeartbeat(run);
       }
     }, heartbeatMs);

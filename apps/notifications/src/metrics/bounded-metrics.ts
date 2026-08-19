@@ -1,6 +1,7 @@
 export type NotificationMetricName =
   | "monitor_leases"
   | "monitor_rebaselines"
+  | "catalog_sync_failures"
   | "subscription_rejections"
   | "upstream_utilization_percent"
   | "outbox_pending"
@@ -26,6 +27,7 @@ export interface NotificationMetricSample {
 const METRICS = new Set<NotificationMetricName>([
   "monitor_leases",
   "monitor_rebaselines",
+  "catalog_sync_failures",
   "subscription_rejections",
   "upstream_utilization_percent",
   "outbox_pending",

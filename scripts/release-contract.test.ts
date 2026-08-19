@@ -42,7 +42,7 @@ describe("production release contract", () => {
       "market-search.yaml",
       "notification-context-entry.yaml",
       "portfolio-close.yaml",
-      "read-only-onboarding.yaml",
+      "read-only-launch.yaml",
       "rotation.yaml",
       "setup-interruption.yaml",
       "testnet-order-review.yaml",

@@ -7,7 +7,7 @@ const requiredJourneys = {
   "market-search.yaml": ["AE2", "market-search"],
   "notification-context-entry.yaml": ["AE8", "notification-context-entry"],
   "portfolio-close.yaml": ["AE7", "portfolio-close"],
-  "read-only-onboarding.yaml": ["AE4", "read-only-onboarding"],
+  "read-only-launch.yaml": ["AE4", "read-only-launch"],
   "rotation.yaml": ["AE11", "rotation"],
   "setup-interruption.yaml": ["AE10", "setup-interruption"],
   "testnet-order-review.yaml": ["AE14", "testnet-order-review"],

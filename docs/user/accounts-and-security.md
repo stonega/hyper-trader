@@ -7,9 +7,10 @@ separate trading identity. A target is explicitly one of:
 - a subaccount owned by that master; or
 - a vault associated with that master.
 
-The Settings screen always shows the active network and target. Trade,
-Portfolio, and Markets also provide the same account switcher, so a target
-change is visible before an action is reviewed.
+Settings shows the automatically selected API wallet as a read-only avatar.
+Markets places the same read-only identity on the right side of its header.
+Trade and Portfolio retain the account selector without repeating the same
+account badge in the adjacent header.
 
 ## API-wallet access
 
@@ -17,10 +18,10 @@ Hyper Trader uses a dedicated named Hyperliquid API wallet for testnet exchange
 actions. The master wallet stays external and is used only for the authorization
 handoff. The app must never ask for a seed phrase or master private key.
 
-Each saved entry shows only public and operational details: its network, target
-kind and address suffix, agent address suffix, authorization generation,
-registration state, expiry, last authoritative verification, local credential
-state, and pending reconciliation count. Secret key material is never shown.
+The avatar is derived from the API wallet already bound to the active account.
+It changes automatically with account context and is not a control for choosing
+another API wallet. The gradient helps distinguish wallets without storing
+another identifier, and secret key material is never shown.
 
 These saved authorization fields are display-only, untrusted local metadata.
 Restoring or selecting a saved entry always enters a read-only context and can
@@ -30,9 +31,9 @@ an exact signer after fresh authoritative verification and device
 authentication.
 
 Adding an account opens the dedicated testnet authorization flow. Rotation,
-repair, and unlink remain visibly unavailable until an authoritative action
-journal and all cleanup adapters are connected. External revoke or replacement
-opens the official
+repair, and unlink remain unavailable until an authoritative action journal and
+all cleanup adapters are connected. External revoke or replacement guidance is
+available through the official
 [Hyperliquid API-wallet guidance](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets).
 The current native wallet handoff remains unavailable until the reviewed Reown
 configuration and physical-device custody evidence are approved. The app stays
@@ -40,8 +41,9 @@ read-only instead of simulating authorization.
 
 ## Switching accounts safely
 
-Select **Switch account** from Trade, Portfolio, Markets, or Settings. Every
-choice identifies the network, master, and exact target kind. Switching:
+Select **Switch account** from Trade or Portfolio. Every choice identifies the
+network, master, and exact target kind. The matching API wallet follows that
+account automatically. Switching:
 
 1. refuses to start while the shared action runtime is in a critical signing or
    submission phase;
@@ -84,21 +86,22 @@ is verified.
 
 The account lifecycle reducer is a deterministic contract for those future
 adapters; it is not wired to Settings and its tests are not integration evidence
-for exchange mutation. The current Settings surface presents the requirements
-but never starts or claims rotation, repair, or unlink. Persisted reconciliation
-counts remain display-only and cannot authorize any mutation. Completion stays
-unavailable until the authoritative journal, nonce tombstone, protected-key
-deletion, and scoped alert-deletion adapters can run together.
+for exchange mutation. Settings never starts or claims rotation, repair, or
+unlink. Persisted reconciliation counts remain display-only and cannot authorize
+any mutation. Completion stays unavailable until the authoritative journal,
+nonce tombstone, protected-key deletion, and scoped alert-deletion adapters can
+run together.
 
 ## Session and device security
 
-Settings reports whether supported device authentication is available and
-enrolled. A successfully unlocked signer exists only in memory for one exact
-account binding and uses the fixed, non-sliding timeout defined by the reviewed
-session manager. Settings displays that runtime constant. Backgrounding, context
-changes, expiry, and **Lock trading session now** lock the session.
+The compact Settings card does not mix runtime session or authorization status
+into the wallet identity. When a confirmed action needs a signature, the app
+requests device authentication and unlocks the signer in memory for one exact
+account binding. The session uses the fixed, non-sliding timeout defined by the
+reviewed session manager. Backgrounding, context changes, and expiry lock it
+again.
 
-Unlocking never submits an action. Every order and account action still goes
+Device authentication never submits an action. Every order and account action still goes
 through current-state refresh, boundary validation, and explicit review.
 
 ## Network safety
@@ -110,7 +113,7 @@ boundary.
 
 ## Scoped trading preferences
 
-Default order type, market-order slippage, and portfolio chart range are stored
+Default order type, market-order slippage, and the last Portfolio chart range are stored
 in a versioned record scoped to the exact network, master, and target. A damaged,
 unknown-version, or out-of-range record resets to safe defaults instead of being
 used. Preferences never contain account credentials.
@@ -121,8 +124,8 @@ review or market, precision, balance, leverage, margin, reduce-only, price, size
 fee, or slippage validation.
 
 Appearance is device-global and does not alter trading identity or authority.
-Notification controls remain a read-only handoff until the verified
-installation and account-link integration is available.
+Portfolio remembers its range from the Portfolio screen. Price alerts use a
+market picker; unavailable account-alert controls are not shown.
 
 ## Redacted diagnostics
 
@@ -140,8 +143,8 @@ destination before sending the report.
 
 1. Lock the trading session.
 2. Confirm the active network, master, and exact target kind.
-3. Check the displayed registration, expiry, last verification, and credential
-   state.
+3. Confirm the API-wallet address and network in an independently trusted
+   Hyperliquid interface.
 4. Inspect the named API wallet through an independently trusted Hyperliquid or
    wallet interface.
 5. Use repair or external replacement. Do not enter secret material into a

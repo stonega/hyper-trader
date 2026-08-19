@@ -64,6 +64,43 @@ describe("notification service runtime", () => {
     expect(activations).toBe(1);
   });
 
+  test("runs catalog synchronization independently of disabled provider workers", async () => {
+    let catalogRuns = 0;
+    const supervisor = new NotificationWorkerSupervisor({
+      config: { ...config, providerWorkersEnabled: false },
+      ownerId: "runtime-catalog",
+      ownership: {
+        acquire: async () => ({ acquired: false as const }),
+        renew: async () => false,
+        release: async () => undefined,
+      },
+      store: {
+        activateWorkerGates: async () => undefined,
+        deactivateWorkerGates: async () => undefined,
+      },
+      rules: {
+        reconcileRules: async () => undefined,
+        close: async () => undefined,
+      },
+      delivery: { runOnce: async () => false },
+      receipts: { runOnce: async () => 0 },
+      dependenciesReady: async () => false,
+    });
+    const runtime = new NotificationServiceRuntime({
+      server: { start: async () => undefined, stop: async () => undefined },
+      workers: supervisor,
+      catalogSync: {
+        runOnce: async () => {
+          catalogRuns += 1;
+          return true;
+        },
+      },
+    });
+
+    expect(await runtime.tickOnce()).toBe(true);
+    expect(catalogRuns).toBe(1);
+  });
+
   test("uses bounded retry delay and aborts server and workers on stop", async () => {
     const lifecycle: string[] = [];
     const delays: number[] = [];

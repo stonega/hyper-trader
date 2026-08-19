@@ -443,6 +443,11 @@ export class HyperliquidMonitorSource implements MonitorSource {
   readonly #streams: HyperliquidPublicStreamPool;
   readonly #now: () => number;
   readonly #capacity: CapacityGovernor;
+  readonly #catalogReader?: {
+    readPublished(network: NotificationNetwork): Promise<{
+      readonly catalog: MarketCatalog;
+    } | null>;
+  };
   readonly #restAdmissions: number[] = [];
   readonly #marketIds = new Map<
     NotificationNetwork,
@@ -457,11 +462,17 @@ export class HyperliquidMonitorSource implements MonitorSource {
     readonly streams: HyperliquidPublicStreamPool;
     readonly now?: () => number;
     readonly capacity?: CapacityGovernor;
+    readonly catalogReader?: {
+      readPublished(network: NotificationNetwork): Promise<{
+        readonly catalog: MarketCatalog;
+      } | null>;
+    };
   }) {
     this.#clients = input.clients;
     this.#streams = input.streams;
     this.#now = input.now ?? Date.now;
     this.#capacity = input.capacity ?? new CapacityGovernor();
+    this.#catalogReader = input.catalogReader;
   }
 
   async loadAuthoritativeSnapshot(
@@ -487,6 +498,9 @@ export class HyperliquidMonitorSource implements MonitorSource {
         receivedAt: this.#now(),
         market: market as unknown as Readonly<Record<string, unknown>>,
       };
+    }
+    if (catalog.sourceErrors.length > 0) {
+      throw new Error("Hyperliquid market catalog baseline is incomplete");
     }
     const dexes = [
       ...new Set(
@@ -620,17 +634,7 @@ export class HyperliquidMonitorSource implements MonitorSource {
     const client = this.#clients[network];
     const controller = new AbortController();
     let entry: CatalogEntry;
-    const promise = client
-      .getMarketCatalog({
-        signal: controller.signal,
-        onRequestBudget: (budget) => this.#admitRestWeight(budget.totalWeight),
-      })
-      .then((catalog) => {
-        if (catalog.sourceErrors.length > 0) {
-          throw new Error("Hyperliquid market catalog baseline is incomplete");
-        }
-        return catalog;
-      })
+    const promise = this.#readCatalog(network, client, controller.signal)
       .finally(() => {
         entry.settled = true;
       })
@@ -649,6 +653,21 @@ export class HyperliquidMonitorSource implements MonitorSource {
     };
     this.#catalogs.set(network, entry);
     return this.#waitForCatalog(network, entry, signal);
+  }
+
+  async #readCatalog(
+    network: NotificationNetwork,
+    client: PublicHyperliquidClient,
+    signal: AbortSignal,
+  ): Promise<MarketCatalog> {
+    const published = await this.#catalogReader?.readPublished(network);
+    if (signal.aborted) throw signal.reason;
+    if (published) return published.catalog;
+    return client.getMarketCatalog({
+      scope: "core",
+      signal,
+      onRequestBudget: (budget) => this.#admitRestWeight(budget.totalWeight),
+    });
   }
 
   #waitForCatalog(

@@ -1,64 +1,59 @@
-import type { CatalogSourceError } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
-import { View } from "react-native";
 
-import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import type { CatalogPresentationState } from "./catalog-state";
 
 export function CatalogStatus({
   state,
-  sourceErrors,
   onRetry,
 }: {
   readonly state: CatalogPresentationState;
-  readonly sourceErrors: readonly CatalogSourceError[];
   readonly onRetry: () => void;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const colorClass =
-    state.freshness === "fresh" && !state.hasPartialSources
-      ? "text-success"
-      : state.content === "unavailable"
-        ? "text-danger"
+    state.content === "unavailable"
+      ? "text-danger"
+      : state.content === "ready" &&
+          (state.freshness === "fresh" || state.freshness === "refreshing") &&
+          !state.hasPartialSources
+        ? "text-success"
         : "text-warning";
+  const title =
+    state.content === "unavailable" ? "Markets unavailable" : "Market update";
+  const description =
+    state.content === "loading"
+      ? "Loading markets…"
+      : state.content === "unavailable"
+        ? "Markets could not be loaded."
+        : state.freshness === "offline"
+          ? "You’re offline. Showing saved markets."
+          : "Some market data may be out of date.";
 
   return (
     <Card variant="secondary" className="gap-3">
       <Card.Body className="gap-2">
-        <Card.Title className={colorClass}>Catalog status</Card.Title>
+        <Card.Title className={colorClass}>{title}</Card.Title>
         <Card.Description
           accessibilityLiveRegion="polite"
           accessibilityRole={state.content === "unavailable" ? "alert" : "text"}
         >
-          {state.statusLabel}
+          {description}
         </Card.Description>
-        {sourceErrors.length > 0 ? (
-          <View className="gap-1">
-            {sourceErrors.map((error) => (
-              <Text
-                className="text-sm text-muted"
-                key={`${error.source}:${error.message}`}
-              >
-                {error.source}: temporarily unavailable
-              </Text>
-            ))}
-          </View>
-        ) : null}
       </Card.Body>
       {state.canRetry ? (
         <Card.Footer>
           <Button
-            accessibilityHint="Retries every catalog source while keeping saved validated markets visible."
+            accessibilityHint="Tries to refresh the market list."
             animation={reducedMotion ? "disable-all" : undefined}
             className="min-h-11"
             onPress={onRetry}
             size="sm"
             variant="secondary"
           >
-            Retry catalog
+            Try again
           </Button>
         </Card.Footer>
       ) : null}

@@ -1,10 +1,12 @@
 import { describe, expect, jest, test } from "@jest/globals";
 import {
+  act,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react-native";
+import { AppState, type AppStateStatus } from "react-native";
 
 import SetupScreen from "../app/setup";
 import type { SetupAttempt } from "../features/accounts/setup-coordinator";
@@ -12,7 +14,7 @@ import type { ActivatedSetupRecord } from "../features/accounts/setup-repository
 
 const MASTER = "0x1111111111111111111111111111111111111111";
 const AGENT = "0x2222222222222222222222222222222222222222";
-const REGISTRATION_NAME = "Stone API";
+const REGISTRATION_NAME = "Hyper Trader";
 const ATTEMPT: SetupAttempt = {
   id: `0x${"a".repeat(64)}`,
   network: "testnet",
@@ -54,6 +56,13 @@ const mockFinish = jest.fn<() => Promise<void>>();
 const mockSave = jest.fn<() => Promise<boolean>>();
 const mockSelect = jest.fn<() => Promise<boolean>>();
 const mockSwitchContext = jest.fn<() => Promise<boolean>>();
+const mockLaunchScanner = jest.fn<(options?: unknown) => Promise<void>>();
+const mockDismissScanner = jest.fn<() => Promise<void>>();
+const mockSetStringAsync = jest.fn<(value: string) => Promise<boolean>>();
+let mockScanListener:
+  | ((event: { readonly data: string; readonly type: string }) => void)
+  | null = null;
+let mockAppStateListener: ((state: AppStateStatus) => void) | null = null;
 const saveAccount = () => mockSave();
 const selectAccount = () => mockSelect();
 const switchTradingContext = () => mockSwitchContext();
@@ -67,11 +76,58 @@ const mockRuntime = {
   prepare: (master: string, registrationName: string) =>
     mockPrepare(master, registrationName),
   verify: () => mockVerify(),
-  confirmShorterExpiry: () => mockVerify(),
   activationFor: () => mockActivationFor(),
   finish: () => mockFinish(),
   cancel: async () => undefined,
 };
+
+jest
+  .spyOn(AppState, "addEventListener")
+  .mockImplementation((_type, listener) => {
+    mockAppStateListener = listener;
+    return {
+      remove: () => {
+        mockAppStateListener = null;
+      },
+    };
+  });
+
+jest.mock("expo-camera", () => ({
+  CameraView: {
+    dismissScanner: () => mockDismissScanner(),
+    isModernBarcodeScannerAvailable: true,
+    launchScanner: (options?: unknown) => mockLaunchScanner(options),
+    onModernBarcodeScanned: (
+      listener: (event: {
+        readonly data: string;
+        readonly type: string;
+      }) => void,
+    ) => {
+      mockScanListener = listener;
+      return {
+        remove: () => {
+          mockScanListener = null;
+        },
+      };
+    },
+  },
+}));
+
+jest.mock("expo-clipboard", () => ({
+  setStringAsync: (value: string) => mockSetStringAsync(value),
+}));
+
+jest.mock("react-native-qrcode-styled", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  const { View } =
+    jest.requireActual<typeof import("react-native")>("react-native");
+
+  return {
+    __esModule: true,
+    default: (props: Record<string, unknown>) =>
+      React.createElement(View, props),
+  };
+});
 
 jest.mock("expo-router", () => ({
   useRouter: () => ({ replace: mockReplace }),
@@ -113,8 +169,39 @@ jest.mock("../core/context/provider", () => ({
 }));
 
 describe("native resumable API-wallet setup", () => {
-  test("saves the user's API-wallet name before key generation", async () => {
+  test("scans a master wallet address from the input action", async () => {
     mockLoad.mockResolvedValue({ status: "empty" });
+    mockLaunchScanner.mockResolvedValue(undefined);
+    mockDismissScanner.mockResolvedValue(undefined);
+
+    render(<SetupScreen />);
+
+    expect(
+      await screen.findByText("Enter your Hyperliquid wallet"),
+    ).toBeTruthy();
+    fireEvent.press(
+      screen.getByRole("button", { name: "Scan master wallet QR code" }),
+    );
+    await waitFor(() =>
+      expect(mockLaunchScanner).toHaveBeenCalledWith({
+        barcodeTypes: ["qr"],
+        isGuidanceEnabled: true,
+        isHighlightingEnabled: true,
+        isPinchToZoomEnabled: true,
+      }),
+    );
+
+    await act(async () => {
+      mockScanListener?.({ data: `ethereum:${MASTER}@421614`, type: "qr" });
+    });
+
+    expect(screen.getByPlaceholderText("0x…")).toHaveProp("value", MASTER);
+    expect(mockDismissScanner).toHaveBeenCalledTimes(1);
+  });
+
+  test("uses the default API-wallet name without another input", async () => {
+    mockLoad.mockResolvedValue({ status: "empty" });
+    mockPrepare.mockResolvedValue(ATTEMPT);
 
     render(<SetupScreen />);
 
@@ -122,16 +209,13 @@ describe("native resumable API-wallet setup", () => {
       await screen.findByText("Enter your Hyperliquid wallet"),
     ).toBeTruthy();
     fireEvent.changeText(screen.getByPlaceholderText("0x…"), MASTER);
-    fireEvent.changeText(
-      screen.getByPlaceholderText("Trading wallet"),
-      REGISTRATION_NAME,
+    expect(screen.queryByText("API wallet name")).toBeNull();
+    fireEvent.press(
+      screen.getByRole("button", { name: "Generate API wallet" }),
     );
-    fireEvent.press(screen.getByRole("button", { name: "Continue" }));
 
-    expect(await screen.findByText("Protect this device")).toBeTruthy();
-    expect(
-      screen.getByText(`It will use your label: ${REGISTRATION_NAME}`),
-    ).toBeTruthy();
+    expect(await screen.findByText(AGENT)).toBeTruthy();
+    expect(mockPrepare).toHaveBeenCalledWith(MASTER, REGISTRATION_NAME);
   });
 
   test("generates, verifies, saves, and enters Trade", async () => {
@@ -151,22 +235,33 @@ describe("native resumable API-wallet setup", () => {
     mockSave.mockResolvedValue(true);
     mockSelect.mockResolvedValue(true);
     mockSwitchContext.mockResolvedValue(true);
+    mockSetStringAsync.mockResolvedValue(true);
 
     render(<SetupScreen />);
 
-    expect(await screen.findByText("Protect this device")).toBeTruthy();
+    expect(await screen.findByText("Generate your API wallet")).toBeTruthy();
     fireEvent.press(
-      screen.getByRole("button", { name: "Protect & generate wallet" }),
+      screen.getByRole("button", { name: "Generate API wallet" }),
     );
 
     expect(await screen.findByText(AGENT)).toBeTruthy();
     expect(mockPrepare).toHaveBeenCalledWith(MASTER, REGISTRATION_NAME);
+    expect(screen.getByTestId("api-wallet-address-qr-code")).toHaveProp(
+      "data",
+      AGENT,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Copy wallet name" }),
+    ).toBeNull();
+    fireEvent.press(
+      screen.getByRole("button", { name: "Copy API wallet address" }),
+    );
+    await waitFor(() => expect(mockSetStringAsync).toHaveBeenCalledWith(AGENT));
+    expect(screen.getByText("API wallet address copied.")).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Open Hyperliquid API" }),
     ).toBeTruthy();
-    fireEvent.press(
-      screen.getByRole("button", { name: "I’ve added it — verify" }),
-    );
+    fireEvent.press(screen.getByRole("button", { name: "Check again" }));
 
     await waitFor(() => expect(mockFinish).toHaveBeenCalledTimes(1));
     expect(mockSave).toHaveBeenCalledTimes(1);
@@ -185,5 +280,27 @@ describe("native resumable API-wallet setup", () => {
     fireEvent.press(screen.getByRole("button", { name: "Finish later" }));
     expect(mockFinish).not.toHaveBeenCalled();
     expect(mockReplace).toHaveBeenCalledWith("/(tabs)/trade");
+  });
+
+  test("checks a pending API wallet automatically after returning to the app", async () => {
+    mockLoad.mockResolvedValue({ status: "authorization", attempt: ATTEMPT });
+    mockVerify.mockClear();
+    mockVerify.mockResolvedValue({
+      status: "inert",
+      reason: "registration_unverified",
+    });
+
+    render(<SetupScreen />);
+
+    expect(await screen.findByText(AGENT)).toBeTruthy();
+    expect(mockVerify).not.toHaveBeenCalled();
+
+    act(() => {
+      mockAppStateListener?.("background");
+      mockAppStateListener?.("active");
+    });
+
+    await waitFor(() => expect(mockVerify).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/API wallet not found yet/)).toBeTruthy();
   });
 });

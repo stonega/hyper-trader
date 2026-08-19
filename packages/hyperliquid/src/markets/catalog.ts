@@ -1,4 +1,4 @@
-import { HyperliquidValidationError } from "../errors";
+import { HyperliquidApiError, HyperliquidValidationError } from "../errors";
 import {
   parseDecimalString,
   parseNullableDecimalString,
@@ -22,6 +22,20 @@ interface DexDescriptor {
   readonly name: string;
   readonly fullName: string | null;
 }
+
+const MAX_INCREMENTAL_BUILDER_DEXES = 37;
+
+export type MarketCatalogRequestOptions = InfoRequestOptions &
+  (
+    | { readonly scope?: "complete" }
+    | { readonly scope: "core" }
+    | { readonly scope: "native" }
+    | {
+        readonly scope: "incremental";
+        readonly builderDexOffset: number;
+        readonly builderDexLimit: number;
+      }
+  );
 
 function record(value: unknown, path: string): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -52,6 +66,20 @@ function integer(value: unknown, path: string): number {
     );
   }
   return value as number;
+}
+
+function signedInteger(value: unknown, path: string): number {
+  if (!Number.isSafeInteger(value)) {
+    throw new HyperliquidValidationError(path, "expected an integer");
+  }
+  return value as number;
+}
+
+function possiblyEmptyString(value: unknown, path: string): string {
+  if (typeof value !== "string") {
+    throw new HyperliquidValidationError(path, "expected a string");
+  }
+  return value;
 }
 
 function optionalBoolean(value: unknown, path: string): boolean {
@@ -318,8 +346,34 @@ function parseToken(value: unknown, path: string): TokenIdentity {
     sizeDecimals: integer(token.szDecimals, `${path}.szDecimals`),
     weiDecimals: integer(token.weiDecimals, `${path}.weiDecimals`),
     isCanonical: optionalBoolean(token.isCanonical, `${path}.isCanonical`),
-    evmContract: nullableString(token.evmContract, `${path}.evmContract`),
+    evmContract: parseEvmContract(token.evmContract, `${path}.evmContract`),
   };
+}
+
+function parseEvmContract(
+  value: unknown,
+  path: string,
+): TokenIdentity["evmContract"] {
+  if (value === null || value === undefined) return null;
+  const contract = record(value, path);
+  const address = string(contract.address, `${path}.address`);
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) {
+    throw new HyperliquidValidationError(
+      `${path}.address`,
+      "expected a 20-byte EVM address",
+    );
+  }
+  const extraWeiDecimals = signedInteger(
+    contract.evm_extra_wei_decimals,
+    `${path}.evm_extra_wei_decimals`,
+  );
+  if (extraWeiDecimals < -255 || extraWeiDecimals > 255) {
+    throw new HyperliquidValidationError(
+      `${path}.evm_extra_wei_decimals`,
+      "expected an integer between -255 and 255",
+    );
+  }
+  return { address: address.toLowerCase(), extraWeiDecimals };
 }
 
 function parseSpotSource(payload: unknown): {
@@ -455,7 +509,7 @@ function parseOutcomeSource(payload: unknown): readonly OutcomeMarket[] {
         outcome.name,
         `outcomeMeta.outcomes[${outcomeIndex}].name`,
       );
-      const description = string(
+      const description = possiblyEmptyString(
         outcome.description,
         `outcomeMeta.outcomes[${outcomeIndex}].description`,
       );
@@ -511,60 +565,168 @@ function sourceError(source: string, reason: unknown): CatalogSourceError {
   return {
     source,
     message: reason instanceof Error ? reason.message : String(reason),
+    ...(reason instanceof HyperliquidApiError
+      ? {
+          status: reason.status,
+          ...(reason.rateLimit?.retryAfterMs === undefined
+            ? {}
+            : { retryAfterMs: reason.rateLimit.retryAfterMs }),
+        }
+      : {}),
   };
+}
+
+const CATALOG_SOURCE_CONCURRENCY = 8;
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw (
+    signal.reason ??
+    new DOMException("Market catalog request was aborted.", "AbortError")
+  );
+}
+
+async function settleCatalogSources<T>(
+  tasks: readonly (() => Promise<T>)[],
+  signal?: AbortSignal,
+): Promise<PromiseSettledResult<T>[]> {
+  const results = new Array<PromiseSettledResult<T>>(tasks.length);
+  let nextIndex = 0;
+
+  const worker = async () => {
+    while (nextIndex < tasks.length) {
+      throwIfAborted(signal);
+      const index = nextIndex;
+      nextIndex += 1;
+      const task = tasks[index];
+      if (!task) return;
+      try {
+        results[index] = { status: "fulfilled", value: await task() };
+      } catch (reason) {
+        throwIfAborted(signal);
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CATALOG_SOURCE_CONCURRENCY, tasks.length) },
+      () => worker(),
+    ),
+  );
+  return results;
 }
 
 export async function discoverMarketCatalog(
   transport: InfoHttpTransport,
-  options: InfoRequestOptions = {},
+  options: MarketCatalogRequestOptions = {},
 ): Promise<MarketCatalog> {
+  throwIfAborted(options.signal);
+  if (options.scope === "incremental") {
+    if (
+      !Number.isSafeInteger(options.builderDexOffset) ||
+      options.builderDexOffset < 0
+    ) {
+      throw new HyperliquidValidationError(
+        "marketCatalog.builderDexOffset",
+        "expected a non-negative integer",
+      );
+    }
+    if (
+      !Number.isSafeInteger(options.builderDexLimit) ||
+      options.builderDexLimit < 1 ||
+      options.builderDexLimit > MAX_INCREMENTAL_BUILDER_DEXES
+    ) {
+      throw new HyperliquidValidationError(
+        "marketCatalog.builderDexLimit",
+        `expected an integer between 1 and ${MAX_INCREMENTAL_BUILDER_DEXES}`,
+      );
+    }
+  }
   const sourceErrors: CatalogSourceError[] = [];
   const nativeDex: DexDescriptor = { index: 0, name: "", fullName: null };
   let dexes: readonly DexDescriptor[] = [nativeDex];
-  try {
-    dexes = [
-      nativeDex,
-      ...parseDexs(await transport.request({ type: "perpDexs" }, options)),
-    ];
-  } catch (error) {
-    sourceErrors.push(sourceError("perpDexs", error));
+  if (options.scope !== "core" && options.scope !== "native") {
+    try {
+      dexes = [
+        nativeDex,
+        ...parseDexs(await transport.request({ type: "perpDexs" }, options)),
+      ];
+    } catch (error) {
+      throwIfAborted(options.signal);
+      sourceErrors.push(sourceError("perpDexs", error));
+    }
   }
 
+  const builderDexes = (() => {
+    if (options.scope === "core" || options.scope === "native") return [];
+    if (options.scope !== "incremental") return dexes.slice(1);
+    return dexes.slice(
+      1 + options.builderDexOffset,
+      1 + options.builderDexOffset + options.builderDexLimit,
+    );
+  })();
+
   const requests = [
-    ...dexes.map((dex) => ({
+    {
+      source: "metaAndAssetCtxs:native",
+      kind: "perp" as const,
+      dex: nativeDex,
+      load: () =>
+        transport.request(
+          {
+            type: "metaAndAssetCtxs",
+          },
+          options,
+        ),
+    },
+    ...(options.scope === "native"
+      ? []
+      : [
+          {
+            source: "spotMetaAndAssetCtxs",
+            kind: "spot" as const,
+            dex: null,
+            load: () =>
+              transport.request({ type: "spotMetaAndAssetCtxs" }, options),
+          },
+          ...(transport.network === "testnet"
+            ? [
+                {
+                  source: "outcomeMeta",
+                  kind: "outcome" as const,
+                  dex: null,
+                  load: () =>
+                    transport.request({ type: "outcomeMeta" }, options),
+                },
+              ]
+            : []),
+        ]),
+    ...builderDexes.map((dex) => ({
       source: `metaAndAssetCtxs:${dex.name || "native"}`,
       kind: "perp" as const,
       dex,
-      promise: transport.request(
-        {
-          type: "metaAndAssetCtxs",
-          ...(dex.name === "" ? {} : { dex: dex.name }),
-        },
-        options,
-      ),
-    })),
-    {
-      source: "spotMetaAndAssetCtxs",
-      kind: "spot" as const,
-      dex: null,
-      promise: transport.request({ type: "spotMetaAndAssetCtxs" }, options),
-    },
-    ...(transport.network === "testnet"
-      ? [
+      load: () =>
+        transport.request(
           {
-            source: "outcomeMeta",
-            kind: "outcome" as const,
-            dex: null,
-            promise: transport.request({ type: "outcomeMeta" }, options),
+            type: "metaAndAssetCtxs",
+            dex: dex.name,
           },
-        ]
-      : []),
+          options,
+        ),
+    })),
   ];
-  const settled = await Promise.allSettled(
-    requests.map(({ promise }) => promise),
+  const settled = await settleCatalogSources(
+    requests.map(({ load }) => load),
+    options.signal,
   );
-  const markets: Market[] = [];
-  const quarantined: QuarantinedMarket[] = [];
+  throwIfAborted(options.signal);
+  const perpetualMarkets: Market[] = [];
+  const spotMarkets: Market[] = [];
+  const outcomeMarkets: Market[] = [];
+  const perpetualQuarantined: QuarantinedMarket[] = [];
+  const spotQuarantined: QuarantinedMarket[] = [];
 
   for (const [index, result] of settled.entries()) {
     const request = requests[index];
@@ -578,19 +740,33 @@ export async function discoverMarketCatalog(
     try {
       if (request.kind === "perp" && request.dex) {
         const parsed = parsePerpSource(result.value, request.dex);
-        markets.push(...parsed.markets);
-        quarantined.push(...parsed.quarantined);
+        perpetualMarkets.push(...parsed.markets);
+        perpetualQuarantined.push(...parsed.quarantined);
       } else if (request.kind === "spot") {
         const parsed = parseSpotSource(result.value);
-        markets.push(...parsed.markets);
-        quarantined.push(...parsed.quarantined);
+        spotMarkets.push(...parsed.markets);
+        spotQuarantined.push(...parsed.quarantined);
       } else if (request.kind === "outcome") {
-        markets.push(...parseOutcomeSource(result.value));
+        outcomeMarkets.push(...parseOutcomeSource(result.value));
       }
     } catch (error) {
       sourceErrors.push(sourceError(request.source, error));
     }
   }
 
-  return { markets, quarantined, sourceErrors };
+  return {
+    markets: [...perpetualMarkets, ...spotMarkets, ...outcomeMarkets],
+    quarantined: [...perpetualQuarantined, ...spotQuarantined],
+    sourceErrors,
+    ...(options.scope === "incremental"
+      ? {
+          builderPage: {
+            offset: options.builderDexOffset,
+            limit: options.builderDexLimit,
+            total: Math.max(0, dexes.length - 1),
+            dexes: builderDexes,
+          },
+        }
+      : {}),
+  };
 }

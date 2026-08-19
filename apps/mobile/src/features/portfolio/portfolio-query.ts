@@ -15,7 +15,10 @@ import {
   type PortfolioPerpSource,
   type PortfolioSourceSnapshot,
 } from "./portfolio-model";
-import { portfolioQueryKey } from "./portfolio-query-key";
+import {
+  portfolioCatalogCacheKey,
+  portfolioQueryKey,
+} from "./portfolio-query-key";
 
 const EMPTY_SPOT_STATE = { balances: [] } as const;
 const FUNDING_WINDOW_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -187,21 +190,7 @@ export function usePortfolioData(
   const isFocused = useIsFocused();
   const isOnline = useOnlineStatus();
   const catalogFingerprint = useMemo(
-    () =>
-      JSON.stringify(
-        markets?.map((market) => [
-          market.canonicalId,
-          market.orderAssetId,
-          market.lifecycle,
-          market.orderAvailability,
-          market.sizeDecimals,
-          market.pricePrecision,
-          market.midPx,
-          market.markPx,
-          market.family === "perp" ? market.maxLeverage : null,
-          market.family === "perp" ? market.onlyIsolated : null,
-        ]) ?? null,
-      ),
+    () => portfolioCatalogCacheKey(markets),
     [markets],
   );
   const query = useQuery<NormalizedPortfolio>({

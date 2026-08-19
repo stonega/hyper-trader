@@ -1,7 +1,8 @@
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useRef } from "react";
-import { AppState, InteractionManager } from "react-native";
+import { AppState } from "react-native";
 
+import { scheduleAfterIdleFrame } from "../../core/performance/idle-frame";
 import { warmResumeMarkers } from "../../core/performance/warm-resume";
 
 export function useUsableTradeMarker(ready: boolean): void {
@@ -21,26 +22,17 @@ export function useUsableTradeMarker(ready: boolean): void {
     ) {
       return () => {};
     }
-    let frame: number | null = null;
-    const interaction = InteractionManager.runAfterInteractions(() => {
-      frame = requestAnimationFrame(() => {
-        if (
-          focused.current &&
-          readyRef.current &&
-          generation.current === scheduledGeneration &&
-          markedGeneration.current !== scheduledGeneration
-        ) {
-          markedGeneration.current = scheduledGeneration;
-          warmResumeMarkers.markUsableTrade();
-        }
-      });
-    });
-    return () => {
-      interaction.cancel();
-      if (frame !== null) {
-        cancelAnimationFrame(frame);
+    return scheduleAfterIdleFrame(() => {
+      if (
+        focused.current &&
+        readyRef.current &&
+        generation.current === scheduledGeneration &&
+        markedGeneration.current !== scheduledGeneration
+      ) {
+        markedGeneration.current = scheduledGeneration;
+        warmResumeMarkers.markUsableTrade();
       }
-    };
+    });
   }, []);
 
   useFocusEffect(

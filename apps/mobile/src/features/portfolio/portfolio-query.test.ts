@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AccountTarget } from "@hyper-trader/hyperliquid";
 
-import { portfolioQueryKey } from "./portfolio-query-key";
+import { NATIVE_DUPLICATE } from "../markets/fixture";
+import {
+  portfolioCatalogCacheKey,
+  portfolioQueryKey,
+} from "./portfolio-query-key";
 
 const context = {
   network: "testnet" as const,
@@ -11,6 +15,28 @@ const context = {
 };
 
 describe("portfolio query isolation", () => {
+  test("reuses the portfolio cache across price-only catalog updates", () => {
+    const original = portfolioCatalogCacheKey([NATIVE_DUPLICATE]);
+    const repriced = portfolioCatalogCacheKey([
+      {
+        ...NATIVE_DUPLICATE,
+        markPx: "102",
+        midPx: "101",
+      },
+    ]);
+
+    expect(repriced).toBe(original);
+  });
+
+  test("starts a new portfolio cache entry when trading safety changes", () => {
+    const original = portfolioCatalogCacheKey([NATIVE_DUPLICATE]);
+    const browseOnly = portfolioCatalogCacheKey([
+      { ...NATIVE_DUPLICATE, orderAvailability: "browse_only" },
+    ]);
+
+    expect(browseOnly).not.toBe(original);
+  });
+
   test("keys exact target kinds independently even at the same address", () => {
     const targets: readonly AccountTarget[] = [
       { kind: "master", address: context.targetAccount },

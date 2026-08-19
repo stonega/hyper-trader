@@ -70,11 +70,16 @@ export async function openNativeManagedConnection(options: {
   >();
   const disconnectListeners = new Set<(error?: unknown) => void>();
   let closed = false;
+  let disconnected = false;
+  let disconnectError: unknown;
+  let awaitingHeartbeat = false;
 
   const notifyDisconnect = (error?: unknown) => {
-    if (closed) {
+    if (closed || disconnected) {
       return;
     }
+    disconnected = true;
+    disconnectError = error;
     for (const listener of disconnectListeners) {
       listener(error);
     }
@@ -82,6 +87,7 @@ export async function openNativeManagedConnection(options: {
   const onMessage = (event: MessageEvent) => {
     try {
       const envelope = parsePublicWebSocketMessage(event.data);
+      awaitingHeartbeat = false;
       if (envelope.channel === "pong") {
         return;
       }
@@ -115,6 +121,9 @@ export async function openNativeManagedConnection(options: {
 
   return {
     subscribe(rawWire, listener) {
+      if (closed || disconnected) {
+        throw new Error("The Hyperliquid WebSocket is not connected.");
+      }
       const wire = asWire(rawWire);
       subscriptions.set(wire, listener);
       socket.send(
@@ -124,20 +133,34 @@ export async function openNativeManagedConnection(options: {
         }),
       );
       return () => {
-        if (!subscriptions.delete(wire) || closed) {
+        if (!subscriptions.delete(wire) || closed || disconnected) {
           return;
         }
-        socket.send(
-          JSON.stringify({
-            method: "unsubscribe",
-            subscription: wire.subscription,
-          }),
-        );
+        try {
+          socket.send(
+            JSON.stringify({
+              method: "unsubscribe",
+              subscription: wire.subscription,
+            }),
+          );
+        } catch (error) {
+          notifyDisconnect(error);
+        }
       };
     },
     ping() {
-      if (!closed) {
+      if (closed || disconnected) return;
+      if (awaitingHeartbeat) {
+        notifyDisconnect(
+          new Error("The Hyperliquid WebSocket heartbeat timed out."),
+        );
+        return;
+      }
+      try {
+        awaitingHeartbeat = true;
         socket.send(JSON.stringify({ method: "ping" }));
+      } catch (error) {
+        notifyDisconnect(error);
       }
     },
     close() {
@@ -154,6 +177,10 @@ export async function openNativeManagedConnection(options: {
       socket.close();
     },
     onDisconnect(listener) {
+      if (disconnected) {
+        listener(disconnectError);
+        return () => undefined;
+      }
       disconnectListeners.add(listener);
       return () => disconnectListeners.delete(listener);
     },

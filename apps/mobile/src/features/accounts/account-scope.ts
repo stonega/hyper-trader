@@ -391,10 +391,30 @@ export function addressSuffix(address: string): string {
 }
 
 export function authorizationDisplayLabel(account: SavedAccount): string {
-  if (account.network === "mainnet") return "read only";
-  return account.authorization.agentAddress === null
-    ? "read only · authorization required"
-    : "authorization recorded · verification required";
+  if (account.network === "mainnet") return "Read only";
+  const authorization = account.authorization;
+  if (authorization.agentAddress === null) return "Setup required";
+  if (
+    authorization.registrationState === "quarantined" ||
+    authorization.credentialState === "quarantined"
+  ) {
+    return "API wallet unavailable";
+  }
+  if (authorization.registrationState === "expired") {
+    return "API wallet expired";
+  }
+  if (authorization.registrationState === "retiring") {
+    return "API wallet retiring";
+  }
+  if (authorization.registrationState === "inactive") {
+    return "API wallet inactive";
+  }
+  if (authorization.registrationState === "unverified") {
+    return "API wallet pending";
+  }
+  return authorization.credentialState === "protected"
+    ? "API wallet active"
+    : "API wallet needs repair";
 }
 
 export function readOnlyTradingContextForSavedAccount(account: SavedAccount): {

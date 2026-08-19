@@ -125,6 +125,10 @@ export const CATALOG_RESPONSES = {
           index: 0,
           tokenId: "0xusdc",
           isCanonical: true,
+          evmContract: {
+            address: "0x0b80659a4076e9e93c7dbe0f10675a16a3e5c206",
+            evm_extra_wei_decimals: -2,
+          },
         },
         {
           name: "DUP",
@@ -152,8 +156,7 @@ export const CATALOG_RESPONSES = {
       {
         outcome: 12,
         name: "Recurring",
-        description:
-          "class:priceBinary|underlying:BTC|expiry:20260810-0600|targetPrice:120000|period:1d",
+        description: "",
         sideSpecs: [{ name: "Higher" }, { name: "Lower" }],
         futureField: "preserved by boundary tolerance",
       },

@@ -1,9 +1,22 @@
+import type {
+  ContextEpochAuthority,
+  SignerBinding,
+} from "@hyper-trader/hyperliquid";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { openDatabaseSync } from "expo-sqlite";
 import { toHex } from "viem";
-
-import { expoSqliteSyncConnection } from "../../platform/persistence/action-journal";
+import type { TradingContextIdentity } from "../../core/context/supervisor";
 import {
+  createSignerSessionManager,
+  type SignerSessionManager,
+} from "../../core/session/manager";
+import {
+  expoSqliteSyncConnection,
+  initializeActionPersistence,
+} from "../../platform/persistence/action-journal";
+import { SqliteNonceAndJournalRepository } from "../../platform/persistence/nonce-repository";
+import {
+  createAgentSigner,
   deriveAgentAddress,
   expoCryptographicRandomBytes,
 } from "../../platform/security/agent-signer";
@@ -15,6 +28,12 @@ import {
 import { createExpoDeviceAuthenticationPort } from "../../platform/security/device-auth";
 import { createManualAgentRegistrationAuthority } from "../../platform/wallet/manual-authority";
 import { normalizeAgentRegistrationName } from "../../platform/wallet/setup-identifiers";
+import {
+  normalizeSavedAccount,
+  readOnlyTradingContextForSavedAccount,
+  type SavedAccount,
+} from "./account-scope";
+import { restoredTradingContextForSavedAccount } from "./active-account-context";
 import {
   createManualSetupProgressRepository,
   type ManualSetupProgressRepository,
@@ -71,11 +90,19 @@ export interface ManualSetupRuntime {
     registrationName: string,
   ): Promise<SetupAttempt>;
   verify(attempt: SetupAttempt): Promise<SetupVerificationResult>;
-  confirmShorterExpiry(
-    attempt: SetupAttempt,
-    effectiveExpiry: number,
-  ): Promise<SetupVerificationResult>;
   activationFor(attempt: SetupAttempt): ActivatedSetupRecord | null;
+  restoreTradingContext(account: SavedAccount): Promise<TradingContextIdentity>;
+  createSignerSessionManager(input: {
+    readonly isActiveAndFocused: () => boolean;
+  }): SignerSessionManager;
+  createActionRepository(
+    authority: ContextEpochAuthority,
+  ): SqliteNonceAndJournalRepository;
+  registerActionSignerScope(
+    actionRepository: SqliteNonceAndJournalRepository,
+    binding: SignerBinding,
+    nowMs: number,
+  ): void;
   finish(): Promise<void>;
   cancel(attempt: SetupAttempt): Promise<void>;
 }
@@ -174,9 +201,8 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
   }
 
   const database = openDatabaseSync(DATABASE_NAME);
-  const repository = new SqliteSetupRepository(
-    expoSqliteSyncConnection(database),
-  );
+  const connection = expoSqliteSyncConnection(database);
+  const repository = new SqliteSetupRepository(connection);
   const progress: ManualSetupProgressRepository =
     createManualSetupProgressRepository(AsyncStorage);
   const deviceAuthentication = await createExpoDeviceAuthenticationPort();
@@ -285,13 +311,68 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         attemptId: attempt.id,
         connectorSessionId: attempt.connectorSessionId,
       }),
-    confirmShorterExpiry: (attempt, effectiveExpiry) =>
-      coordinator.confirmShorterExpiry({
-        attemptId: attempt.id,
-        connectorSessionId: attempt.connectorSessionId,
-        acceptedExpiry: effectiveExpiry,
-      }),
     activationFor,
+    async restoreTradingContext(accountInput) {
+      const account = normalizeSavedAccount(accountInput);
+      if (account.network !== "testnet") {
+        return readOnlyTradingContextForSavedAccount(account);
+      }
+      const activeBinding = repository.getActiveBindingForTarget({
+        network: "testnet",
+        masterAccount: account.masterAccount,
+        targetAccount: account.target.address,
+      });
+      return restoredTradingContextForSavedAccount({
+        account,
+        activeBinding,
+        manifest: await vault.readManifest(),
+        nowMs: Date.now(),
+      });
+    },
+    createSignerSessionManager({ isActiveAndFocused }) {
+      return createSignerSessionManager({
+        timer: {
+          now: Date.now,
+          schedule: (durationMs, callback) => setTimeout(callback, durationMs),
+          cancel: (handle) =>
+            clearTimeout(handle as ReturnType<typeof setTimeout>),
+        },
+        deviceAuth: deviceAuthentication,
+        vault,
+        signerFactory: createAgentSigner,
+        isActiveAndFocused,
+      });
+    },
+    createActionRepository(authority) {
+      initializeActionPersistence(connection);
+      return new SqliteNonceAndJournalRepository(connection, authority);
+    },
+    registerActionSignerScope(actionRepository, binding, nowMs) {
+      const active = repository.getActiveBindingForTarget({
+        network: "testnet",
+        masterAccount: binding.masterAccount,
+        targetAccount: binding.targetAccount,
+      });
+      if (active === null) {
+        throw new Error("The active API-wallet registration is unavailable.");
+      }
+      if (
+        active.binding.agentAddress !== binding.agentAddress ||
+        active.binding.generation !== binding.generation
+      ) {
+        throw new Error("The active API-wallet registration changed.");
+      }
+      if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+        throw new TypeError("The current time is invalid.");
+      }
+      if (active.effectiveExpiry <= nowMs) {
+        throw new Error("The active API-wallet registration expired.");
+      }
+      actionRepository.registerActiveSignerScope({
+        binding: active.binding,
+        activatedAt: active.activatedAt,
+      });
+    },
     finish: () => progress.clear(),
     async cancel(attempt) {
       await coordinator.cancel(attempt.id);

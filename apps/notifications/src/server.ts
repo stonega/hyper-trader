@@ -1,4 +1,9 @@
 import {
+  type HyperliquidNetwork,
+  type MarketCatalog,
+  parseMarketCatalogSnapshot,
+} from "@hyper-trader/hyperliquid/public";
+import {
   assertRequestBodySize,
   CONTRACT_LIMITS,
   ContractError,
@@ -33,6 +38,7 @@ import {
 } from "./application";
 
 const JSON_CONTENT_TYPE = "application/json";
+const MAX_MARKET_CATALOG_RESPONSE_BYTES = 8 * 1024 * 1024;
 const BEARER = /^Bearer ([0-9a-f]{64})$/;
 const PROTECTED_POST_PATHS = new Set([
   "/v1/challenges",
@@ -42,9 +48,24 @@ const PROTECTED_POST_PATHS = new Set([
   "/v1/installations/revoke-lost",
 ]);
 
+export interface MarketCatalogReader {
+  readPublished(network: HyperliquidNetwork): Promise<{
+    readonly network: HyperliquidNetwork;
+    readonly generation: number;
+    readonly publishedAtMs: number;
+    readonly catalog: MarketCatalog;
+  } | null>;
+}
+
+export interface MarketCatalogServerOptions {
+  readonly serviceOrigin: string;
+  readonly marketCatalog: MarketCatalogReader;
+}
+
 export interface NotificationServerOptions {
   readonly application: NotificationApplication;
   readonly serviceOrigin: string;
+  readonly marketCatalog?: MarketCatalogReader;
 }
 
 export interface NotificationDirectTlsServerBoundary {
@@ -60,6 +81,46 @@ export type NotificationRequestHandler = (
   request: Request,
   context: NotificationApplicationContext,
 ) => Promise<Response>;
+
+export type MarketCatalogRequestHandler = (
+  request: Request,
+) => Promise<Response>;
+
+export function createMarketCatalogRequestHandler(
+  options: MarketCatalogServerOptions,
+): MarketCatalogRequestHandler {
+  const origin = exactServiceOrigin(options.serviceOrigin);
+  return async (request) => {
+    try {
+      const url = new URL(request.url);
+      if (url.origin !== origin) {
+        return jsonResponse(421, { error: "origin_mismatch" });
+      }
+      if (url.search !== "") {
+        return jsonResponse(400, { error: "query_not_allowed" });
+      }
+      if (request.method !== "GET") {
+        return jsonResponse(405, { error: "method_not_allowed" });
+      }
+      if (url.pathname === "/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      const match = /^\/v1\/market-catalog\/(testnet|mainnet)$/.exec(
+        url.pathname,
+      );
+      if (!match?.[1]) {
+        return jsonResponse(404, { error: "not_found" });
+      }
+      return marketCatalogResponse(
+        request,
+        match[1] as HyperliquidNetwork,
+        options.marketCatalog,
+      );
+    } catch {
+      return jsonResponse(500, { error: "internal_error" });
+    }
+  };
+}
 
 export function createNotificationRequestHandler(
   options: NotificationServerOptions,
@@ -85,6 +146,10 @@ export function createNotificationRequestHandler(
       }
       const isRegistration =
         request.method === "POST" && url.pathname === "/v1/installations";
+      const marketCatalogPath =
+        request.method === "GET"
+          ? /^\/v1\/market-catalog\/(testnet|mainnet)$/.exec(url.pathname)
+          : null;
       const credentialPath =
         /^\/v1\/installations\/([0-9a-f]{32})\/credential$/.exec(url.pathname);
       const pushTokenPath =
@@ -105,8 +170,18 @@ export function createNotificationRequestHandler(
           (credentialPath?.[1] !== undefined ||
             pushTokenPath?.[1] !== undefined ||
             isRule));
-      if (!isRegistration && !isKnownProtectedRoute) {
+      if (!isRegistration && !marketCatalogPath && !isKnownProtectedRoute) {
         return jsonResponse(404, { error: "not_found" });
+      }
+      if (marketCatalogPath?.[1]) {
+        if (!options.marketCatalog) {
+          throw new ApplicationError(503, "market catalog is not configured");
+        }
+        return marketCatalogResponse(
+          request,
+          marketCatalogPath[1] as HyperliquidNetwork,
+          options.marketCatalog,
+        );
       }
       const authenticated = isRegistration
         ? undefined
@@ -308,6 +383,71 @@ export function startNotificationServer(
   });
 }
 
+export function startMarketCatalogServer(
+  options: MarketCatalogServerOptions & {
+    readonly port: number;
+    readonly serverBoundary: NotificationDirectTlsServerBoundary;
+  },
+): Bun.Server<undefined> {
+  const handler = createMarketCatalogRequestHandler(options);
+  const tls = directTlsOptions(options.serverBoundary);
+  return Bun.serve({
+    port: options.port,
+    maxRequestBodySize: CONTRACT_LIMITS.maxBodyBytes,
+    tls,
+    fetch: handler,
+  });
+}
+
+async function marketCatalogResponse(
+  request: Request,
+  network: HyperliquidNetwork,
+  marketCatalog: MarketCatalogReader,
+): Promise<Response> {
+  const published = await marketCatalog.readPublished(network);
+  if (!published) {
+    return jsonResponse(503, { error: "not_ready" }, { "retry-after": "30" });
+  }
+  const snapshot = parseMarketCatalogSnapshot({
+    schemaVersion: 1,
+    network: published.network,
+    generation: published.generation,
+    publishedAtMs: published.publishedAtMs,
+    markets: published.catalog.markets,
+    quarantined: published.catalog.quarantined,
+    sourceErrors: published.catalog.sourceErrors,
+  });
+  const etag = `"market-catalog-${snapshot.network}-${snapshot.generation}"`;
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, {
+      status: 304,
+      headers: {
+        "cache-control":
+          "public, max-age=30, stale-while-revalidate=300, stale-if-error=86400",
+        etag,
+      },
+    });
+  }
+  return jsonResponse(
+    200,
+    {
+      schemaVersion: snapshot.schemaVersion,
+      network: snapshot.network,
+      generation: snapshot.generation,
+      publishedAtMs: snapshot.publishedAtMs,
+      markets: snapshot.catalog.markets,
+      quarantined: snapshot.catalog.quarantined,
+      sourceErrors: snapshot.catalog.sourceErrors,
+    },
+    {
+      "cache-control":
+        "public, max-age=30, stale-while-revalidate=300, stale-if-error=86400",
+      etag,
+    },
+    MAX_MARKET_CATALOG_RESPONSE_BYTES,
+  );
+}
+
 function directTlsOptions(
   boundary: NotificationDirectTlsServerBoundary | undefined,
 ): NotificationDirectTlsServerBoundary["tls"] {
@@ -368,13 +508,12 @@ function jsonResponse(
   status: number,
   value: unknown,
   headers?: HeadersInit,
+  maxBytes = CONTRACT_LIMITS.maxResponseBytes,
 ): Response {
   const body = JSON.stringify(value);
   if (body === undefined)
     throw new ContractError("response is not JSON serializable");
-  if (
-    new TextEncoder().encode(body).byteLength > CONTRACT_LIMITS.maxResponseBytes
-  ) {
+  if (new TextEncoder().encode(body).byteLength > maxBytes) {
     throw new ContractError("response body exceeds 64 KiB");
   }
   return new Response(body, {

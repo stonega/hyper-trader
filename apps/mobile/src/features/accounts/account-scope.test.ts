@@ -5,6 +5,7 @@ import {
   accountCacheKey,
   accountPreferenceKey,
   accountScopeKey,
+  authorizationDisplayLabel,
   normalizeSavedAccount,
   readOnlyTradingContextForSavedAccount,
   type SavedAccount,
@@ -149,6 +150,33 @@ describe("account identity scopes", () => {
         normalizeSavedAccount({ ...active, network: "mainnet" }),
       ).signer,
     ).toBeNull();
+  });
+
+  test("describes API-wallet state without implying a separate verification step", () => {
+    expect(authorizationDisplayLabel(account())).toBe("API wallet active");
+    expect(
+      authorizationDisplayLabel(
+        account({
+          authorization: {
+            ...account().authorization,
+            registrationState: "expired",
+          },
+        }),
+      ),
+    ).toBe("API wallet expired");
+    expect(
+      authorizationDisplayLabel(
+        account({
+          authorization: {
+            ...account().authorization,
+            credentialState: "invalidated",
+          },
+        }),
+      ),
+    ).toBe("API wallet needs repair");
+    expect(authorizationDisplayLabel(account({ network: "mainnet" }))).toBe(
+      "Read only",
+    );
   });
 
   test("fails closed for unrecognized persisted discriminants", () => {

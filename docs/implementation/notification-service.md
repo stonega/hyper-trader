@@ -28,6 +28,7 @@ material, or any other extra field, the server emits only a generic HTTP 500.
 
 | Method and path | Authority and behavior |
 |---|---|
+| `GET /v1/market-catalog/:network` | Public generation-pinned catalog read with a strong ETag; returns `503 not_ready` until PostgreSQL has a published generation. |
 | `POST /v1/installations` | Registers a random public installation ID, hashes its credential, and encrypts its first Expo token. |
 | `PUT /v1/installations/:id/credential` | Atomically replaces the credential hash, increments its generation, and makes the old bearer fail immediately. |
 | `POST /v1/challenges` | Creates a five-minute, one-time, credential-bound account proof challenge. |
@@ -139,6 +140,8 @@ Migrations use the following expand–migrate–contract sequence:
 4. `0004_workers` adds bounded delivery attempts, invalid-token state,
    generation-fenced monitor leases, and receipt scheduling/lease state without
    storing provider payloads.
+5. `0005_market_catalog` adds generation-pinned public market records, bounded
+   source diagnostics, publication state, and fenced incremental sync leases.
 
 The `0004_workers` runner keeps its column changes and receipt backfill in one
 transaction, then records the history row as `applying` and builds its six

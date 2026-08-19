@@ -1,8 +1,13 @@
 import { SQL } from "bun";
 
 const repositoryRoot = new URL("../../../", import.meta.url).pathname;
+const containerEngine = process.env.CONTAINER_ENGINE ?? "podman";
+if (containerEngine !== "docker" && containerEngine !== "podman") {
+  throw new Error("CONTAINER_ENGINE must be docker or podman");
+}
 const integrationTests = [
   "apps/notifications/src/db/migrations-postgres.integration.test.ts",
+  "apps/notifications/src/catalog/market-catalog-store-postgres.integration.test.ts",
   "apps/notifications/src/db/postgres.integration.test.ts",
   "apps/notifications/src/db/worker-postgres.integration.test.ts",
 ] as const;
@@ -20,7 +25,7 @@ if (!/^hyper-trader-notification-test-[1-9][0-9]*$/.test(containerName)) {
 }
 
 await requireSuccessful([
-  "docker",
+  containerEngine,
   "version",
   "--format",
   "{{.Server.Version}}",
@@ -28,7 +33,7 @@ await requireSuccessful([
 let started = false;
 try {
   await requireSuccessful([
-    "docker",
+    containerEngine,
     "run",
     "--rm",
     "--detach",
@@ -42,11 +47,11 @@ try {
     "POSTGRES_DB=hyper_trader_test",
     "--publish",
     "127.0.0.1::5432",
-    "postgres:17-alpine",
+    "docker.io/library/postgres:17-alpine",
   ]);
   started = true;
   const portOutput = await requireSuccessful([
-    "docker",
+    containerEngine,
     "port",
     containerName,
     "5432/tcp",
@@ -62,7 +67,13 @@ try {
   process.exitCode = await runIntegration(databaseUrl);
 } finally {
   if (started) {
-    await requireSuccessful(["docker", "stop", "--time", "2", containerName]);
+    await requireSuccessful([
+      containerEngine,
+      "stop",
+      "--time",
+      "2",
+      containerName,
+    ]);
   }
 }
 
@@ -91,7 +102,7 @@ async function waitUntilReady(
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const child = Bun.spawn(
       [
-        "docker",
+        containerEngine,
         "exec",
         name,
         "pg_isready",

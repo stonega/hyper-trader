@@ -33,8 +33,8 @@ BindingV1 = (
 - `masterAccount`, `targetAccount`, and `agentAddress` are normalized,
   checksummed Ethereum addresses. The target is the master account itself or an
   authoritatively verified sub-account or vault relationship.
-- `registrationName` is the user's locally persisted 1–16 character label. It
-  is not authorization evidence; the generated agent address is.
+- `registrationName` is the locally persisted, app-supplied `Hyper Trader`
+  label. It is not authorization evidence; the generated agent address is.
 - `registrationGeneration` is a monotonically increasing local integer. A new
   private key always creates a new generation and address.
 
@@ -73,50 +73,42 @@ private key, signature, signed payload, or wallet session secret. App terminatio
 may leave this checkpoint and the authenticated SecureStore record so setup can
 resume.
 
-### User-defined name and slot policy
+### Registration name and external slot policy
 
 Hyper Trader uses a named API-wallet slot and never the unnamed slot. The
-user chooses a 1–16 character printable ASCII base name before key generation.
-The name is stored as display and replacement metadata, but verification never
-uses it as proof of authorization. The approval codec owns the official protocol
-representation that attaches an expiry to the base name; that byte
+app supplies the stable `Hyper Trader` name so setup asks for only the public
+master-wallet address. The name is stored as display metadata, but verification
+never uses it as proof of authorization. The approval codec owns the official
+protocol representation that attaches an expiry to the base name; that byte
 representation remains frozen in compatibility vectors.
 
 At the time of this contract, Hyperliquid documents one unnamed wallet and up to
 three named wallets for an account, with two additional named agents for a
-sub-account. Hyper Trader does not assume that a documented slot is available:
-before approval it queries authoritative agent state for the intended account.
-It may proceed only when either:
-
-- the chosen name is already present and the flow is an explicit
-  replacement, or
-- a named slot is authoritatively available.
-
-A same-name record requires explicit replacement review. The UI must show the
-slot limit, existing name/address suffix, target, requested expiry, and
-replacement effect. It must never silently replace the unnamed wallet or a
-differently named agent. These constraints follow the
+sub-account. The app does not preflight or enforce that external capacity. It
+generates and stages the local credential first, then the official Hyperliquid
+page owns any removal or replacement required before the user can add the new
+address. Hyper Trader activates nothing until authoritative verification finds
+that exact generated address with an acceptable finite expiry. These constraints
+follow the
 official [exchange endpoint](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint)
 and [nonce and API-wallet guidance](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/nonces-and-api-wallets);
 the pinned protocol fixtures remain the implementation authority.
 
 ### Expiry policy
 
-New authorizations require `30` in Hyperliquid's **Days valid** field. The web
+Setup guidance recommends `30` in Hyperliquid's **Days valid** field. The web
 flow computes the expiry when authorization is submitted, so the authoritative
-expiry may be later than the timestamp recorded when the local setup attempt was
+expiry may differ from the timestamp recorded when the local setup attempt was
 created. Renewal is not an extension of the old credential: it creates a new
 private key and increments the generation. The review screen shows the absolute
 expiry and remaining duration. Local state becomes
 `expired` when either local time or authoritative registration state says the
 credential is expired; signing stops immediately.
 
-An absent, `null`, malformed, expired, or unexpectedly long authoritative
-expiry is a registration failure. A finite expiry is bounded to 30 days from
-the authoritative verification time (with a small transport-clock tolerance)
-and cannot extend beyond the 24-hour setup window plus 30 days. A shorter
-authoritative expiry may be accepted only after it is shown to the user and the
-exact value is persisted. Clock rollback handling is defined in
+An absent, `null`, malformed, or expired authoritative expiry is a registration
+failure. Verification accepts any safe finite future expiry reported for the
+exact generated address and persists that authoritative value without comparing
+it with the locally requested 30-day value. Clock rollback handling is defined in
 [`action-lifecycle.md`](action-lifecycle.md); setup and renewal require a fresh
 authoritative time sample.
 

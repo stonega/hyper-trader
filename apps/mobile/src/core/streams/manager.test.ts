@@ -148,6 +148,52 @@ describe("foreground stream manager", () => {
     expect(events.filter((event) => event === "baseline")).toHaveLength(2);
   });
 
+  test("reconnects and re-baselines when a heartbeat send fails", async () => {
+    let connections = 0;
+    let baselines = 0;
+    const timers: Array<() => void> = [];
+    const manager = createForegroundStreamManager({
+      connect: async () => {
+        connections += 1;
+        const connectionNumber = connections;
+        return {
+          subscribe: () => () => undefined,
+          ping() {
+            if (connectionNumber === 1) throw new Error("heartbeat failed");
+          },
+          close: () => undefined,
+        };
+      },
+      loadBaseline: async () => {
+        baselines += 1;
+        return { data: {} };
+      },
+      applyBaseline: () => undefined,
+      applyDelta: () => undefined,
+      setTimeout(callback) {
+        timers.push(callback);
+        return callback;
+      },
+      clearTimeout(handle) {
+        const index = timers.indexOf(handle as () => void);
+        if (index >= 0) timers.splice(index, 1);
+      },
+      random: () => 0,
+    });
+    manager.setSubscriptions([
+      { key: "book:BTC", wire: { type: "l2Book", coin: "BTC" } },
+    ]);
+    await manager.setEnvironment({ foreground: true, online: true });
+
+    timers.shift()?.();
+    timers.shift()?.();
+    await manager.whenIdle();
+
+    expect(connections).toBe(2);
+    expect(baselines).toBe(2);
+    manager.close();
+  });
+
   test("ignores messages from a stale connection generation", async () => {
     const { manager, delivered, sockets } = createHarness();
     await manager.setEnvironment({ foreground: true, online: true });

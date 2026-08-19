@@ -1,5 +1,6 @@
 import type { HyperliquidNetwork } from "@hyper-trader/hyperliquid/public";
 
+import { DEFAULT_HYPERLIQUID_NETWORK } from "../network";
 import {
   createForegroundStreamManager,
   type ManagedStreamBaseline,
@@ -42,7 +43,7 @@ export function createStreamRuntime(
   } = {},
 ): StreamRuntime {
   const declarations = new Map<string, StreamDeclaration>();
-  let network = options.initialNetwork ?? "mainnet";
+  let network = options.initialNetwork ?? DEFAULT_HYPERLIQUID_NETWORK;
   let foreground = false;
   let online = false;
   const openConnection = options.openConnection ?? openNativeManagedConnection;

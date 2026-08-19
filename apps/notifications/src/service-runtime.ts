@@ -6,6 +6,8 @@ import {
 import type { NotificationNetwork } from "@hyper-trader/notifications";
 
 import type { NotificationApplication } from "./application";
+import type { PostgresMarketCatalogStore } from "./catalog/market-catalog-store";
+import { MarketCatalogSynchronizer } from "./catalog/market-catalog-sync";
 import type { NotificationServiceConfig } from "./config";
 import type { PostgresNotificationStore } from "./db/notification-store";
 import { BoundedNotificationMetrics } from "./metrics/bounded-metrics";
@@ -39,9 +41,14 @@ export type RuntimeSleep = (
   signal: AbortSignal,
 ) => Promise<void>;
 
+export interface MarketCatalogSyncRuntimePort {
+  runOnce(signal?: AbortSignal): Promise<boolean>;
+}
+
 export class NotificationServiceRuntime {
   readonly #server: NotificationServerRuntimePort;
   readonly #workers: NotificationWorkerSupervisor;
+  readonly #catalogSync?: MarketCatalogSyncRuntimePort;
   readonly #sleep: RuntimeSleep;
   readonly #jitter: () => number;
   #tick: Promise<void> | null = null;
@@ -50,11 +57,13 @@ export class NotificationServiceRuntime {
   constructor(input: {
     readonly server: NotificationServerRuntimePort;
     readonly workers: NotificationWorkerSupervisor;
+    readonly catalogSync?: MarketCatalogSyncRuntimePort;
     readonly sleep?: RuntimeSleep;
     readonly jitter?: () => number;
   }) {
     this.#server = input.server;
     this.#workers = input.workers;
+    this.#catalogSync = input.catalogSync;
     this.#sleep = input.sleep ?? abortableSleep;
     this.#jitter = input.jitter ?? Math.random;
   }
@@ -63,7 +72,7 @@ export class NotificationServiceRuntime {
     await this.#server.start();
     try {
       while (!signal.aborted) {
-        const ran = await this.tickOnce();
+        const ran = await this.tickOnce(signal);
         if (ran) this.#failures = 0;
         const base = ran ? 1_000 : Math.min(30_000, 250 * 2 ** this.#failures);
         if (!ran) this.#failures = Math.min(this.#failures + 1, 7);
@@ -80,16 +89,26 @@ export class NotificationServiceRuntime {
     }
   }
 
-  async tickOnce(): Promise<boolean> {
+  async tickOnce(signal?: AbortSignal): Promise<boolean> {
     if (this.#tick) return false;
     let succeeded = false;
     const tick = (async () => {
+      let catalogRan = false;
       try {
-        if ((await this.#workers.activate()) !== "active") return;
+        catalogRan = (await this.#catalogSync?.runOnce(signal)) ?? false;
+      } catch {
+        catalogRan = false;
+      }
+      try {
+        if ((await this.#workers.activate()) !== "active") {
+          succeeded = catalogRan;
+          return;
+        }
         await this.#workers.runOnce();
         succeeded = true;
       } catch {
         await this.#workers.deactivate("dependencies_blocked");
+        succeeded = catalogRan;
       }
     })().finally(() => {
       if (this.#tick === tick) this.#tick = null;
@@ -105,6 +124,7 @@ export function composeNotificationServiceRuntime(
     readonly config: NotificationServiceConfig;
     readonly ownerId: string;
     readonly store: PostgresNotificationStore;
+    readonly catalogStore?: PostgresMarketCatalogStore;
     readonly application: NotificationApplication;
     readonly openWebSocket: OpenWebSocketConnection;
     readonly expo: Pick<ExpoPushClient, "send" | "getReceipts">;
@@ -155,7 +175,12 @@ export function composeNotificationServiceRuntime(
   const registry = new SharedMonitorRegistry({
     ownerId: input.ownerId,
     leases: postgresMonitorLeasePort(input.store),
-    source: new HyperliquidMonitorSource({ clients, streams, capacity }),
+    source: new HyperliquidMonitorSource({
+      clients,
+      streams,
+      capacity,
+      catalogReader: input.catalogStore,
+    }),
     capacity,
     onListenerError: () => metrics.increment("subscription_rejections"),
     onMonitorError: () => metrics.increment("subscription_rejections"),
@@ -217,11 +242,21 @@ export function composeNotificationServiceRuntime(
           serviceOrigin: input.config.serviceOrigin,
           port: input.config.port,
           serverBoundary: input.serverBoundary,
+          marketCatalog: input.catalogStore,
         });
+  const catalogSync = input.catalogStore
+    ? new MarketCatalogSynchronizer({
+        ownerId: input.ownerId,
+        store: input.catalogStore,
+        clients,
+        onError: () => metrics.increment("catalog_sync_failures"),
+      })
+    : undefined;
   return {
     runtime: new NotificationServiceRuntime({
       workers,
       server,
+      catalogSync,
     }),
     metrics,
   };
@@ -232,6 +267,7 @@ function notificationBunServerPort(input: {
   readonly serviceOrigin: string;
   readonly port: number;
   readonly serverBoundary: NotificationDirectTlsServerBoundary;
+  readonly marketCatalog?: PostgresMarketCatalogStore;
 }): NotificationServerRuntimePort {
   let server: Bun.Server<undefined> | undefined;
   return {

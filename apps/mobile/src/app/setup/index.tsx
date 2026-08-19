@@ -1,15 +1,19 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { CameraView } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Description } from "heroui-native/description";
 import { FieldError } from "heroui-native/field-error";
-import { Input } from "heroui-native/input";
+import { useThemeColor } from "heroui-native/hooks";
+import { InputGroup } from "heroui-native/input-group";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { BackHandler, Linking, ScrollView, View } from "react-native";
+import { AppState, BackHandler, Linking, ScrollView, View } from "react-native";
+import QRCodeStyled from "react-native-qrcode-styled";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -37,6 +41,17 @@ import {
 } from "../../features/accounts/setup-flow";
 import type { ActivatedSetupRecord } from "../../features/accounts/setup-repository";
 import { HYPERLIQUID_TESTNET_API_WALLET_URL } from "../../platform/wallet/manual-authority";
+import { DEFAULT_API_WALLET_REGISTRATION_NAME } from "../../platform/wallet/setup-identifiers";
+
+const ETHEREUM_ADDRESS_PATTERN = /^0x[0-9a-f]{40}$/i;
+const ETHEREUM_QR_PATTERN =
+  /^ethereum:(?:pay-)?(0x[0-9a-f]{40})(?:@[^/?]+)?(?:\/[^?]*)?(?:\?.*)?$/i;
+
+function masterAddressFromQrCode(data: string): string | null {
+  const value = data.trim();
+  if (ETHEREUM_ADDRESS_PATTERN.test(value)) return value;
+  return ETHEREUM_QR_PATTERN.exec(value)?.[1] ?? null;
+}
 
 const PHASE_COPY = {
   loading: {
@@ -45,28 +60,25 @@ const PHASE_COPY = {
   },
   account: {
     title: "Enter your Hyperliquid wallet",
-    description:
-      "Use the public address of the master wallet you connect to Hyperliquid testnet.",
+    description: "Enter the public address you use on Hyperliquid testnet.",
   },
   protection: {
-    title: "Protect this device",
+    title: "Generate your API wallet",
     description:
-      "Your API-wallet key is secured on this device and opened only after system authentication.",
+      "Confirm with your device to generate and protect a new API wallet.",
   },
   authorization: {
     title: "Add this API wallet",
     description:
-      "Copy the public values below into Hyperliquid testnet, then return here to verify them.",
+      "Add this address on Hyperliquid, then return here. We’ll check it automatically.",
   },
   verifying: {
-    title: "Verify authorization",
-    description:
-      "Checking the exact address, master account, and finite expiry directly with Hyperliquid.",
+    title: "Add this API wallet",
+    description: "Checking Hyperliquid for this API wallet.",
   },
   activating: {
-    title: "Save trading access",
-    description:
-      "The verified account and protected credential are being activated locally.",
+    title: "Add this API wallet",
+    description: "Saving your trading account on this device.",
   },
   failure: {
     title: "Setup is safely paused",
@@ -85,15 +97,14 @@ function stepLabel(phase: keyof typeof PHASE_COPY): string {
     case "loading":
       return "Restoring";
     case "account":
-      return "Step 1 of 4";
+      return "Step 1 of 2";
     case "protection":
-      return "Step 2 of 4";
+      return "Step 1 of 2";
     case "authorization":
-      return "Step 3 of 4";
     case "verifying":
     case "activating":
     case "ready":
-      return "Step 4 of 4";
+      return "Step 2 of 2";
     case "failure":
       return "Paused";
   }
@@ -107,16 +118,10 @@ function errorMessage(error: unknown): string {
     return "Enter a valid 42-character Ethereum master-wallet address.";
   }
   if (error.message.includes("registration name")) {
-    return "Enter an API wallet name using 1 to 16 characters.";
+    return "The default API wallet name could not be prepared. Restart setup and try again.";
   }
   if (error.message.includes("authentication")) {
     return "System authentication did not complete. The API wallet was not generated.";
-  }
-  if (error.message.includes("named-agent slot")) {
-    return "No reviewed named API-wallet slot is available for this account.";
-  }
-  if (error.message.includes("Replacing the existing")) {
-    return "This account already has Hyper Trader’s named API wallet. Review or revoke it on Hyperliquid before replacing it.";
   }
   return error.message;
 }
@@ -125,20 +130,21 @@ function verificationMessage(result: SetupVerificationResult): string {
   if (result.status !== "inert") return "Authorization needs review.";
   switch (result.reason) {
     case "registration_unverified":
-      return "Hyperliquid does not show this exact API-wallet address with a finite 30-day expiry yet. Check the selected master account and address, then try again.";
+      return "Hyperliquid does not show this API wallet yet. Check the selected account and address, then try again.";
     case "expired":
       return "This 24-hour setup expired and its staged key was removed. Generate a new address before authorizing again.";
     case "not_pending":
       return "The pending setup checkpoint is no longer available.";
     case "binding_mismatch":
-      return "The saved setup identity did not match. No authorization was activated.";
+      return "Setup details changed. Start setup again.";
     case "activation_lost":
-      return "Another local activation changed first. Reopen setup to verify the current state.";
+      return "Setup changed on this device. Reopen it and try again.";
   }
 }
 
 export default function SetupScreen(): JSX.Element {
   const insets = useSafeAreaInsets();
+  const accent = useThemeColor("accent");
   const router = useRouter();
   const reducedMotion = useReducedMotion();
   const directory = useAccountDirectory();
@@ -148,16 +154,44 @@ export default function SetupScreen(): JSX.Element {
   const switchTradingContext = tradingContext.switchContext;
   const [state, dispatch] = useReducer(reduceSetupFlow, INITIAL_SETUP_FLOW);
   const [masterAccount, setMasterAccount] = useState("");
-  const [registrationName, setRegistrationName] = useState("");
+  const [registrationName, setRegistrationName] = useState(
+    DEFAULT_API_WALLET_REGISTRATION_NAME,
+  );
   const [attempt, setAttempt] = useState<SetupAttempt | null>(null);
-  const [expiryReview, setExpiryReview] = useState<{
-    readonly requestedExpiry: number;
-    readonly effectiveExpiry: number;
-  } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const runtime = useRef<ManualSetupRuntime | null>(null);
   const operation = useRef(0);
+  const scannerActive = useRef(false);
+  const prepareInFlight = useRef(false);
+  const verificationInFlight = useRef(false);
+  const verifyOnForeground = useRef<(() => void) | null>(null);
   const copy = PHASE_COPY[state.phase];
+
+  useEffect(() => {
+    const subscription = CameraView.onModernBarcodeScanned(({ data }) => {
+      if (!scannerActive.current) return;
+      scannerActive.current = false;
+      const scannedAddress = masterAddressFromQrCode(data);
+      if (scannedAddress === null) {
+        setNotice(
+          "This QR code does not contain a valid Ethereum wallet address.",
+        );
+      } else {
+        setMasterAccount(scannedAddress);
+        setNotice(null);
+      }
+      void CameraView.dismissScanner().catch(() => undefined);
+    });
+
+    return () => {
+      const shouldDismissScanner = scannerActive.current;
+      scannerActive.current = false;
+      subscription.remove();
+      if (shouldDismissScanner) {
+        void CameraView.dismissScanner().catch(() => undefined);
+      }
+    };
+  }, []);
 
   const finishActivation = useCallback(
     async (
@@ -216,7 +250,7 @@ export default function SetupScreen(): JSX.Element {
             return;
           case "identity":
             setMasterAccount(saved.masterAccount);
-            setRegistrationName(saved.registrationName);
+            setRegistrationName(DEFAULT_API_WALLET_REGISTRATION_NAME);
             dispatch({ type: "HYDRATE", phase: "account" });
             return;
           case "protection":
@@ -287,22 +321,6 @@ export default function SetupScreen(): JSX.Element {
     return value;
   };
 
-  const saveMaster = async () => {
-    setNotice(null);
-    try {
-      const setupRuntime = await requireRuntime();
-      const saved = await setupRuntime.saveMasterAccount(
-        masterAccount,
-        registrationName,
-      );
-      setMasterAccount(saved.masterAccount);
-      setRegistrationName(saved.registrationName);
-      dispatch({ type: "MASTER_SAVED" });
-    } catch (error) {
-      setNotice(errorMessage(error));
-    }
-  };
-
   const copyPublicValue = async (value: string, label: string) => {
     try {
       await Clipboard.setStringAsync(value);
@@ -325,25 +343,47 @@ export default function SetupScreen(): JSX.Element {
   };
 
   const generateWallet = async () => {
+    if (prepareInFlight.current) return;
+    prepareInFlight.current = true;
     const generation = ++operation.current;
+    let identitySaved = state.phase !== "account";
     setNotice(null);
-    dispatch({ type: "START_PREPARE", generation });
     try {
       const setupRuntime = await requireRuntime();
+      const identity =
+        state.phase === "account"
+          ? await setupRuntime.saveMasterAccount(
+              masterAccount,
+              registrationName,
+            )
+          : { masterAccount, registrationName };
+      if (state.phase === "account") {
+        identitySaved = true;
+        dispatch({ type: "MASTER_SAVED" });
+      }
+      setMasterAccount(identity.masterAccount);
+      setRegistrationName(identity.registrationName);
+      dispatch({ type: "START_PREPARE", generation });
       const prepared = await setupRuntime.prepare(
-        masterAccount,
-        registrationName,
+        identity.masterAccount,
+        identity.registrationName,
       );
       if (generation !== operation.current) return;
       setAttempt(prepared);
       dispatch({ type: "PREPARED", generation });
     } catch (error) {
+      if (!identitySaved) {
+        setNotice(errorMessage(error));
+        return;
+      }
       dispatch({
         type: "FAIL",
         generation,
         reason: errorMessage(error),
         returnPhase: "protection",
       });
+    } finally {
+      prepareInFlight.current = false;
     }
   };
 
@@ -353,20 +393,6 @@ export default function SetupScreen(): JSX.Element {
     result: SetupVerificationResult,
     generation: number,
   ) => {
-    if (result.status === "expiry_confirmation_required") {
-      setExpiryReview({
-        requestedExpiry: result.requestedExpiry,
-        effectiveExpiry: result.effectiveExpiry,
-      });
-      dispatch({
-        type: "FAIL",
-        generation,
-        reason:
-          "Hyperliquid registered a shorter expiry. Review it before activation.",
-        returnPhase: "authorization",
-      });
-      return;
-    }
     if (result.status === "inert") {
       if (result.reason === "not_pending") {
         const recovered = setupRuntime.activationFor(currentAttempt);
@@ -413,20 +439,28 @@ export default function SetupScreen(): JSX.Element {
     );
   };
 
-  const verifyAuthorization = async () => {
-    if (attempt === null) return;
+  const verifyAuthorization = async (automatic = false) => {
+    if (attempt === null || verificationInFlight.current) return;
+    verificationInFlight.current = true;
     const generation = ++operation.current;
     setNotice(null);
-    setExpiryReview(null);
     dispatch({ type: "START_VERIFY", generation });
     try {
       const setupRuntime = await requireRuntime();
-      await activateVerified(
-        setupRuntime,
-        attempt,
-        await setupRuntime.verify(attempt),
-        generation,
-      );
+      const result = await setupRuntime.verify(attempt);
+      if (
+        result.status === "inert" &&
+        result.reason === "registration_unverified"
+      ) {
+        dispatch({ type: "VERIFY_PENDING", generation });
+        setNotice(
+          automatic
+            ? "API wallet not found yet. Finish adding it on Hyperliquid, then tap Check again."
+            : "API wallet not found yet. Check the address on Hyperliquid and try again.",
+        );
+        return;
+      }
+      await activateVerified(setupRuntime, attempt, result, generation);
     } catch (error) {
       dispatch({
         type: "FAIL",
@@ -434,37 +468,59 @@ export default function SetupScreen(): JSX.Element {
         reason: errorMessage(error),
         returnPhase: "authorization",
       });
+    } finally {
+      verificationInFlight.current = false;
     }
   };
 
-  const acceptShorterExpiry = async () => {
-    if (attempt === null || expiryReview === null) return;
-    const generation = ++operation.current;
-    dispatch({ type: "START_VERIFY", generation });
-    try {
-      const setupRuntime = await requireRuntime();
-      await activateVerified(
-        setupRuntime,
-        attempt,
-        await setupRuntime.confirmShorterExpiry(
-          attempt,
-          expiryReview.effectiveExpiry,
-        ),
-        generation,
+  verifyOnForeground.current = () => {
+    if (state.phase === "authorization" && attempt !== null) {
+      void verifyAuthorization(true);
+    }
+  };
+
+  useEffect(() => {
+    let previous = AppState.currentState;
+    const subscription = AppState.addEventListener("change", (next) => {
+      const returned = previous === "background" || previous === "inactive";
+      previous = next;
+      if (returned && next === "active") verifyOnForeground.current?.();
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const scanMasterWallet = async () => {
+    if (!CameraView.isModernBarcodeScannerAvailable) {
+      setNotice(
+        "QR scanning is not available on this device. Enter the address manually.",
       );
-    } catch (error) {
-      dispatch({
-        type: "FAIL",
-        generation,
-        reason: errorMessage(error),
-        returnPhase: "authorization",
+      return;
+    }
+    scannerActive.current = true;
+    setNotice(null);
+    try {
+      await CameraView.launchScanner({
+        barcodeTypes: ["qr"],
+        isGuidanceEnabled: true,
+        isHighlightingEnabled: true,
+        isPinchToZoomEnabled: true,
       });
+    } catch {
+      scannerActive.current = false;
+      setNotice(
+        "The QR scanner could not open. Check camera access and try again.",
+      );
     }
   };
 
   const duration = reducedMotion ? 0 : 160;
-  const addressInvalid = notice?.includes("42-character Ethereum");
-  const nameInvalid = notice?.includes("API wallet name");
+  const addressInvalid =
+    notice?.includes("42-character Ethereum") || notice?.includes("QR");
+  const authorizationVisible =
+    attempt !== null &&
+    (state.phase === "authorization" ||
+      state.phase === "verifying" ||
+      state.phase === "activating");
 
   return (
     <ScrollView
@@ -488,7 +544,7 @@ export default function SetupScreen(): JSX.Element {
           Set up trading
         </Text>
         <Text className="text-base leading-6 text-muted">
-          {stepLabel(state.phase)} · Progress is saved on this device.
+          {stepLabel(state.phase)}
         </Text>
       </View>
 
@@ -510,43 +566,49 @@ export default function SetupScreen(): JSX.Element {
             </View>
 
             {state.phase === "account" ? (
-              <View className="gap-4">
+              <View>
                 <TextField isInvalid={addressInvalid} isRequired>
                   <Label>Master wallet address</Label>
-                  <Input
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    onChangeText={(value) => {
-                      setMasterAccount(value);
-                      setNotice(null);
-                    }}
-                    placeholder="0x…"
-                    value={masterAccount}
-                  />
+                  <InputGroup>
+                    <InputGroup.Input
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      onChangeText={(value) => {
+                        scannerActive.current = false;
+                        setMasterAccount(value);
+                        setNotice(null);
+                      }}
+                      placeholder="0x…"
+                      value={masterAccount}
+                    />
+                    <InputGroup.Suffix className="px-1">
+                      <Button
+                        accessibilityHint="Opens the camera to scan a public wallet address."
+                        accessibilityLabel="Scan master wallet QR code"
+                        animation={reducedMotion ? "disable-all" : undefined}
+                        hitSlop={4}
+                        isIconOnly
+                        onPress={() => {
+                          void scanMasterWallet();
+                        }}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <Ionicons
+                          accessibilityElementsHidden
+                          color={accent}
+                          importantForAccessibility="no-hide-descendants"
+                          name="qr-code-outline"
+                          size={20}
+                        />
+                      </Button>
+                    </InputGroup.Suffix>
+                  </InputGroup>
                   <Description>
-                    This public address is used for account data and
-                    verification; never enter a seed phrase or private key.
+                    Public address only. Never enter a seed phrase or private
+                    key.
                   </Description>
                   {addressInvalid ? <FieldError>{notice}</FieldError> : null}
-                </TextField>
-
-                <TextField isInvalid={nameInvalid} isRequired>
-                  <Label>API wallet name</Label>
-                  <Input
-                    autoCorrect={false}
-                    maxLength={16}
-                    onChangeText={(value) => {
-                      setRegistrationName(value);
-                      setNotice(null);
-                    }}
-                    placeholder="Trading wallet"
-                    value={registrationName}
-                  />
-                  <Description>
-                    Choose a 1–16 character label. Verification uses the wallet
-                    address, not this name.
-                  </Description>
-                  {nameInvalid ? <FieldError>{notice}</FieldError> : null}
                 </TextField>
               </View>
             ) : null}
@@ -554,35 +616,55 @@ export default function SetupScreen(): JSX.Element {
             {state.phase === "protection" ? (
               <View className="gap-3 rounded-2xl bg-surface-secondary p-4">
                 <Text className="font-medium text-foreground">
-                  Biometrics with passcode fallback
+                  {masterAccount}
                 </Text>
                 <Text className="text-base leading-6 text-muted">
-                  Face ID, fingerprint, or the device passcode offered by iOS or
-                  Android protects access. Hyper Trader never stores that
-                  passcode.
-                </Text>
-                <Text className="text-sm leading-5 text-muted">
-                  A fresh API-wallet address is generated only after the system
-                  prompt succeeds. The private key is never shown or copied.
-                </Text>
-                <Text className="text-sm leading-5 text-muted">
-                  It will use your label: {registrationName}
+                  Your device protects the private key. Hyper Trader never shows
+                  or copies it.
                 </Text>
               </View>
             ) : null}
 
-            {state.phase === "authorization" && attempt !== null ? (
+            {authorizationVisible ? (
               <View className="gap-4">
-                <View className="gap-2 rounded-2xl bg-surface-secondary p-4">
-                  <Text className="text-sm font-medium text-muted">
-                    API wallet address
-                  </Text>
-                  <Text selectable className="font-medium text-foreground">
+                <View className="gap-4 rounded-2xl bg-surface-secondary p-4">
+                  <View className="gap-1">
+                    <Text className="text-sm font-medium text-muted">
+                      API wallet address
+                    </Text>
+                    <Text className="text-sm leading-5 text-muted">
+                      Scan or copy this exact public address into Hyperliquid.
+                    </Text>
+                  </View>
+
+                  <View
+                    accessible
+                    accessibilityLabel="QR code for the generated API wallet address"
+                    accessibilityRole="image"
+                    className="items-center self-center rounded-3xl bg-white p-1"
+                    testID="api-wallet-address-qr"
+                  >
+                    <QRCodeStyled
+                      color="#111827"
+                      data={attempt.agentAddress}
+                      errorCorrectionLevel="M"
+                      padding={14}
+                      pieceScale={1.03}
+                      size={156}
+                      testID="api-wallet-address-qr-code"
+                    />
+                  </View>
+
+                  <Text
+                    selectable
+                    className="text-center text-sm font-medium leading-5 text-foreground"
+                  >
                     {attempt.agentAddress}
                   </Text>
                   <Button
+                    accessibilityLabel="Copy API wallet address"
                     animation={reducedMotion ? "disable-all" : undefined}
-                    className="mt-1 min-h-11 w-full"
+                    className="min-h-11 w-full"
                     onPress={() => {
                       void copyPublicValue(
                         attempt.agentAddress,
@@ -591,67 +673,32 @@ export default function SetupScreen(): JSX.Element {
                     }}
                     variant="outline"
                   >
-                    Copy wallet address
-                  </Button>
-                </View>
-
-                <View className="gap-2 rounded-2xl bg-surface-secondary p-4">
-                  <Text className="text-sm font-medium text-muted">
-                    API wallet name
-                  </Text>
-                  <Text selectable className="font-medium text-foreground">
-                    {attempt.registrationName}
-                  </Text>
-                  <Button
-                    animation={reducedMotion ? "disable-all" : undefined}
-                    className="mt-1 min-h-11 w-full"
-                    onPress={() => {
-                      void copyPublicValue(
-                        attempt.registrationName,
-                        "API wallet name",
-                      );
-                    }}
-                    variant="outline"
-                  >
-                    Copy wallet name
+                    <Ionicons
+                      accessibilityElementsHidden
+                      color={accent}
+                      importantForAccessibility="no-hide-descendants"
+                      name="copy-outline"
+                      size={18}
+                    />
+                    <Button.Label>Copy wallet address</Button.Label>
                   </Button>
                 </View>
 
                 <Text className="text-sm leading-5 text-muted">
-                  Connect {attempt.masterAccount} and add the exact API-wallet
-                  address shown above. The name is only a label. In the
-                  confirmation dialog, enter 30 in Days valid—do not leave it
-                  blank.
+                  Connect {attempt.masterAccount} and add this address. Use
+                  {` ${attempt.registrationName}`} if Hyperliquid asks for a
+                  name, and choose the expiry you want.
                 </Text>
               </View>
             ) : null}
 
             {state.phase === "failure" ? (
-              <View className="gap-3">
-                <Text
-                  accessibilityRole="alert"
-                  className="text-sm text-warning"
-                >
-                  {state.failureReason}
-                </Text>
-                {expiryReview !== null ? (
-                  <View className="gap-1 rounded-2xl bg-surface-secondary p-4">
-                    <Text className="text-sm text-muted">Requested expiry</Text>
-                    <Text className="text-foreground">
-                      {new Date(expiryReview.requestedExpiry).toLocaleString()}
-                    </Text>
-                    <Text className="mt-2 text-sm text-muted">
-                      Verified expiry
-                    </Text>
-                    <Text className="text-foreground">
-                      {new Date(expiryReview.effectiveExpiry).toLocaleString()}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
+              <Text accessibilityRole="alert" className="text-sm text-warning">
+                {state.failureReason}
+              </Text>
             ) : null}
 
-            {notice !== null && !addressInvalid && !nameInvalid ? (
+            {notice !== null && !addressInvalid ? (
               <Text
                 accessibilityLiveRegion="polite"
                 className="text-sm text-muted"
@@ -667,10 +714,10 @@ export default function SetupScreen(): JSX.Element {
             <Button
               animation={reducedMotion ? "disable-all" : undefined}
               className="min-h-12 w-full"
-              onPress={() => void saveMaster()}
+              onPress={() => void generateWallet()}
               variant="primary"
             >
-              Continue
+              Generate API wallet
             </Button>
           ) : null}
 
@@ -683,16 +730,17 @@ export default function SetupScreen(): JSX.Element {
               variant="primary"
             >
               {state.readiness === "working"
-                ? "Protecting wallet…"
-                : "Protect & generate wallet"}
+                ? "Generating wallet…"
+                : "Generate API wallet"}
             </Button>
           ) : null}
 
-          {state.phase === "authorization" && attempt !== null ? (
+          {authorizationVisible ? (
             <>
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
+                isDisabled={state.readiness === "working"}
                 onPress={() => void openHyperliquid()}
                 variant="primary"
               >
@@ -701,23 +749,17 @@ export default function SetupScreen(): JSX.Element {
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
+                isDisabled={state.readiness === "working"}
                 onPress={() => void verifyAuthorization()}
                 variant="secondary"
               >
-                I’ve added it — verify
+                {state.phase === "verifying"
+                  ? "Checking…"
+                  : state.phase === "activating"
+                    ? "Saving account…"
+                    : "Check again"}
               </Button>
             </>
-          ) : null}
-
-          {state.phase === "failure" && expiryReview !== null ? (
-            <Button
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 w-full"
-              onPress={() => void acceptShorterExpiry()}
-              variant="primary"
-            >
-              Accept verified expiry
-            </Button>
           ) : null}
 
           {state.phase === "failure" ? (
@@ -725,10 +767,9 @@ export default function SetupScreen(): JSX.Element {
               animation={reducedMotion ? "disable-all" : undefined}
               className="min-h-12 w-full"
               onPress={() => {
-                setExpiryReview(null);
                 dispatch({ type: "RETRY" });
               }}
-              variant={expiryReview === null ? "primary" : "secondary"}
+              variant="primary"
             >
               {state.returnPhase === "authorization"
                 ? "Review authorization"

@@ -32,6 +32,22 @@ describe("Trade market selection", () => {
     expect(resolveMarketSelection([], null, "perp:0:0")).toBeNull();
   });
 
+  test("can defer fallback while a partial catalog is still loading", () => {
+    expect(
+      resolveMarketSelection(MARKET_FIXTURE, "spot:404", null, {
+        allowVolumeFallback: false,
+      }),
+    ).toBeNull();
+    expect(
+      resolveMarketSelection(
+        MARKET_FIXTURE,
+        NATIVE_DUPLICATE.canonicalId,
+        null,
+        { allowVolumeFallback: false },
+      ),
+    ).toMatchObject({ market: NATIVE_DUPLICATE, source: "route" });
+  });
+
   test("normalizes route params without inventing an identity", () => {
     expect(normalizeMarketRouteParam([" spot:7 ", "perp:0:4"])).toBe("spot:7");
     expect(normalizeMarketRouteParam(" ")).toBeNull();

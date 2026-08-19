@@ -1,7 +1,6 @@
 import { useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
-import { Chip } from "heroui-native/chip";
 import { Skeleton } from "heroui-native/skeleton";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -17,6 +16,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
 import { PerformanceChart } from "../../components/chart/performance-chart";
+import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
+import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
@@ -75,12 +76,6 @@ const FILTERS: readonly {
   { value: "funding", label: "Funding" },
   { value: "activity", label: "Activity" },
 ];
-
-function shortAddress(address: string | null): string {
-  return address === null
-    ? "no account"
-    : `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
 
 function LoadingPortfolio(): JSX.Element {
   const reducedMotion = useReducedMotion();
@@ -161,9 +156,6 @@ export default function PortfolioScreen(): JSX.Element {
     if (signerSession.reason === "credential_invalidated") {
       return "The bound API wallet is invalid. Reauthorize it before review.";
     }
-    if (!actionRuntime.available) {
-      return "Trading actions are not enabled in this build.";
-    }
     return null;
   })();
   const actionsEnabled = actionGate === null;
@@ -171,7 +163,7 @@ export default function PortfolioScreen(): JSX.Element {
     actionGate === null
       ? {
           allowed: true,
-          message: "Ready to review with current account and market data.",
+          message: "Ready to review.",
         }
       : { allowed: false, reason: actionGate };
   const reviewScope = JSON.stringify([
@@ -195,30 +187,6 @@ export default function PortfolioScreen(): JSX.Element {
   const closeInFlight = useRef<ReturnType<
     ReturnType<typeof createTradeOperationFence>["begin"]
   > | null>(null);
-  const closeScope = (() => {
-    if (
-      editor?.kind !== "close" ||
-      portfolio === null ||
-      targetResolution.target === null
-    ) {
-      return null;
-    }
-    const position = portfolio.positions.find(
-      (row) => row.id === editor.positionId,
-    );
-    return position === undefined
-      ? null
-      : portfolioCloseScopeKey({
-          portfolio,
-          position,
-          draft: editor.draft,
-          context: current,
-          target: targetResolution.target,
-        });
-  })();
-  const closeScopeRef = useRef(closeScope);
-  closeScopeRef.current = closeScope;
-
   const setEditor = (next: PortfolioEditor | null) => {
     setActionError(null);
     setInteraction({ editor: next, invalidationMessage: null });
@@ -352,11 +320,6 @@ export default function PortfolioScreen(): JSX.Element {
         context: current,
         target: targetResolution.target,
       });
-      if (capturedCloseScope !== closeScopeRef.current) {
-        throw new Error(
-          "The close details changed. Review the current values and try again.",
-        );
-      }
       operation = closeOperationFence.current.begin(
         position.canonicalMarketId ?? position.id,
         capturedCloseScope,
@@ -367,10 +330,7 @@ export default function PortfolioScreen(): JSX.Element {
         await expoCryptographicRandomBytes(16),
       );
       if (
-        !closeOperationFence.current.canCommit(
-          operation,
-          closeScopeRef.current ?? "",
-        ) ||
+        !closeOperationFence.current.canCommit(operation, capturedCloseScope) ||
         capturedScope !== reviewScopeRef.current ||
         !tradingContext.canCommit(capture)
       ) {
@@ -389,10 +349,7 @@ export default function PortfolioScreen(): JSX.Element {
         nowMs: Date.now(),
       });
       if (
-        !closeOperationFence.current.canCommit(
-          operation,
-          closeScopeRef.current ?? "",
-        )
+        !closeOperationFence.current.canCommit(operation, capturedCloseScope)
       ) {
         throw new Error(
           "The close details changed while review was prepared. Try again with current values.",
@@ -442,6 +399,12 @@ export default function PortfolioScreen(): JSX.Element {
   };
 
   const selectedRange = portfolio?.ranges[range] ?? null;
+  const selectRange = (nextRange: PortfolioRange) => {
+    setRange(nextRange);
+    if (scopedPreferences.status === "ready") {
+      void scopedPreferences.update({ defaultChartRange: nextRange });
+    }
+  };
   const loading =
     targetResolution.target !== null &&
     portfolio === null &&
@@ -458,8 +421,11 @@ export default function PortfolioScreen(): JSX.Element {
     >
       <ScrollView
         className="flex-1 bg-background"
-        contentContainerClassName="gap-5 px-5 pb-10"
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 20) }}
+        contentContainerClassName="gap-5 px-5"
+        contentContainerStyle={{
+          paddingBottom: floatingTabBarInset(insets.bottom) + 16,
+          paddingTop: Math.max(insets.top, 20),
+        }}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
         refreshControl={
@@ -477,34 +443,13 @@ export default function PortfolioScreen(): JSX.Element {
         }
         showsVerticalScrollIndicator={false}
       >
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-start justify-between gap-3">
-            <Text
-              accessibilityRole="header"
-              className="min-w-44 flex-1 text-4xl font-semibold tracking-tight text-foreground"
-            >
-              Portfolio
-            </Text>
-            <Chip
-              accessibilityLabel={`${current.network} network, target ${shortAddress(current.targetAccount)}`}
-              color={current.network === "testnet" ? "accent" : "warning"}
-              size="sm"
-              variant="soft"
-            >
-              {current.network} · {shortAddress(current.targetAccount)}
-            </Chip>
-          </View>
-          <Text className="text-base leading-6 text-muted">
-            One performance-first account view across native perpetuals, builder
-            venues, spot balances, and current activity.
-          </Text>
-          <Text className="text-sm leading-5 text-muted">
-            Master {shortAddress(current.masterAccount)} · target{" "}
-            {shortAddress(current.targetAccount)}
-          </Text>
-        </View>
-
-        <GlobalAccountSwitcher />
+        <ScreenHeading
+          description="Balances, positions, orders, and activity."
+          network={current.network}
+          rightAccessory={<GlobalAccountSwitcher avatarOnly />}
+          showContext={false}
+          title="Portfolio"
+        />
 
         {targetResolution.target === null ? (
           current.masterAccount === null ? (
@@ -512,8 +457,10 @@ export default function PortfolioScreen(): JSX.Element {
           ) : (
             <Card variant="tertiary">
               <Card.Body className="gap-2">
-                <Card.Title>Exact target type required</Card.Title>
-                <Card.Description>{targetResolution.reason}</Card.Description>
+                <Card.Title>Choose an account</Card.Title>
+                <Card.Description>
+                  Select a saved account above to view Portfolio.
+                </Card.Description>
               </Card.Body>
             </Card>
           )
@@ -524,8 +471,7 @@ export default function PortfolioScreen(): JSX.Element {
             <Card.Body className="gap-2">
               <Card.Title>Portfolio unavailable</Card.Title>
               <Card.Description>
-                No trustworthy market catalog and private snapshot are cached
-                for this exact account, target, and network.
+                Account data could not be loaded.
               </Card.Description>
             </Card.Body>
             <Card.Footer>
@@ -552,9 +498,7 @@ export default function PortfolioScreen(): JSX.Element {
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-warning"
               >
-                Cached Portfolio rows remain visible while data is {freshness}.
-                State-changing actions require current account and market
-                evidence.
+                Some portfolio data may be out of date. Pull to refresh.
               </Text>
             ) : null}
             {interaction.invalidationMessage ? (
@@ -596,29 +540,12 @@ export default function PortfolioScreen(): JSX.Element {
                 <PortfolioSelectionChip
                   key={option.value}
                   label={option.label}
-                  onPress={() => setRange(option.value)}
+                  onPress={() => selectRange(option.value)}
                   selected={range === option.value}
                 />
               ))}
             </ScrollView>
             <PerformanceChart data={selectedRange} />
-
-            {portfolio.gaps.length > 0 ? (
-              <Card variant="tertiary">
-                <Card.Body className="gap-2">
-                  <Card.Title>Source coverage</Card.Title>
-                  <Card.Description>
-                    Missing sources remain explicit; no values are interpolated
-                    or merged under a guessed market identity.
-                  </Card.Description>
-                  {portfolio.gaps.map((gap) => (
-                    <Text className="text-sm leading-5 text-muted" key={gap}>
-                      • {gap}
-                    </Text>
-                  ))}
-                </Card.Body>
-              </Card>
-            ) : null}
 
             <View className="gap-2">
               <Text className="text-lg font-medium text-foreground">
@@ -645,20 +572,6 @@ export default function PortfolioScreen(): JSX.Element {
               </ScrollView>
             </View>
 
-            {actionGate ? (
-              <Text
-                accessibilityLiveRegion="polite"
-                className="text-sm leading-5 text-muted"
-              >
-                Actions unavailable · {actionGate}
-              </Text>
-            ) : (
-              <Text className="text-sm leading-5 text-muted">
-                Review shows the exact account action before confirmation and
-                unlocks the bound signer when required.
-              </Text>
-            )}
-
             {actionError ? (
               <Text
                 accessibilityRole="alert"
@@ -681,25 +594,6 @@ export default function PortfolioScreen(): JSX.Element {
               portfolio={portfolio}
               setEditor={setEditor}
             />
-
-            <Card variant="tertiary">
-              <Card.Body className="gap-3">
-                <Card.Title>External funding only</Card.Title>
-                <Card.Description>
-                  Hyper Trader does not deposit, withdraw, transfer, or bridge
-                  funds. Before using an external service, verify every detail:
-                </Card.Description>
-                <Text selectable className="text-sm leading-5 text-foreground">
-                  Destination · {current.targetAccount}
-                </Text>
-                <Text className="text-sm leading-5 text-foreground">
-                  Master account · {current.masterAccount}
-                </Text>
-                <Text className="text-sm leading-5 text-foreground">
-                  Network · {current.network}
-                </Text>
-              </Card.Body>
-            </Card>
           </>
         ) : null}
       </ScrollView>

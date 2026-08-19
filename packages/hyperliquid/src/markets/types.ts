@@ -26,7 +26,12 @@ export interface TokenIdentity {
   readonly sizeDecimals: number;
   readonly weiDecimals: number;
   readonly isCanonical: boolean;
-  readonly evmContract: string | null;
+  readonly evmContract: TokenEvmContract | null;
+}
+
+export interface TokenEvmContract {
+  readonly address: string;
+  readonly extraWeiDecimals: number;
 }
 
 interface BaseMarket extends MarketContext {
@@ -98,10 +103,27 @@ export interface QuarantinedMarket {
 export interface CatalogSourceError {
   readonly source: string;
   readonly message: string;
+  readonly status?: number;
+  readonly retryAfterMs?: number;
+}
+
+export interface MarketCatalogBuilderDex {
+  readonly index: number;
+  readonly name: string;
+  readonly fullName: string | null;
+}
+
+export interface MarketCatalogBuilderPage {
+  readonly offset: number;
+  readonly limit: number;
+  readonly total: number;
+  readonly dexes: readonly MarketCatalogBuilderDex[];
 }
 
 export interface MarketCatalog {
   readonly markets: readonly Market[];
   readonly quarantined: readonly QuarantinedMarket[];
   readonly sourceErrors: readonly CatalogSourceError[];
+  /** Present only for bounded server-side builder DEX discovery. */
+  readonly builderPage?: MarketCatalogBuilderPage;
 }

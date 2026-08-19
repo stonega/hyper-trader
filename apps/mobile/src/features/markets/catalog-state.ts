@@ -56,6 +56,7 @@ export function deriveCatalogPresentationState(
   const content = deriveContent(input);
   const freshness = deriveFreshness(input, hasContent);
   const hasPartialSources = input.sourceErrorCount > 0;
+  const sourceLabel = `${input.sourceErrorCount} market source${input.sourceErrorCount === 1 ? "" : "s"}`;
 
   const statusLabel = (() => {
     if (content === "loading") {
@@ -77,11 +78,14 @@ export function deriveCatalogPresentationState(
     if (freshness === "stale") {
       return "Showing saved market data while refresh is unavailable.";
     }
+    if (hasPartialSources && freshness === "refreshing") {
+      return `Refreshing market coverage. ${sourceLabel} could not refresh in the last pass.`;
+    }
     if (freshness === "refreshing") {
-      return "Showing current market data while refreshing.";
+      return "Refreshing market coverage.";
     }
     if (hasPartialSources) {
-      return "Some catalog sources are unavailable; validated markets remain visible.";
+      return `${sourceLabel} could not refresh. Validated markets from other sources remain available.`;
     }
     return "Validated market catalog is current.";
   })();
@@ -93,7 +97,8 @@ export function deriveCatalogPresentationState(
     hasPartialSources,
     hasQuarantinedMarkets: input.quarantinedCount > 0,
     canRetry:
-      content === "unavailable" || freshness === "stale" || hasPartialSources,
+      !input.isFetching &&
+      (content === "unavailable" || freshness === "stale" || hasPartialSources),
     statusLabel,
   };
 }

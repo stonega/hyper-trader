@@ -36,6 +36,7 @@ export function resolveMarketSelection(
   markets: readonly Market[],
   requestedCanonicalId: string | null,
   lastCanonicalId: string | null,
+  options: { readonly allowVolumeFallback?: boolean } = {},
 ): ResolvedMarketSelection | null {
   const requested = findValidMarket(markets, requestedCanonicalId);
   if (requested) {
@@ -45,6 +46,10 @@ export function resolveMarketSelection(
   const lastUsed = findValidMarket(markets, lastCanonicalId);
   if (lastUsed) {
     return { market: lastUsed, source: "last_used" };
+  }
+
+  if (options.allowVolumeFallback === false) {
+    return null;
   }
 
   const fallback = markets.reduce<Market | null>((current, market) => {

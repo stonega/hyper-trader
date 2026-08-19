@@ -83,6 +83,15 @@ describe("public market reads", () => {
     expect(funding[0]?.fundingRate).toBe("0.0000000000000001");
     expect(bodies).toContainEqual({ type: "allMids", dex: "alpha" });
     expect(bodies).toContainEqual({
+      type: "candleSnapshot",
+      req: {
+        coin: "alpha:DUP",
+        interval: "1m",
+        startTime: 1,
+        endTime: 2,
+      },
+    });
+    expect(bodies).toContainEqual({
       type: "l2Book",
       coin: "alpha:DUP",
       nSigFigs: 5,
@@ -97,5 +106,37 @@ describe("public market reads", () => {
     await expect(client.getL2Book({ coin: "BTC" })).rejects.toThrow(
       "expected bid and ask levels",
     );
+  });
+
+  test("rejects candle rows that do not match the requested series", async () => {
+    const validCandle = {
+      t: 1,
+      T: 2,
+      s: "BTC",
+      i: "15m",
+      o: "10",
+      c: "11",
+      h: "12",
+      l: "9",
+      v: "3",
+      n: 4,
+    };
+    const client = createPublicHyperliquidClient({
+      fetch: async () => Response.json([{ ...validCandle, i: "unknown" }]),
+    });
+    await expect(
+      client.getCandles({ coin: "BTC", interval: "15m", startTime: 1 }),
+    ).rejects.toThrow("expected a supported candle interval");
+
+    const mismatchedClient = createPublicHyperliquidClient({
+      fetch: async () => Response.json([{ ...validCandle, s: "ETH" }]),
+    });
+    await expect(
+      mismatchedClient.getCandles({
+        coin: "BTC",
+        interval: "15m",
+        startTime: 1,
+      }),
+    ).rejects.toThrow("expected requested coin BTC");
   });
 });

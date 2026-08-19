@@ -35,23 +35,24 @@ apps/mobile
       └── notification preferences and device registration
               │
               ▼
+backend API + PostgreSQL
+  generation-pinned market catalog + notification state
+              │
+              ├── Hyperliquid public metadata APIs
+              └── platform push-notification providers
+
 packages/hyperliquid
   typed market discovery, account data, actions, and boundary validation
               │
               ▼
 Hyperliquid POST /info and /exchange APIs
-
-notification service
-  public-address monitoring + alert evaluation + push delivery
-              │
-              ├── Hyperliquid public data APIs and streams
-              └── platform push-notification providers
 ```
 
-Public price reads and signed exchange actions do not require a proxy. Reliable
-alerts while the app is closed are a concrete server-side responsibility, so the
-product requires a notification service without moving signing authority
-off-device.
+The backend owns market-catalog discovery and reliable alerts while the app is
+closed. Live public prices, candles, books, and trades may still be read directly
+from Hyperliquid after the backend has supplied the validated canonical market
+identity. Signed exchange actions remain device-to-Hyperliquid and never pass
+through the backend.
 
 ## Responsibilities
 
@@ -77,6 +78,8 @@ from future services or tooling.
 
 ### Notification service
 
+- Synchronize and publish the validated market catalog through a public,
+  generation-pinned API
 - Register device push tokens and network-scoped alert preferences
 - Monitor public account and market data while the mobile app is closed
 - Evaluate fill, rejection, margin-risk, liquidation-risk, price, and funding
@@ -135,6 +138,8 @@ Reference: [Hyperliquid: Nonces and API wallets](https://hyperliquid.gitbook.io/
 
 ## Market discovery policy
 
+- Run complete catalog discovery in the backend. The mobile app consumes only a
+  validated published generation and has no direct catalog-discovery fallback.
 - Discover perpetual DEXes and their universes from the current perpetual
   metadata endpoints; do not assume the first perpetual DEX is the complete
   universe.
@@ -151,6 +156,9 @@ Reference: [Hyperliquid: Nonces and API wallets](https://hyperliquid.gitbook.io/
   metadata. These constraints must drive the trade form and boundary validation.
 - Keep featured, favorite, recent, and searched markets as presentation-layer
   views over the complete validated market catalog.
+
+The catalog publication and failure policy is defined in
+[`market-catalog-backend.md`](market-catalog-backend.md).
 
 References: [Hyperliquid perpetual metadata](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals),
 [spot metadata](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/spot),

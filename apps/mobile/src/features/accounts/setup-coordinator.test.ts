@@ -97,8 +97,6 @@ function createHarness(
       return {
         authoritativeTime,
         targetAuthorized: options.authorizedTarget ?? true,
-        namedAgentLimit: 3,
-        namedAgents: [],
         targetKind:
           input.masterAccount === input.targetAccount ? "master" : "subaccount",
       };
@@ -251,33 +249,27 @@ describe("API-wallet setup coordinator", () => {
     expect(harness.active.size).toBe(1);
   });
 
-  test("requires explicit confirmation before accepting a shorter registration", async () => {
-    const effectiveExpiry = SERVER_TIME + 20 * 24 * 60 * 60 * 1_000;
-    const harness = createHarness({ registeredExpiry: effectiveExpiry });
-    const attempt = await prepare(harness);
+  test("accepts any finite future registration expiry", async () => {
+    for (const effectiveExpiry of [
+      SERVER_TIME + 20 * 24 * 60 * 60 * 1_000,
+      SERVER_TIME + 90 * 24 * 60 * 60 * 1_000,
+    ]) {
+      const harness = createHarness({ registeredExpiry: effectiveExpiry });
+      const attempt = await prepare(harness);
 
-    const result = await harness.coordinator.verifyExternalReturn({
-      attemptId: attempt.id,
-      connectorSessionId: CONNECTOR_SESSION,
-    });
-    expect(result).toEqual({
-      status: "expiry_confirmation_required",
-      attemptId: attempt.id,
-      requestedExpiry: attempt.requestedExpiry,
-      effectiveExpiry,
-    });
-    expect(harness.active.size).toBe(0);
-
-    const confirmed = await harness.coordinator.confirmShorterExpiry({
-      attemptId: attempt.id,
-      connectorSessionId: CONNECTOR_SESSION,
-      acceptedExpiry: effectiveExpiry,
-    });
-    expect(confirmed.status).toBe("activated");
-    expect(harness.active.size).toBe(1);
+      const result = await harness.coordinator.verifyExternalReturn({
+        attemptId: attempt.id,
+        connectorSessionId: CONNECTOR_SESSION,
+      });
+      expect(result).toMatchObject({
+        status: "activated",
+        effectiveExpiry,
+      });
+      expect(harness.active.size).toBe(1);
+    }
   });
 
-  test("verifies by exact address when the returned name differs and 30 days starts at approval", async () => {
+  test("verifies by exact address when the returned name differs", async () => {
     const verificationTime = SERVER_TIME + 2_000;
     const harness = createHarness({
       registeredName: "Different label",
@@ -297,6 +289,26 @@ describe("API-wallet setup coordinator", () => {
 
   test("keeps an address with no authoritative expiry inactive", async () => {
     const harness = createHarness({ registeredExpiry: null });
+    const attempt = await prepare(harness);
+
+    await expect(
+      harness.coordinator.verifyExternalReturn({
+        attemptId: attempt.id,
+        connectorSessionId: CONNECTOR_SESSION,
+      }),
+    ).resolves.toEqual({
+      status: "inert",
+      reason: "registration_unverified",
+    });
+    expect(harness.active.size).toBe(0);
+  });
+
+  test("keeps an address with an expired authoritative expiry inactive", async () => {
+    const verificationTime = SERVER_TIME + 2_000;
+    const harness = createHarness({
+      registeredExpiry: verificationTime - 1,
+      verificationTime,
+    });
     const attempt = await prepare(harness);
 
     await expect(

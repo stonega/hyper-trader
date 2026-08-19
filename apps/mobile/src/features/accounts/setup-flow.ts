@@ -28,6 +28,7 @@ export type SetupFlowAction =
   | { readonly type: "START_PREPARE"; readonly generation: number }
   | { readonly type: "PREPARED"; readonly generation: number }
   | { readonly type: "START_VERIFY"; readonly generation: number }
+  | { readonly type: "VERIFY_PENDING"; readonly generation: number }
   | { readonly type: "START_ACTIVATE"; readonly generation: number }
   | { readonly type: "COMPLETE"; readonly generation: number }
   | {
@@ -110,6 +111,15 @@ export function reduceSetupFlow(
         generation: action.generation,
         failureReason: null,
       };
+    case "VERIFY_PENDING":
+      return action.generation === state.generation
+        ? {
+            ...state,
+            phase: "authorization",
+            returnPhase: "authorization",
+            readiness: "idle",
+          }
+        : state;
     case "COMPLETE":
       return action.generation === state.generation
         ? { ...state, phase: "ready", readiness: "ready" }

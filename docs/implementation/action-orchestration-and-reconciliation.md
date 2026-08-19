@@ -7,11 +7,14 @@ supports reviewed testnet market and limit orders, cancellation, full
 reduce-only close, and leverage changes through the nonce journal and signer
 session boundaries.
 
-The root `ActionRuntimeProvider` is intentionally created without a production
-orchestrator while `security-review.md` remains conditional. The fixed-origin
-exchange client and complete injected pipeline are tested offline, but the app
-does not instantiate live `/exchange` transport or real signer access. Enabling
-that wiring requires unconditional evidence for the same security revision.
+The root action runtime is intentionally created without a production
+orchestrator while `security-review.md` remains conditional. Distributed and
+release builds do not instantiate live `/exchange` transport or real signer
+access. Immutable review remains available because it performs neither
+operation; the confirmation control is omitted and the review says submission
+is unavailable. The source-development testnet exception is documented below;
+enabling confirmation in a release build requires unconditional evidence for
+the same security revision.
 The progressive Trade drafting and review handoff is documented in
 [`trade-screen.md`](trade-screen.md).
 
@@ -97,6 +100,29 @@ malformed strings remain unresolved. `unknownOid` alone never proves expiry;
 post-expiry server time plus complete open-order/fill evidence is required.
 Journal work may continue after context switch, but active cache writes occur
 only for the exact active context.
+
+## Source-development testnet runtime
+
+`DevelopmentSignerSessionProvider` and `DevelopmentActionRuntimeProvider`
+compose the existing custody and action ports only when `__DEV__` is true. The
+runtime uses the same SecureStore vault created by API-wallet setup, tracks
+native active/focus state, registers the exact authoritative setup binding in
+the SQLite nonce scope, and supplies the signer-session manager to the existing
+five-minute lifecycle controller.
+
+Confirmation performs a fresh fixed-origin testnet catalog lookup and account
+query. Response `Date` headers provide the bounded server-time sample required
+by nonce allocation. The refreshed market fingerprint, price, relevant account
+fields, context epoch, and exact intent must still match the immutable review
+before the journal can reserve a nonce. The exchange client then consumes the
+write-once transport permit created by `submission_started`.
+
+Distributed and release builds receive neither manager nor orchestrator, so
+submission remains unavailable while the release gate is conditional. The
+development runtime currently exposes market and limit orders only. An
+uncertain response remains durably unresolved and cannot be submitted again;
+the authoritative restart reconciler is tracked as P6 in the closure plan and
+must be completed before response-loss drills are routine.
 
 ## Guarded example
 

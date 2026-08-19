@@ -1,33 +1,27 @@
-import type {
-  Market,
-  MarketFamily,
-  MarketOrderAvailability,
-} from "@hyper-trader/hyperliquid/public";
+import type { Market, MarketFamily } from "@hyper-trader/hyperliquid/public";
 import { useRouter } from "expo-router";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import { Input } from "heroui-native/input";
-import { Label } from "heroui-native/label";
 import { Skeleton } from "heroui-native/skeleton";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
+import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { CatalogStatus } from "../../features/markets/catalog-status";
-import {
-  discoverMarkets,
-  type MarketSort,
-} from "../../features/markets/discovery";
+import { discoverMarkets } from "../../features/markets/discovery";
+import { runManualRefresh } from "../../features/markets/manual-refresh";
 import { MarketRow } from "../../features/markets/market-row";
 import { useMarketPreferences } from "../../features/markets/preferences-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
-import { tradeMarketRoute } from "../../features/onboarding/routes";
+import { tradeMarketRoute } from "../../navigation/routes";
 
 const FAMILY_FILTERS: readonly {
   readonly value: MarketFamily | "all";
@@ -39,16 +33,6 @@ const FAMILY_FILTERS: readonly {
   { value: "outcome", label: "Outcomes" },
 ];
 
-const SORT_OPTIONS: readonly {
-  readonly value: MarketSort;
-  readonly label: string;
-}[] = [
-  { value: "volume", label: "Volume" },
-  { value: "price_change", label: "Price change" },
-  { value: "funding", label: "Funding" },
-  { value: "open_interest", label: "Open interest" },
-  { value: "symbol", label: "Symbol" },
-];
 const EMPTY_MARKET_IDS: readonly string[] = [];
 
 function FilterChip({
@@ -102,15 +86,12 @@ export default function MarketsScreen(): JSX.Element {
     current.network,
   );
   const reducedMotion = useReducedMotion();
+  const manualRefreshGate = useRef(false);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [family, setFamily] = useState<MarketFamily | "all">("all");
-  const [availability, setAvailability] = useState<
-    MarketOrderAvailability | "all"
-  >("all");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [recentsOnly, setRecentsOnly] = useState(false);
-  const [activeOnly, setActiveOnly] = useState(false);
-  const [sort, setSort] = useState<MarketSort>("volume");
   const favoriteIds = favoritesOnly
     ? preferences.preferences.favoriteIds
     : EMPTY_MARKET_IDS;
@@ -126,17 +107,15 @@ export default function MarketsScreen(): JSX.Element {
       discoverMarkets(catalog?.markets ?? [], {
         query,
         families: family === "all" ? [] : [family],
-        availability,
-        lifecycle: activeOnly ? "active" : "all",
+        availability: "all",
+        lifecycle: "active",
         favoritesOnly,
         recentsOnly,
         favoriteIds,
         recentIds,
-        sort,
+        sort: "volume",
       }),
     [
-      activeOnly,
-      availability,
       catalog?.markets,
       family,
       favoriteIds,
@@ -144,8 +123,17 @@ export default function MarketsScreen(): JSX.Element {
       query,
       recentIds,
       recentsOnly,
-      sort,
     ],
+  );
+  const refetchCatalog = catalogQuery.refetch;
+  const refreshFromPullGesture = useCallback(
+    () =>
+      runManualRefresh(
+        manualRefreshGate,
+        () => refetchCatalog(),
+        setIsPullRefreshing,
+      ),
+    [refetchCatalog],
   );
 
   const openMarket = (market: Market) => {
@@ -160,160 +148,88 @@ export default function MarketsScreen(): JSX.Element {
     >
       <ScreenHeading
         title="Markets"
-        description="Search the complete validated catalog. Display symbols may repeat; venue and canonical ID keep each market distinct."
         network={current.network}
         accountLabel={
           current.targetAccount === null
             ? "no account · read only"
             : `target …${current.targetAccount.slice(-6)}${current.signer === null ? " · read only" : ""}`
         }
+        rightAccessory={<GlobalAccountSwitcher avatarOnly />}
+        showContext={false}
       />
-      <GlobalAccountSwitcher />
       <TextField animation={reducedMotion ? "disable-all" : undefined}>
-        <Label>Search every market</Label>
         <Input
-          accessibilityHint="Searches display symbol, venue, canonical ID, coin, token identity, and outcome text."
-          accessibilityLabel="Search every validated market"
+          accessibilityHint="Searches market names, symbols, and venues."
+          accessibilityLabel="Search markets"
           autoCapitalize="none"
           autoCorrect={false}
           onChangeText={setQuery}
-          placeholder="Symbol, venue, or canonical ID"
+          placeholder="Search markets"
           returnKeyType="search"
           value={query}
         />
       </TextField>
 
-      <View className="gap-2">
-        <Text className="text-sm font-medium text-foreground">
-          Market family
-        </Text>
-        <ScrollView
-          accessibilityRole="none"
-          contentContainerClassName="gap-2"
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
-        >
-          {FAMILY_FILTERS.map((option) => (
-            <FilterChip
-              key={option.value}
-              label={option.label}
-              onPress={() => setFamily(option.value)}
-              selected={family === option.value}
-            />
-          ))}
-        </ScrollView>
-      </View>
+      <ScrollView
+        accessibilityLabel="Market filters"
+        contentContainerClassName="gap-2"
+        horizontal
+        keyboardShouldPersistTaps="handled"
+        showsHorizontalScrollIndicator={false}
+      >
+        {FAMILY_FILTERS.map((option) => (
+          <FilterChip
+            key={option.value}
+            label={option.label}
+            onPress={() => setFamily(option.value)}
+            selected={family === option.value}
+          />
+        ))}
+        <FilterChip
+          label="Favorites"
+          onPress={() => {
+            setFavoritesOnly((selected) => {
+              if (!selected) setRecentsOnly(false);
+              return !selected;
+            });
+          }}
+          selected={favoritesOnly}
+        />
+        <FilterChip
+          label="Recents"
+          onPress={() => {
+            setRecentsOnly((selected) => {
+              if (!selected) setFavoritesOnly(false);
+              return !selected;
+            });
+          }}
+          selected={recentsOnly}
+        />
+      </ScrollView>
 
-      <View className="gap-2">
-        <Text className="text-sm font-medium text-foreground">Saved views</Text>
-        <ScrollView
-          contentContainerClassName="gap-2"
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
-        >
-          <FilterChip
-            label="Favorites"
-            onPress={() => setFavoritesOnly((selected) => !selected)}
-            selected={favoritesOnly}
-          />
-          <FilterChip
-            label="Recents"
-            onPress={() => setRecentsOnly((selected) => !selected)}
-            selected={recentsOnly}
-          />
-          <FilterChip
-            label="Active markets"
-            onPress={() => setActiveOnly((selected) => !selected)}
-            selected={activeOnly}
-          />
-          <FilterChip
-            label="Order enabled"
-            onPress={() =>
-              setAvailability((selected) =>
-                selected === "enabled" ? "all" : "enabled",
-              )
-            }
-            selected={availability === "enabled"}
-          />
-          <FilterChip
-            label="Browse only"
-            onPress={() =>
-              setAvailability((selected) =>
-                selected === "browse_only" ? "all" : "browse_only",
-              )
-            }
-            selected={availability === "browse_only"}
-          />
-        </ScrollView>
-      </View>
-
-      <View className="gap-2">
-        <Text className="text-sm font-medium text-foreground">Sort by</Text>
-        <ScrollView
-          contentContainerClassName="gap-2"
-          horizontal
-          keyboardShouldPersistTaps="handled"
-          showsHorizontalScrollIndicator={false}
-        >
-          {SORT_OPTIONS.map((option) => (
-            <FilterChip
-              key={option.value}
-              label={option.label}
-              onPress={() => setSort(option.value)}
-              selected={sort === option.value}
-            />
-          ))}
-        </ScrollView>
-      </View>
-
-      <CatalogStatus
-        onRetry={() => void catalogQuery.refetch()}
-        sourceErrors={catalog?.sourceErrors ?? []}
-        state={presentation}
-      />
+      {presentation.content !== "ready" ||
+      presentation.freshness === "stale" ||
+      presentation.freshness === "offline" ||
+      presentation.hasPartialSources ? (
+        <CatalogStatus
+          onRetry={() => void refetchCatalog()}
+          state={presentation}
+        />
+      ) : null}
       {preferences.status === "error" ? (
         <Text accessibilityRole="alert" className="text-sm text-warning">
-          Favorites or recents could not be saved. Market data is unaffected.
+          Favorites could not be saved.
         </Text>
       ) : null}
       {presentation.content === "ready" ? (
         <Text accessibilityLiveRegion="polite" className="text-sm text-muted">
-          {markets.length} of {catalog?.markets.length ?? 0} validated markets
-          shown
+          {markets.length} markets
         </Text>
       ) : null}
     </View>
   );
 
-  const footer = catalog?.quarantined.length ? (
-    <View className="gap-3 px-5 pb-8 pt-4">
-      <Text
-        accessibilityRole="header"
-        className="text-xl font-semibold text-foreground"
-      >
-        Quarantined metadata
-      </Text>
-      <Text className="text-sm leading-5 text-muted">
-        These records remain visible for diagnostics but cannot be selected for
-        trading because their metadata is invalid or delisted.
-      </Text>
-      {catalog.quarantined.map((market) => (
-        <Card key={market.canonicalId} variant="secondary">
-          <Card.Body className="gap-1">
-            <Card.Title>{market.displaySymbol}</Card.Title>
-            <Card.Description>{market.canonicalId}</Card.Description>
-            <Text className="text-sm text-warning">
-              Unavailable: {market.reasons.join(", ")}
-            </Text>
-          </Card.Body>
-        </Card>
-      ))}
-    </View>
-  ) : (
-    <View className="h-6" />
-  );
+  const footer = <View className="h-6" />;
   const emptyTitle =
     presentation.content === "unavailable"
       ? "Catalog unavailable"
@@ -323,7 +239,7 @@ export default function MarketsScreen(): JSX.Element {
   const emptyDescription =
     presentation.content === "ready"
       ? "Clear a search or filter to show more markets."
-      : presentation.statusLabel;
+      : "Pull to refresh and try again.";
   const emptyContent =
     presentation.content === "loading" ? (
       <LoadingCatalog />
@@ -341,7 +257,9 @@ export default function MarketsScreen(): JSX.Element {
   return (
     <FlatList
       className="flex-1 bg-background"
-      contentContainerClassName="pb-8"
+      contentContainerStyle={{
+        paddingBottom: floatingTabBarInset(insets.bottom) + 16,
+      }}
       data={presentation.content === "ready" ? markets : []}
       ItemSeparatorComponent={() => <View className="h-3" />}
       keyboardDismissMode="on-drag"
@@ -353,8 +271,8 @@ export default function MarketsScreen(): JSX.Element {
       refreshControl={
         <RefreshControl
           accessibilityLabel="Refresh market catalog"
-          onRefresh={() => void catalogQuery.refetch()}
-          refreshing={catalogQuery.isRefetching}
+          onRefresh={() => void refreshFromPullGesture()}
+          refreshing={isPullRefreshing}
         />
       }
       renderItem={({ item }) => (

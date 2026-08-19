@@ -18,18 +18,12 @@ import {
   type PortfolioPositionRow,
 } from "./portfolio-model";
 
-export type PortfolioEditor =
-  | {
-      readonly kind: "close";
-      readonly positionId: string;
-      readonly draft: CloseDraft;
-    }
-  | {
-      readonly kind: "margin";
-      readonly positionId: string;
-      readonly leverage: string;
-      readonly marginMode: "cross" | "isolated";
-    };
+export type PortfolioEditor = {
+  readonly kind: "margin";
+  readonly positionId: string;
+  readonly leverage: string;
+  readonly marginMode: "cross" | "isolated";
+};
 
 export type PortfolioActionAccess =
   | { readonly allowed: true; readonly message: string }
@@ -117,22 +111,6 @@ function PositionCard({
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const active = editor?.positionId === position.id ? editor : null;
-  const closeReason = !actionAccess.allowed
-    ? actionAccess.reason
-    : position.closeEnabled
-      ? actionAccess.message
-      : position.market === null
-        ? "This position could not be matched to a current market."
-        : position.market.dexIndex !== 0
-          ? "Closing builder-venue positions is unavailable in this build."
-          : "Current market data does not allow this position to be closed.";
-  const marginReason = !actionAccess.allowed
-    ? actionAccess.reason
-    : position.marginActionEnabled
-      ? actionAccess.message
-      : position.market === null
-        ? "This position could not be matched to a current market."
-        : "Margin changes are unavailable for this position.";
   const closeEnabled = actionAccess.allowed && position.closeEnabled;
   const marginEnabled = actionAccess.allowed && position.marginActionEnabled;
   return (
@@ -142,10 +120,7 @@ function PositionCard({
           <Card.Title>
             {position.coin} · {position.side}
           </Card.Title>
-          <Card.Description>
-            {position.venue} ·{" "}
-            {position.canonicalMarketId ?? "unmatched market"}
-          </Card.Description>
+          <Card.Description>{position.venue}</Card.Description>
         </View>
         <Chip
           color={position.unrealizedPnl.startsWith("-") ? "danger" : "success"}
@@ -167,186 +142,45 @@ function PositionCard({
           />
           <Value label="Margin" value={position.marginMode ?? "Unavailable"} />
         </View>
-        <Text className="text-sm leading-5 text-muted">
-          TP/SL is unavailable in this build. Hyper Trader will not create or
-          change a protective order from this screen.
-        </Text>
-        <View className="flex-row flex-wrap gap-2">
-          <Button
-            accessibilityHint={
-              closeEnabled
-                ? "Edit a full-size reduce-only close before review."
-                : closeReason
-            }
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 min-w-28 flex-1"
-            isDisabled={!closeEnabled}
-            onPress={() => {
-              setEditor({
-                kind: "close",
-                positionId: position.id,
-                draft: createCloseDraft(position),
-              });
-            }}
-            variant="primary"
-          >
-            Close
-          </Button>
-          <Button
-            accessibilityHint="Protective-order editing is unavailable in this build."
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 min-w-28 flex-1"
-            isDisabled
-            variant="secondary"
-          >
-            TP / SL unavailable
-          </Button>
-          <Button
-            accessibilityHint={
-              marginEnabled
-                ? "Edit leverage and margin mode before review."
-                : marginReason
-            }
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 min-w-28 flex-1"
-            isDisabled={!marginEnabled}
-            onPress={() =>
-              setEditor({
-                kind: "margin",
-                positionId: position.id,
-                leverage: String(position.leverage),
-                marginMode: position.onlyIsolated
-                  ? "isolated"
-                  : (position.marginMode ?? "cross"),
-              })
-            }
-            variant="secondary"
-          >
-            Margin
-          </Button>
-        </View>
-        {!closeEnabled ? (
-          <Text className="text-sm leading-5 text-muted">
-            Close unavailable · {closeReason}
-          </Text>
-        ) : null}
-        {!marginEnabled ? (
-          <Text className="text-sm leading-5 text-muted">
-            Margin unavailable · {marginReason}
-          </Text>
-        ) : null}
-
-        {active?.kind === "close" ? (
-          <View
-            accessibilityLabel={`Edit close for ${position.coin}`}
-            className="gap-4 border-t border-divider pt-4"
-          >
-            <Text className="text-base font-medium text-foreground">
-              Edit reduce-only close
-            </Text>
-            <View className="flex-row flex-wrap gap-2">
-              <PortfolioSelectionChip
-                label="Full market close"
-                onPress={() =>
-                  setEditor({
-                    ...active,
-                    draft: {
-                      ...active.draft,
-                      behavior: "market",
-                      size: position.absoluteSize,
-                    },
-                  })
-                }
-                selected={active.draft.behavior === "market"}
-              />
-              <PortfolioSelectionChip
-                label="Reduce-only limit"
-                onPress={() =>
-                  setEditor({
-                    ...active,
-                    draft: { ...active.draft, behavior: "limit" },
-                  })
-                }
-                selected={active.draft.behavior === "limit"}
-              />
-            </View>
-            <TextField animation={reducedMotion ? "disable-all" : undefined}>
-              <Label>Close size</Label>
-              <Input
-                accessibilityHint={
-                  active.draft.behavior === "market"
-                    ? "Full size is required for a market close. Choose reduce-only limit to edit a partial size."
-                    : "May be reduced, but cannot exceed the current position."
-                }
-                editable={active.draft.behavior === "limit"}
-                keyboardType="decimal-pad"
-                onChangeText={(size) =>
-                  setEditor({
-                    ...active,
-                    draft: { ...active.draft, size },
-                  })
-                }
-                value={active.draft.size}
-              />
-            </TextField>
-            {active.draft.behavior === "limit" ? (
-              <TextField animation={reducedMotion ? "disable-all" : undefined}>
-                <Label>Limit price</Label>
-                <Input
-                  keyboardType="decimal-pad"
-                  onChangeText={(limitPrice) =>
-                    setEditor({
-                      ...active,
-                      draft: { ...active.draft, limitPrice },
-                    })
-                  }
-                  value={active.draft.limitPrice}
-                />
-              </TextField>
-            ) : (
-              <TextField animation={reducedMotion ? "disable-all" : undefined}>
-                <Label>Maximum slippage, basis points (0–500)</Label>
-                <Input
-                  accessibilityHint="Sets the worst acceptable price bound for this full market close."
-                  keyboardType="number-pad"
-                  onChangeText={(slippageBps) =>
-                    setEditor({
-                      ...active,
-                      draft: { ...active.draft, slippageBps },
-                    })
-                  }
-                  value={active.draft.slippageBps}
-                />
-              </TextField>
-            )}
-            {error ? (
-              <Text
-                accessibilityRole="alert"
-                className="text-sm leading-5 text-danger"
-              >
-                {error}
-              </Text>
-            ) : null}
-            <View className="flex-row flex-wrap gap-2">
+        {closeEnabled || marginEnabled ? (
+          <View className="flex-row flex-wrap gap-2">
+            {closeEnabled ? (
               <Button
+                accessibilityHint="Opens a review for a full reduce-only market close."
                 animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 min-w-32 flex-1"
-                onPress={() => onReviewClose(position, active.draft)}
+                className="min-h-12 min-w-28 flex-1"
+                onPress={() =>
+                  onReviewClose(position, createCloseDraft(position))
+                }
                 variant="primary"
               >
-                Review close
+                Review full close
               </Button>
+            ) : null}
+            {marginEnabled ? (
               <Button
+                accessibilityHint="Edit leverage and margin mode before review."
                 animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 min-w-32 flex-1"
-                onPress={() => setEditor(null)}
-                variant="tertiary"
+                className="min-h-12 min-w-28 flex-1"
+                onPress={() =>
+                  setEditor({
+                    kind: "margin",
+                    positionId: position.id,
+                    leverage: String(position.leverage),
+                    marginMode: position.onlyIsolated
+                      ? "isolated"
+                      : (position.marginMode ?? "cross"),
+                  })
+                }
+                variant="secondary"
               >
-                Keep position
+                Margin
               </Button>
-            </View>
+            ) : null}
           </View>
-        ) : active?.kind === "margin" ? (
+        ) : null}
+
+        {active?.kind === "margin" ? (
           <View
             accessibilityLabel={`Edit margin for ${position.coin}`}
             className="gap-4 border-t border-divider pt-4"
@@ -423,13 +257,6 @@ function OrderCard({
   readonly onCancel: (order: PortfolioOpenOrderRow) => void;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
-  const cancelReason = !actionAccess.allowed
-    ? actionAccess.reason
-    : order.cancelEnabled
-      ? actionAccess.message
-      : order.market === null
-        ? "This order could not be matched to a current market."
-        : "Cancellation is unavailable for this order.";
   const cancelEnabled = actionAccess.allowed && order.cancelEnabled;
   return (
     <Card variant="default" className="gap-3">
@@ -439,9 +266,7 @@ function OrderCard({
             <Card.Title>
               {order.coin} · order {order.oid}
             </Card.Title>
-            <Card.Description>
-              {order.venue} · {order.canonicalMarketId ?? "unmatched market"}
-            </Card.Description>
+            <Card.Description>{order.venue}</Card.Description>
           </View>
           <Chip size="sm" variant="soft" color="accent">
             Open
@@ -452,24 +277,16 @@ function OrderCard({
           <Value label="Size" value={order.size} />
           <Value label="Limit" value={order.limitPrice} />
         </View>
-        <Button
-          accessibilityHint={
-            cancelEnabled
-              ? "Review the exact current order cancellation."
-              : cancelReason
-          }
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="min-h-12 w-full"
-          isDisabled={!cancelEnabled}
-          onPress={() => onCancel(order)}
-          variant="danger-soft"
-        >
-          Review cancel
-        </Button>
-        {!cancelEnabled ? (
-          <Text className="text-sm leading-5 text-muted">
-            Cancel unavailable · {cancelReason}
-          </Text>
+        {cancelEnabled ? (
+          <Button
+            accessibilityHint="Review this order cancellation."
+            animation={reducedMotion ? "disable-all" : undefined}
+            className="min-h-12 w-full"
+            onPress={() => onCancel(order)}
+            variant="danger-soft"
+          >
+            Review cancel
+          </Button>
         ) : null}
       </Card.Body>
     </Card>

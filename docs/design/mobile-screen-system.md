@@ -14,7 +14,8 @@ This audience definition is a product assumption because independent demand evid
 - **Fluid exploration.** Markets, charts, order books, and filters preserve useful context and render cached data before refreshing.
 - **Immediate account control.** Portfolio performance and position actions remain easy to reach without weakening confirmation requirements.
 - **Progressive density.** Essential controls remain visible while advanced controls appear only when applicable.
-- **Explicit trading context.** The active master account, network, market, and signing-session state are visible wherever they affect an action.
+- **Explicit trading context.** Show account and network once where they affect an action; keep runtime security state out of ordinary settings and browsing UI.
+- **Minimum necessary UI.** Ask only for information the product cannot derive, hide unavailable controls, and keep internal validation or recovery states out of the main flow.
 - **Safe state transitions.** Changing the account, network, market, or market metadata invalidates any order draft that can no longer be trusted.
 
 ## Navigation model
@@ -26,11 +27,17 @@ The authenticated and read-only experiences share four bottom tabs:
 3. **Portfolio** — performance, positions, orders, balances, fills, and funding activity.
 4. **Settings** — accounts, API wallets, security, notifications, trading preferences, privacy, and support.
 
+The bottom tab capsule overlays each full-height scene. Only the capsule owns a
+surface; the surrounding area remains transparent. Every tab's primary scroll
+container adds the measured tab-bar and safe-area inset as bottom padding so its
+last control can scroll fully above the navigation. One shared selection surface
+slides and resizes between the intrinsic-width tabs; Reduce Motion replaces the
+transition with an immediate position update.
+
 ```mermaid
 flowchart TB
-  Launch[Launch] --> Welcome[Welcome]
-  Welcome -->|Explore read-only| Trade[Trade]
-  Welcome -->|Set up trading| Setup[Trading setup]
+  Launch[Launch] --> Trade[Trade]
+  Trade -->|Set up when needed| Setup[Trading setup]
   Setup --> Trade
   Markets[Markets] -->|Select market| Trade
   Trade --> Portfolio[Portfolio]
@@ -41,17 +48,21 @@ flowchart TB
 ```
 
 The active account and network are global context rather than tab-local settings.
-Users can switch accounts from the Markets, Trade, and Portfolio headers; Settings owns full account management.
+Users can switch accounts from the wallet avatar in Markets, Trade, and
+Portfolio. Settings shows the automatically bound API-wallet identity without
+making the API wallet independently selectable.
 
 ## Key product decisions
 
-- **Hybrid onboarding.** Users may set up trading during onboarding or skip directly into read-only exploration. Governs R13–R19.
+- **Contextual setup.** First launch opens read-only Trade directly. Setup appears only when the user chooses to add an account or review an action that needs one. Governs R13–R19.
+- **Testnet-first context.** A fresh read-only session and its public-data streams initialize on testnet; users may still explicitly switch networks without merging account, cache, or signing authority.
 - **Session authentication.** Device authentication unlocks a short-lived trading session; every state-changing action still receives an explicit review. Governs R18, R26, R32, R38.
 - **Trade-first home.** Trade reopens the last-used market and provides a searchable market switcher. Governs R1, R20.
 - **Inline progressive order entry.** The order panel stays on Trade, with essential controls visible and advanced controls revealed contextually. Governs R21–R25.
 - **Performance-first portfolio.** Portfolio leads with account value and PnL before exposing positions, orders, balances, and history. Governs R29–R32.
 - **Unified account view.** Spot and perpetual activity share one portfolio overview with filters rather than separate account experiences. Governs R30, R33.
 - **Global multi-account support.** Multiple master accounts are supported, with isolated API-wallet credentials, nonce state, preferences, and cached data. Governs R2, R3, R33, R36–R39.
+- **Automatic API-wallet binding.** The visible API-wallet identity is derived from the active account binding and is never an independent user selection. Governs R2, R3, R36–R39.
 - **Configurable native alerts.** Push notifications cover execution, risk, price, and funding events while keeping all signing authority on-device. Governs R42–R46.
 
 ## Requirements
@@ -59,7 +70,7 @@ Users can switch accounts from the Markets, Trade, and Portfolio headers; Settin
 ### Shared application behavior
 
 - R1. The app must expose Markets, Trade, Portfolio, and Settings as persistent bottom-level destinations, with Trade selected by default after entering the tab shell.
-- R2. The active account and network must remain visible on Trade, Portfolio, action review, and every signed-action result.
+- R2. The active account and network must remain available through the shared account control and signed-action review without duplicating the same context in adjacent headers.
 - R3. Switching account or network must clear incompatible cached private data, lock the prior signing session, and invalidate stale action drafts.
 - R4. Read-only users must be able to browse every validated market without connecting a wallet.
 - R5. Loading, stale, offline, empty, unavailable, and retry states must preserve the last trustworthy data whenever it remains safe to display.
@@ -71,18 +82,18 @@ Users can switch accounts from the Markets, Trade, and Portfolio headers; Settin
 - R8. The catalog must cover native perpetuals, builder-deployed HIP-3 perpetuals, and spot pairs returned by the supported metadata endpoints.
 - R9. Markets must preserve their asset identifiers, venue, precision, margin mode, leverage limits, lifecycle state, and display names as separate validated attributes.
 - R10. Markets that are delisted, unavailable, or fail validation must not expose an enabled order action.
-- R11. Markets must support favorites, recent history, search, and filters for type, price change, volume, funding, and open interest when those metrics apply.
+- R11. Markets must support favorites, recent history, search, and one compact type/saved-view filter row. Detailed metrics remain sortable internally without requiring multiple persistent filter rows.
 - R12. Selecting a market from Markets or the Trade switcher must open it in Trade without changing the active account or network.
 
-### Onboarding and trading setup
+### Trading setup
 
-- R13. The welcome screen must offer **Set up trading** as the primary action and **Explore read-only** as the secondary action.
-- R14. Read-only onboarding must end after the welcome choice and teach additional concepts only when the user reaches the relevant feature.
-- R15. Trading setup must connect a master account, generate a dedicated API wallet, show its network and authority, obtain master-account approval, and confirm registration before enabling trading.
+- R13. First launch must open read-only Trade without requiring an onboarding choice.
+- R14. Setup education must appear contextually only when the user chooses to add trading access.
+- R15. Trading setup must present two user tasks: enter the public master address and generate the protected API wallet; then add that address on Hyperliquid. Verification runs automatically when the app returns, with a manual retry fallback.
 - R16. Hyper Trader must never request or persist a master-account seed phrase or private key.
 - R17. Loss, expiry, or revocation of an API-wallet credential must be handled by rotation or reauthorization; secret material must never be displayed as a recovery mechanism.
-- R18. Trading setup must offer device authentication and explain that it unlocks a temporary signing session rather than approving every future action.
-- R19. A skipped or failed setup must remain resumable from Trade, Portfolio, and Settings without replaying the welcome experience.
+- R18. Trading setup may use device authentication while protecting the generated API wallet, but setup completion must not appear to require another verification. A temporary signing session is unlocked only when a confirmed action needs a signature.
+- R19. A skipped or failed setup must remain resumable from Trade, Portfolio, and Settings without adding a first-run gate.
 
 ### Trade
 
@@ -100,7 +111,7 @@ Users can switch accounts from the Markets, Trade, and Portfolio headers; Settin
 
 - R29. Portfolio must lead with total account value, absolute and percentage PnL, and a selectable time-range performance chart.
 - R30. Portfolio must present one account overview with filters for positions, open orders, spot balances, fills, funding, and other supported activity.
-- R31. Position rows must expose direct Close, TP/SL, and applicable margin actions without requiring a separate detail screen.
+- R31. Position rows must expose a direct full-close review and applicable margin actions. Unavailable controls, including TP/SL until implemented end to end, must not be rendered.
 - R32. Direct portfolio actions must use the same validation, review, session-unlock, signing, result, and reconciliation rules as Trade.
 - R33. Portfolio must isolate loading, cached data, and action state by master account, sub-account or vault context, and network.
 - R34. Portfolio may display balances and deposit information but must not perform deposits, withdrawals, or internal transfers.
@@ -110,30 +121,30 @@ Users can switch accounts from the Markets, Trade, and Portfolio headers; Settin
 
 - R36. Settings must manage multiple master accounts and their separate API-wallet authorization, expiry, rotation, and revocation state.
 - R37. The global account switcher must be accessible outside Settings while preventing switches during an in-flight signed action.
-- R38. Security settings must expose trading-session state, device-authentication availability, timeout behavior, manual locking, and API-wallet revocation.
+- R38. Settings must present API-wallet authorization state independently from runtime signing. Device authentication is requested from a confirmed action only when its signing session needs to be unlocked; Settings must not present that runtime unlock as incomplete account verification.
 - R39. Network settings must keep public data, account data, API-wallet authorization, nonce state, alerts, and action history isolated between testnet and mainnet.
 - R40. Trading preferences may provide safe defaults but must not suppress action review or silently bypass market-specific validation.
-- R41. Settings must cover appearance, privacy, diagnostics, support, and legal or risk disclosures without mixing them into signing controls.
+- R41. Settings must keep appearance and notifications concise, combine help/privacy/diagnostics/risk content, remember Portfolio range from Portfolio, and never mix runtime signing checks into account status.
 
 ### Notifications
 
-- R42. Users must be able to configure notifications for fills, cancellations, rejections, margin risk, liquidation risk, price targets, and funding events.
+- R42. Settings must expose only notification types that work end to end. Price alerts are available now; account-alert controls remain hidden until their proof and delivery flows are connected.
 - R43. Notification rules must be scoped to the intended account, network, market, and event type.
-- R44. Opening a notification must restore the matching account, network, and market context only after confirming the target context still exists.
+- R44. Opening a notification must restore the matching account, network, and market context only after confirming the target context still exists, then navigate automatically after any required context-switch confirmation.
 - R45. The notification service may store public account identifiers, device push tokens, and alert rules but must never receive API-wallet keys, seed phrases, signed actions, or exchange authority.
 - R46. Users must be able to revoke a device token, unlink an account, and remove its server-side alert data from Settings.
 
 ## Key flows
 
 - F1. Read-only first launch
-  - **Trigger:** A new user opens the app and chooses **Explore read-only**.
-  - **Steps:** The app opens Trade with current public market data, keeps trading controls visibly locked, and offers contextual setup entry points.
+  - **Trigger:** A new user opens the app.
+  - **Steps:** The app opens Trade with current public market data and offers setup only where trading access is needed.
   - **Outcome:** The user can explore Markets and Trade without creating an account credential.
   - **Covers:** R4, R13, R14, R19.
 
 - F2. Trading setup
-  - **Trigger:** A user chooses **Set up trading** from onboarding or a contextual prompt.
-  - **Steps:** The user connects a master account, reviews the active network and requested agent authority, approves a newly generated API wallet externally, confirms registration, and enables device authentication.
+  - **Trigger:** A user chooses **Set up trading** from a contextual prompt or Settings.
+  - **Steps:** The user enters a public master address and authenticates to generate a protected API wallet, then adds its public address on Hyperliquid. Returning to the app starts verification automatically.
   - **Outcome:** The account becomes trading-ready without exposing the master private key to Hyper Trader.
   - **Covers:** R15–R18, R36, R39.
 

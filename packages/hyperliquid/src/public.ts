@@ -1,6 +1,10 @@
-import { discoverMarketCatalog } from "./markets/catalog";
+import {
+  discoverMarketCatalog,
+  type MarketCatalogRequestOptions,
+} from "./markets/catalog";
 import {
   type Candle,
+  type CandleInterval,
   type FundingRecord,
   type L2Book,
   type MidPrice,
@@ -33,7 +37,9 @@ import {
 } from "./transport/http";
 
 export * from "./errors";
+export type { MarketCatalogRequestOptions } from "./markets/catalog";
 export * from "./markets/reads";
+export * from "./markets/snapshot";
 export * from "./markets/types";
 export * from "./network";
 export * from "./numbers/decimal";
@@ -49,22 +55,6 @@ export type {
 export * from "./transport/http";
 export * from "./transport/websocket";
 
-export type CandleInterval =
-  | "1m"
-  | "3m"
-  | "5m"
-  | "15m"
-  | "30m"
-  | "1h"
-  | "2h"
-  | "4h"
-  | "8h"
-  | "12h"
-  | "1d"
-  | "3d"
-  | "1w"
-  | "1M";
-
 export interface PublicHyperliquidClient {
   readonly network: HyperliquidNetwork;
   getRequestBudget(
@@ -74,7 +64,9 @@ export interface PublicHyperliquidClient {
   getAllMids(
     options?: InfoRequestOptions & { readonly dex?: string },
   ): Promise<MidPrice[]>;
-  getMarketCatalog(options?: InfoRequestOptions): Promise<MarketCatalog>;
+  getMarketCatalog(
+    options?: MarketCatalogRequestOptions,
+  ): Promise<MarketCatalog>;
   getCandles(
     request: {
       readonly coin: string;
@@ -160,6 +152,7 @@ export function createPublicHyperliquidClient(
           },
           requestOptions,
         ),
+        { coin: request.coin, interval: request.interval },
       );
     },
     async getL2Book(request, requestOptions = {}) {

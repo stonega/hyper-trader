@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { useDraftRegistry } from "../actions/draft-provider";
+import { DEFAULT_HYPERLIQUID_NETWORK } from "../network";
 import {
   cancelIncompatiblePrivateQueries,
   removeIncompatiblePrivateQueries,
@@ -36,7 +37,7 @@ export interface TradingContextValue {
 const TradingContext = createContext<TradingContextValue | null>(null);
 
 const READ_ONLY_CONTEXT: TradingContextIdentity = {
-  network: "mainnet",
+  network: DEFAULT_HYPERLIQUID_NETWORK,
   masterAccount: null,
   targetAccount: null,
   signer: null,

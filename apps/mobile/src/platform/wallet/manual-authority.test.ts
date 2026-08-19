@@ -37,7 +37,6 @@ describe("manual Hyperliquid agent authority", () => {
     ).resolves.toMatchObject({
       authoritativeTime: SERVER_TIME,
       targetAuthorized: true,
-      namedAgentLimit: 3,
     });
     await expect(
       authority.verify({

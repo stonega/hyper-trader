@@ -388,9 +388,9 @@ remain governed by the independent ledger and are not delivery-retention data.
 
 Keep both worker gates closed. Repeat the U11 restore sequence through the
 current independent-ledger head, validate every retained token with every
-required KEK version, verify migration checksums through `0004_workers`, and run
-the authorization consistency query before activation. Do not skip or manually
-flip a gate to clear a queue.
+required KEK version, verify migration checksums through `0005_market_catalog`,
+and run the authorization consistency query before activation. Do not skip or
+manually flip a gate to clear a queue.
 
 ## Verification
 
@@ -409,6 +409,9 @@ bun run typecheck
 bun run check
 ```
 
-`bun run test:notifications` starts a disposable PostgreSQL 17 container on a
-loopback-only random port, runs the U11 foundation suite and U14 worker suite
-sequentially, rolls every migration back, and stops the exact container.
+`bun run test:notifications` starts a disposable PostgreSQL 17 container with
+rootless Podman on a loopback-only random port, runs the U11 foundation suite and
+U14 worker suite sequentially, rolls every migration back, and stops the exact
+container. Set `CONTAINER_ENGINE=docker` to validate Docker compatibility; the
+runner validates the engine name and keeps the same exact-name and loopback-port
+safeguards.

@@ -33,8 +33,7 @@ export default function NotificationEntryScreen(): JSX.Element {
   const directory = useAccountDirectory();
   const [phase, setPhase] = useState<Phase>("resolving");
   const [alert, setAlert] = useState<MobileAlertResponse | null>(null);
-  const [message, setMessage] = useState("Verifying the opaque alert record.");
-  const [observedAtMs, setObservedAtMs] = useState<number | null>(null);
+  const [message, setMessage] = useState("Opening notification…");
   const confirmation = useRef<((accepted: boolean) => void) | null>(null);
   const currentContext = useRef(tradingContext.current);
   const accounts = useRef(directory.accounts);
@@ -83,7 +82,7 @@ export default function NotificationEntryScreen(): JSX.Element {
           setAlert(candidate);
           setPhase("confirming_context");
           setMessage(
-            `This alert targets ${candidate.network}${candidate.account ? ` account …${candidate.account.targetAccount.slice(-6)}` : " public market data"}. Confirm before changing context.`,
+            `Switch to ${candidate.network}${candidate.account ? ` account …${candidate.account.targetAccount.slice(-6)}` : " market data"} to open this alert?`,
           );
           return new Promise<boolean>((resolve) => {
             confirmation.current = resolve;
@@ -110,7 +109,7 @@ export default function NotificationEntryScreen(): JSX.Element {
       authoritative: {
         refresh: async (candidate, signal) => {
           setPhase("refreshing");
-          setMessage("Refreshing current Hyperliquid state.");
+          setMessage("Updating current data…");
           return refreshAuthoritativeNotificationTarget(candidate, { signal });
         },
       },
@@ -121,10 +120,12 @@ export default function NotificationEntryScreen(): JSX.Element {
       if (controller.signal.aborted) return;
       if (result.state === "ready") {
         setAlert(result.alert);
-        setObservedAtMs(result.observedAtMs);
         setPhase("ready");
-        setMessage(
-          "The alert target is still active and current exchange state was refreshed.",
+        setMessage("Opening…");
+        router.replace(
+          result.alert.routeHint === "trade"
+            ? "/(tabs)/trade"
+            : "/(tabs)/portfolio",
         );
         return;
       }
@@ -138,7 +139,7 @@ export default function NotificationEntryScreen(): JSX.Element {
         result.state === "declined"
           ? "The context change was declined. Your active context is unchanged."
           : result.state === "context_change_failed"
-            ? "The exact saved account target could not be activated."
+            ? "This saved account could not be opened."
             : result.message,
       );
     });
@@ -153,6 +154,7 @@ export default function NotificationEntryScreen(): JSX.Element {
     commitAlert,
     params.alertId,
     releaseAlert,
+    router,
     selectAccount,
     switchContext,
     targetExists,
@@ -197,11 +199,7 @@ export default function NotificationEntryScreen(): JSX.Element {
             </Text>
             {alert ? (
               <Text className="text-sm leading-5 text-muted">
-                {alert.category} · {alert.network} ·{" "}
-                {alert.rule?.marketId ?? "target removed"}
-                {observedAtMs === null
-                  ? ""
-                  : `\nRefreshed ${new Date(observedAtMs).toLocaleTimeString()}`}
+                {alert.category} · {alert.network}
               </Text>
             ) : null}
             {phase === "confirming_context" ? (
@@ -212,7 +210,7 @@ export default function NotificationEntryScreen(): JSX.Element {
                   onPress={() => answerContext(true)}
                   variant="primary"
                 >
-                  Confirm context and refresh
+                  Switch and open
                 </Button>
                 <Button
                   animation={reducedMotion ? "disable-all" : undefined}
@@ -223,22 +221,6 @@ export default function NotificationEntryScreen(): JSX.Element {
                   Decline
                 </Button>
               </View>
-            ) : null}
-            {phase === "ready" && alert ? (
-              <Button
-                animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 w-full"
-                onPress={() =>
-                  router.replace(
-                    alert.routeHint === "trade"
-                      ? "/(tabs)/trade"
-                      : "/(tabs)/portfolio",
-                  )
-                }
-                variant="primary"
-              >
-                Open {alert.routeHint}
-              </Button>
             ) : null}
             {!busy && phase !== "confirming_context" && phase !== "ready" ? (
               <Button

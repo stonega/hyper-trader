@@ -3,6 +3,8 @@ const { withUniwindConfig } = require("uniwind/metro");
 
 const config = getDefaultConfig(__dirname);
 
+config.resolver.useWatchman = true;
+
 module.exports = withUniwindConfig(config, {
   cssEntryFile: "./src/global.css",
 });

@@ -12,6 +12,12 @@ execution: code
 
 # Hyper Trader Native Trading App - Plan
 
+> Historical status: the Welcome-specific onboarding requirements below were
+> superseded by the current product contract in
+> [`docs/design/mobile-screen-system.md`](../design/mobile-screen-system.md).
+> First launch now opens read-only Trade directly; this file retains the
+> original implementation-plan decisions for traceability.
+
 ## Goal Capsule
 
 - **Objective:** Build the confirmed iOS and Android screen system as a testnet-functional Hyperliquid client with dynamic native-perpetual, HIP-3, and spot coverage; on-device API-wallet signing; portfolio control; multi-account settings; and closed-app notifications.

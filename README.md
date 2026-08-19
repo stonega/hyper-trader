@@ -19,6 +19,7 @@ release gates.
 
 ```text
 apps/mobile/             iOS and Android Expo app
+apps/notifications/      Bun backend and PostgreSQL market/notification state
 packages/hyperliquid/    Typed public Hyperliquid API client
 docs/                    Architecture, setup, and user documentation
 examples/                Runnable package examples
@@ -28,13 +29,27 @@ postmortem/              Incident and learning records
 
 ## Start developing
 
-Prerequisites: Bun 1.3.14 or newer and an Expo-compatible iOS Simulator or
-Android Emulator.
+Prerequisites: Bun 1.3.14 or newer, rootless Podman, and an Expo-compatible iOS
+Simulator or Android Emulator.
 
 ```sh
 bun install
+bun run db:local:up
 bun run mobile
 ```
+
+`db:local:up` creates or resumes one loopback-only PostgreSQL 17 container,
+preserves its named volume, and applies the backend migrations. Use
+`bun run db:local:status` to inspect it and `bun run db:local:down` to stop the
+container without deleting data.
+
+Unconfigured Expo development builds load validated testnet core markets
+directly so device UI work can begin immediately. Complete HIP-3 coverage still
+comes from the catalog backend. Run the standalone TLS catalog publisher with
+`bun run market-catalog` and the variables documented in
+[`docs/implementation/market-catalog-backend.md`](docs/implementation/market-catalog-backend.md),
+then start Expo with `EXPO_PUBLIC_BACKEND_ORIGIN` set to that reviewed HTTPS
+origin.
 
 From the Expo terminal, press `i` for iOS or `a` for Android. You can also launch
 a platform directly:
@@ -69,10 +84,11 @@ Or run the complete local gate:
 
 ## Current capabilities
 
-- Discover validated native perpetual, HIP-3, spot, and outcome-market metadata
-  at runtime with safe stale/offline/quarantine presentation.
-- Provide the four-tab native shell, read-only onboarding, progressive Trade,
-  unified Portfolio, multi-account settings, and safe notification entry.
+- Publish validated native perpetual, HIP-3, spot, and outcome-market metadata
+  from a generation-pinned backend API, with safe mobile
+  stale/offline/quarantine presentation.
+- Provide the four-tab native shell, direct read-only Trade launch, progressive
+  Trade, unified Portfolio, multi-account settings, and safe notification entry.
 - Keep protocol parsing, action validation/encoding, mainnet denial, target
   binding, nonce/reconciliation rules, and public-only notification imports at
   typed boundaries with deterministic offline tests.
@@ -86,6 +102,8 @@ and submission are compile-denied and have no enablement path.
 ## Documentation
 
 - [Architecture](docs/design/architecture.md)
+- [Market catalog backend design](docs/design/market-catalog-backend.md)
+- [Market catalog backend operations](docs/implementation/market-catalog-backend.md)
 - [Local setup](docs/implementation/setup.md)
 - [Release evidence](docs/implementation/release-evidence.md)
 - [Safety and current app behavior](docs/user/getting-started.md)

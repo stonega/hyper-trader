@@ -9,6 +9,7 @@ import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   marketDisplayLabel,
+  marketPairLabel,
   marketPriceChangePercent,
   marketVenueLabel,
 } from "./discovery";
@@ -17,6 +18,7 @@ import {
   formatMarketPrice,
   formatPercent,
 } from "./format";
+import { MarketIcon } from "./market-icon";
 
 function familyLabel(market: Market): string {
   if (market.family === "perp") {
@@ -39,24 +41,28 @@ export function MarketRow({
   readonly onOpen: () => void;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
-  const label = marketDisplayLabel(market);
+  const label =
+    market.family === "outcome"
+      ? marketDisplayLabel(market)
+      : marketPairLabel(market);
+  const showVenue = market.family !== "perp" || market.dexIndex !== 0;
   return (
     <Card variant="default" className="gap-3">
-      <Card.Header className="flex-row items-start justify-between gap-3">
-        <View className="flex-1 gap-1">
-          <Card.Title>{label}</Card.Title>
-          <Card.Description>
-            {marketVenueLabel(market)} · {market.canonicalId}
-          </Card.Description>
+      <Card.Header className="flex-row items-center justify-between gap-3">
+        <View className="min-w-0 flex-1 flex-row items-center gap-3">
+          <MarketIcon market={market} />
+          <View className="min-w-0 flex-1 gap-1">
+            <Card.Title numberOfLines={1}>{label}</Card.Title>
+            {showVenue ? (
+              <Card.Description numberOfLines={1}>
+                {marketVenueLabel(market)}
+              </Card.Description>
+            ) : null}
+          </View>
         </View>
         <Chip
           accessibilityLabel={`${familyLabel(market)} market`}
-          color={
-            market.lifecycle === "active" &&
-            market.orderAvailability === "enabled"
-              ? "success"
-              : "warning"
-          }
+          color="accent"
           size="sm"
           variant="soft"
         >
@@ -85,15 +91,6 @@ export function MarketRow({
             </>
           ) : null}
         </View>
-        {market.lifecycle !== "active" ? (
-          <Text accessibilityRole="text" className="text-sm text-warning">
-            Unavailable — this market is delisted.
-          </Text>
-        ) : market.orderAvailability !== "enabled" ? (
-          <Text accessibilityRole="text" className="text-sm text-warning">
-            Browse only — validated order precision is unavailable.
-          </Text>
-        ) : null}
       </Card.Body>
       <Card.Footer className="flex-row gap-3">
         <Button
@@ -113,7 +110,7 @@ export function MarketRow({
           {isFavorite ? "Favorited" : "Favorite"}
         </Button>
         <Button
-          accessibilityHint="Opens this market in Trade without changing account or network."
+          accessibilityHint="Opens this market in Trade."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-11 flex-1"
           isDisabled={!preferencesReady || market.lifecycle !== "active"}

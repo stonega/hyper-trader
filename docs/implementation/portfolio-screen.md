@@ -13,8 +13,9 @@ The root action runtime remains intentionally unavailable while the security
 review is conditional. Portfolio therefore renders current or safely cached
 private state when an exact account adapter is available, but it never invents
 signer or submission authority. Cancel, close, and margin controls fail closed
-until the injected root runtime is enabled. No screen-local signer, nonce,
-journal, exchange client, or reconciliation state machine exists.
+at confirmation while the injected root runtime is unavailable; immutable
+review remains available. No screen-local signer, nonce, journal, exchange
+client, or reconciliation state machine exists.
 
 ## Account ownership and data lifecycle
 
@@ -27,6 +28,14 @@ query owner never uses the previous owner's data as placeholder content;
 same-key refreshes retain their own safe cache naturally. A context switch
 cancels old reads before selective private-cache eviction through the existing
 context supervisor.
+
+The Portfolio cache key includes exact owner and market safety metadata, but
+excludes volatile mid and mark prices. Shared catalog price refreshes therefore
+reuse the exact owner's cached Portfolio snapshot instead of replacing it with
+a loading skeleton. Returning to the mounted tab shows cached rows immediately;
+when the snapshot is stale, the focused query refreshes it in the background.
+Lifecycle, order availability, precision, leverage, or isolation changes still
+select a new cache entry and preserve the existing fail-closed action boundary.
 
 The current context contract exposes addresses but not the semantic type of a
 different target. Portfolio can resolve a target as `master` only when master
@@ -100,11 +109,11 @@ create an alternative trigger path.
 ## Action gates, phase, and Back behavior
 
 Actions require testnet, an exact target and API-wallet binding, current market
-metadata, current account evidence, a valid credential state, and an available
-root action runtime. Locked sessions may reach review because confirmation owns
-the exact device-unlock and refresh sequence. Mainnet, stale, offline,
-refreshing, invalidated, unmatched, and build-disabled states remain explicitly
-browse-only.
+metadata, current account evidence, and a valid credential state. Locked
+sessions may reach review because confirmation owns the exact device-unlock and
+refresh sequence. An unavailable root confirmation runtime leaves review usable
+but omits confirmation and submission. Mainnet, stale, offline, refreshing,
+invalidated, and unmatched states remain explicitly browse-only.
 
 Portfolio stays one mounted vertical `ScrollView`; range and filter controls are
 horizontal text chip rows. Close and margin editors expand inline rather than
@@ -114,6 +123,9 @@ owns all subsequent Back consumption. HeroUI feedback and loading animation
 honor the system Reduced Motion preference. Controls are at least 48 points and
 status is always expressed in text rather than color alone. Action failures are
 announced at account level, and unavailable rows show their own durable reason.
+The shared account avatar sits at the top-right of the Portfolio heading, matching
+Markets and Trade; pressing it opens the same account-selection dialog. The
+former full-width account card is not duplicated in the content flow.
 
 ## Funding boundary
 

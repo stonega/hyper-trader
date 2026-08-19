@@ -10,6 +10,7 @@ import {
 
 export type PublicQueryFamily =
   | "marketCatalog"
+  | "marketCatalogBootstrap"
   | "midPrices"
   | "marketContext"
   | "candles"
@@ -50,6 +51,8 @@ export const queryKeys = {
   public: {
     marketCatalog: (network: HyperliquidNetwork) =>
       publicKey(network, "marketCatalog"),
+    marketCatalogBootstrap: (network: HyperliquidNetwork) =>
+      publicKey(network, "marketCatalogBootstrap"),
     midPrices: (network: HyperliquidNetwork, dex?: string) =>
       publicKey(network, "midPrices", dex ?? null),
     marketContext: (network: HyperliquidNetwork, canonicalId: string) =>

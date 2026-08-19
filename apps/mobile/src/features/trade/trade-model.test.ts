@@ -22,6 +22,7 @@ import {
   sizeForPreset,
   type TradeAccountSnapshot,
   type TradeAuthority,
+  tradeConnectivityFromCatalogFreshness,
   tradeDraftValueKey,
   tradeReviewScopeKey,
 } from "./trade-model";
@@ -178,6 +179,13 @@ describe("Trade draft ownership", () => {
 });
 
 describe("Trade fail-closed gates", () => {
+  test("keeps validated cached metadata current during background refresh", () => {
+    expect(tradeConnectivityFromCatalogFreshness("fresh")).toBe("current");
+    expect(tradeConnectivityFromCatalogFreshness("refreshing")).toBe("current");
+    expect(tradeConnectivityFromCatalogFreshness("stale")).toBe("stale");
+    expect(tradeConnectivityFromCatalogFreshness("offline")).toBe("offline");
+  });
+
   test.each([
     ["mainnet", { ...context, network: "mainnet" }, readyAuthority],
     ["stale_metadata", context, { ...readyAuthority, connectivity: "stale" }],
@@ -187,7 +195,6 @@ describe("Trade fail-closed gates", () => {
       context,
       { ...readyAuthority, connectivity: "reconnecting" },
     ],
-    ["locked", context, { ...readyAuthority, signerState: "locked" }],
     ["expired_agent", context, { ...readyAuthority, signerState: "expired" }],
   ] as const)("reports %s with an explicit reason", (code, next, authority) => {
     const gate = evaluateTradeGate({
@@ -198,6 +205,22 @@ describe("Trade fail-closed gates", () => {
     });
     expect(gate).toMatchObject({ enabled: false, code });
     expect(gate.reason.length).toBeGreaterThan(12);
+  });
+
+  test("allows review while device authentication waits for confirmation", () => {
+    expect(
+      evaluateTradeGate({
+        market: NATIVE_DUPLICATE,
+        context,
+        authority: { ...readyAuthority, signerState: "locked" },
+        nowMs: NOW,
+      }),
+    ).toMatchObject({
+      enabled: true,
+      code: "ready",
+      reason:
+        "Ready for review. You’ll confirm on this device only when signing is required.",
+    });
   });
 
   test("keeps HIP-3 controls inspectable but review gated pending cloid evidence", () => {
@@ -254,7 +277,11 @@ describe("Trade fail-closed gates", () => {
         authority: { ...readyAuthority, actionRuntimeAvailable: false },
         nowMs: NOW,
       }),
-    ).toMatchObject({ enabled: false, code: "action_runtime_unavailable" });
+    ).toMatchObject({
+      enabled: true,
+      code: "ready",
+      reason: "Ready for review. Order submission is currently unavailable.",
+    });
     expect(
       evaluateTradeGate({
         market: OUTCOME_MARKET,
@@ -437,7 +464,7 @@ describe("canonical switching and review handoff", () => {
       size: "2",
       aggressiveLimitPrice: "10.05",
     });
-    expect(review.presentation.slippage).toBe("50 bps");
+    expect(review.presentation.slippage).toBe("0.5%");
 
     expect(() =>
       buildTradeReview({
@@ -582,6 +609,12 @@ describe("canonical switching and review handoff", () => {
       fence.canCommit(
         draftOperation,
         `${hip3Scope}:${tradeDraftValueKey({ ...editableDraft, size: "2" })}`,
+      ),
+    ).toBe(false);
+    expect(
+      fence.canCommit(
+        draftOperation,
+        `${hip3Scope}:${tradeDraftValueKey({ ...editableDraft, side: "sell" })}`,
       ),
     ).toBe(false);
     fence.invalidate();

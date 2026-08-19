@@ -72,24 +72,6 @@ Android backdrop sampling. Navigation still emits the standard `tabPress` and
 `tabLongPress` events, preserves the existing route names and test identifiers,
 hides with the keyboard, and exposes selected state to assistive technology.
 
-## Onboarding shader background
-
-The welcome screen uses `expo-gl` for a native OpenGL ES iridescent-ribbon
-background on iOS and Android. The canvas, its pre-GL fallback, and the shader's
-base field use the onboarding background token (`#153026`); the title and
-subtitle use its paired light foreground token. HeroUI surface, accent, and
-foreground tokens grade the ribbon material for both light and dark themes. It
-intentionally uses the WebGL 1 shader subset for compatibility with older
-Android GL implementations.
-
-The effect is decorative and does not receive touches or enter the accessibility
-tree. Reduce Motion renders one static frame instead of starting the animation
-loop, and shader compile or link failure leaves the semantic background color in
-place. During animation, the material travels upward while the centerline uses a
-slow two-frequency sway so movement remains visible without distracting from the
-copy. Rendering is capped at 30 frames per second and disables multisampling to
-bound the cost of the full-screen effect.
-
 ## Hyperliquid client
 
 The shared package exposes `createHyperliquidClient`. It accepts a network and an
@@ -168,10 +150,9 @@ are documented in
   `@tanstack/query-async-storage-persister` provide the restore-before-refetch
   gate and lifecycle-scoped persistence subscription. Hyper Trader sanitizes on
   both write and restore, persists no mutations, and removes corrupt records.
-- `expo-clipboard` copies only the generated public agent address and
-  user-defined registration name into Hyperliquid's manual setup flow.
-  Private-key bytes are
-  never exposed to its API.
+- `expo-clipboard` copies only the generated public agent address into
+  Hyperliquid's manual setup flow. Private-key bytes are never exposed to its
+  API.
 
 Never put secrets in `.env`, Expo `extra`, EAS plain-text variables, fixtures,
 logs, screenshots, or support bundles. Development uses synthetic keys committed
@@ -283,6 +264,13 @@ defined in [`mobile-notifications.md`](mobile-notifications.md). A release build
 must provide `EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` as one exact reviewed
 HTTPS origin and be linked to its EAS project. Missing APNs/FCM credentials or an
 EAS project ID keeps push registration unavailable.
+
+Market discovery uses the same public backend origin. Prefer
+`EXPO_PUBLIC_BACKEND_ORIGIN`; the notification-service variable remains a
+transition alias. A missing or invalid origin makes catalog refresh unavailable
+instead of falling back to per-device Hyperliquid enumeration. See
+[`market-catalog-backend.md`](market-catalog-backend.md) for the Podman database,
+migration, publication, and API contract.
 
 ### Credential inventory
 

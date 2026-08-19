@@ -139,7 +139,7 @@ function reviewPresentation(
     slippage:
       validation.controls.slippageBps === null
         ? "Not applicable"
-        : `${validation.controls.slippageBps} bps`,
+        : `${validation.controls.slippageBps / 100}%`,
   };
 }
 

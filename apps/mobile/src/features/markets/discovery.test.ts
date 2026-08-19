@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { discoverMarkets } from "./discovery";
+import { discoverMarkets, marketPairLabel } from "./discovery";
 import {
   HIP3_DUPLICATE,
   MARKET_FIXTURE,
@@ -22,6 +22,12 @@ const defaultOptions = {
 } as const;
 
 describe("market discovery", () => {
+  test("formats concise Trade header labels for each market family", () => {
+    expect(marketPairLabel(NATIVE_DUPLICATE)).toBe("DUP-USDC");
+    expect(marketPairLabel(SPOT_DUPLICATE)).toBe("DUP-USDC");
+    expect(marketPairLabel(OUTCOME_MARKET)).toBe("Higher");
+  });
+
   test("keeps a newly discovered HIP-3 collision searchable by venue and canonical ID", () => {
     const markets = [NATIVE_DUPLICATE, HIP3_DUPLICATE];
 

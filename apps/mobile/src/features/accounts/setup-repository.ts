@@ -13,7 +13,6 @@ import {
 import {
   AGENT_AUTHORIZATION_DURATION_MS,
   bindingFromAttempt,
-  maximumAgentRegistrationExpiry,
   normalizeSetupTarget,
   SETUP_ATTEMPT_DURATION_MS,
   type SetupAttempt,
@@ -51,6 +50,18 @@ interface ActivatedSetupRow {
   readonly activated_at: number;
 }
 
+interface ActiveSetupBindingRow {
+  readonly network: "testnet";
+  readonly master_account: string;
+  readonly target_account: string;
+  readonly agent_address: string;
+  readonly registration_name: string;
+  readonly registration_generation: number;
+  readonly requested_expiry: number;
+  readonly effective_expiry: number;
+  readonly activated_at: number;
+}
+
 export interface ActivatedSetupRecord {
   readonly attemptId: string;
   readonly binding: ReturnType<typeof normalizeSignerBinding>;
@@ -58,6 +69,42 @@ export interface ActivatedSetupRecord {
   readonly requestedExpiry: number;
   readonly effectiveExpiry: number;
   readonly activatedAt: number;
+}
+
+export interface ActiveSetupBindingRecord {
+  readonly binding: ReturnType<typeof normalizeSignerBinding>;
+  readonly registrationName: string;
+  readonly requestedExpiry: number;
+  readonly effectiveExpiry: number;
+  readonly activatedAt: number;
+}
+
+function activeBindingFromRow(
+  row: ActiveSetupBindingRow,
+): ActiveSetupBindingRecord {
+  const binding = normalizeSignerBinding({
+    network: row.network,
+    masterAccount: row.master_account,
+    targetAccount: row.target_account,
+    agentAddress: row.agent_address,
+    generation: row.registration_generation,
+  });
+  if (
+    !AGENT_REGISTRATION_NAME_PATTERN.test(row.registration_name) ||
+    !Number.isSafeInteger(row.requested_expiry) ||
+    !Number.isSafeInteger(row.effective_expiry) ||
+    !Number.isSafeInteger(row.activated_at) ||
+    row.effective_expiry <= row.activated_at
+  ) {
+    throw new Error("The active API-wallet binding is malformed.");
+  }
+  return {
+    binding,
+    registrationName: row.registration_name,
+    requestedExpiry: row.requested_expiry,
+    effectiveExpiry: row.effective_expiry,
+    activatedAt: row.activated_at,
+  };
 }
 
 function assertAttemptContract(attempt: SetupAttempt): void {
@@ -316,9 +363,7 @@ export class SqliteSetupRepository implements SetupRepository {
       !Number.isSafeInteger(row.effective_expiry) ||
       !Number.isSafeInteger(row.expires_at) ||
       !Number.isSafeInteger(row.activated_at) ||
-      row.effective_expiry <= row.activated_at ||
-      row.effective_expiry >
-        maximumAgentRegistrationExpiry({ expiresAt: row.expires_at })
+      row.effective_expiry <= row.activated_at
     ) {
       throw new Error("The activated API-wallet checkpoint is malformed.");
     }
@@ -330,6 +375,24 @@ export class SqliteSetupRepository implements SetupRepository {
       effectiveExpiry: row.effective_expiry,
       activatedAt: row.activated_at,
     };
+  }
+
+  getActiveBindingForTarget(input: {
+    readonly network: "testnet";
+    readonly masterAccount: string;
+    readonly targetAccount: string;
+  }): ActiveSetupBindingRecord | null {
+    const target = normalizeSetupTarget(input);
+    const row = this.database.getFirstSync<ActiveSetupBindingRow>(
+      `SELECT network, master_account, target_account, agent_address,
+              registration_name, registration_generation, requested_expiry,
+              effective_expiry, activated_at
+       FROM api_wallet_bindings
+       WHERE network = ? AND master_account = ? AND target_account = ?
+         AND status = 'active'`,
+      [target.network, target.masterAccount, target.targetAccount],
+    );
+    return row === null ? null : activeBindingFromRow(row);
   }
 
   getPendingAttemptForTarget(input: {
@@ -362,8 +425,7 @@ export class SqliteSetupRepository implements SetupRepository {
     assertTestnetSigningCapability(binding.network);
     if (
       !Number.isSafeInteger(input.effectiveExpiry) ||
-      input.effectiveExpiry <= input.now ||
-      input.effectiveExpiry > maximumAgentRegistrationExpiry(input.expected)
+      input.effectiveExpiry <= input.now
     ) {
       throw new TypeError("The authoritative credential expiry is invalid.");
     }

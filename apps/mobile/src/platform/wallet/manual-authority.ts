@@ -59,12 +59,6 @@ export function createManualAgentRegistrationAuthority(options: {
         authoritativeTime: result.authoritativeTime,
         targetAuthorized,
         targetKind: "master",
-        namedAgentLimit: 3,
-        namedAgents: result.agents.map((agent) => ({
-          agentAddress: agent.address,
-          registrationName: agent.name,
-          validUntil: agent.validUntil,
-        })),
       };
     },
     async verify(input) {

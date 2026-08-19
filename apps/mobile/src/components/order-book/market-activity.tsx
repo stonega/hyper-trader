@@ -3,24 +3,59 @@ import type {
   L2Level,
   RecentTrade,
 } from "@hyper-trader/hyperliquid/public";
-import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useState } from "react";
-import { View } from "react-native";
+import { type StyleProp, View, type ViewStyle } from "react-native";
 
 import { AppText as Text } from "../app-text";
-import { useReducedMotion } from "../use-reduced-motion";
+import { UnderlineTabs } from "../ui/underline-tabs";
 
 type ActivityMode = "book" | "trades";
+
+const ACTIVITY_TABS = [
+  { label: "Book", value: "book" },
+  { label: "Trades", value: "trades" },
+] as const;
 
 function LevelRow({
   side,
   level,
+  compact,
 }: {
   readonly side: "Ask" | "Bid";
   readonly level: L2Level;
+  readonly compact: boolean;
 }) {
+  if (compact) {
+    return (
+      <View
+        accessible
+        accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
+        className="flex-row items-baseline gap-1 py-1"
+      >
+        <Text
+          className={`w-7 text-xs font-medium ${side === "Ask" ? "text-danger" : "text-success"}`}
+        >
+          {side}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          className="flex-1 text-right text-xs tabular-nums text-foreground"
+          numberOfLines={1}
+        >
+          {level.price}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          className="flex-1 text-right text-xs tabular-nums text-muted"
+          numberOfLines={1}
+        >
+          {level.size}
+        </Text>
+      </View>
+    );
+  }
   return (
     <View className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
       <Text className="min-w-10 text-xs font-medium text-muted">{side}</Text>
@@ -34,13 +69,50 @@ function LevelRow({
   );
 }
 
-function TradeRow({ trade }: { readonly trade: RecentTrade }) {
+function TradeRow({
+  trade,
+  compact,
+}: {
+  readonly trade: RecentTrade;
+  readonly compact: boolean;
+}) {
   const side =
     trade.side === "B"
       ? "Buyer initiated"
       : trade.side === "A"
         ? "Seller initiated"
         : trade.side;
+  if (compact) {
+    const shortSide =
+      trade.side === "B" ? "Buy" : trade.side === "A" ? "Sell" : trade.side;
+    return (
+      <View
+        accessible
+        accessibilityLabel={`${side}, price ${trade.price}, size ${trade.size}`}
+        className="flex-row items-baseline gap-1 py-1"
+      >
+        <Text
+          className={`w-7 text-xs font-medium ${trade.side === "B" ? "text-success" : trade.side === "A" ? "text-danger" : "text-muted"}`}
+        >
+          {shortSide}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          className="flex-1 text-right text-xs tabular-nums text-foreground"
+          numberOfLines={1}
+        >
+          {trade.price}
+        </Text>
+        <Text
+          adjustsFontSizeToFit
+          className="flex-1 text-right text-xs tabular-nums text-muted"
+          numberOfLines={1}
+        >
+          {trade.size}
+        </Text>
+      </View>
+    );
+  }
   return (
     <View className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
       <Text className="min-w-28 text-xs font-medium text-muted">{side}</Text>
@@ -61,6 +133,8 @@ export function MarketActivity({
   trades,
   tradesLoading,
   tradesUnavailable,
+  compact = false,
+  style,
 }: {
   readonly book: L2Book | undefined;
   readonly bookLoading: boolean;
@@ -68,8 +142,9 @@ export function MarketActivity({
   readonly trades: readonly RecentTrade[] | undefined;
   readonly tradesLoading: boolean;
   readonly tradesUnavailable: boolean;
+  readonly compact?: boolean;
+  readonly style?: StyleProp<ViewStyle>;
 }): JSX.Element {
-  const reducedMotion = useReducedMotion();
   const [mode, setMode] = useState<ActivityMode>("book");
   const bookRows = book
     ? [
@@ -89,37 +164,46 @@ export function MarketActivity({
   const unavailable = mode === "book" ? bookUnavailable : tradesUnavailable;
 
   return (
-    <Card variant="default" className="gap-3">
-      <Card.Header className="gap-3">
-        <View className="gap-1">
-          <Card.Title>Market activity</Card.Title>
-          <Card.Description>
-            Current order levels or recent trades
-          </Card.Description>
-        </View>
-        <View className="flex-row flex-wrap gap-2">
-          {(["book", "trades"] as const).map((value) => (
-            <Button
-              accessibilityState={{ selected: mode === value }}
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 min-w-28 flex-1"
-              key={value}
-              onPress={() => setMode(value)}
-              size="sm"
-              variant={mode === value ? "primary" : "secondary"}
-            >
-              {value === "book" ? "Order book" : "Recent trades"}
-            </Button>
-          ))}
-        </View>
+    <Card
+      className={compact ? "gap-2" : "gap-3"}
+      style={style}
+      variant="default"
+    >
+      <Card.Header className={compact ? "gap-2" : "gap-3"}>
+        {!compact ? (
+          <View className="gap-1">
+            <Card.Title>Market activity</Card.Title>
+            <Card.Description>
+              Current order levels or recent trades
+            </Card.Description>
+          </View>
+        ) : null}
+        <UnderlineTabs
+          accessibilityLabel="Market activity view"
+          compact={compact}
+          onValueChange={setMode}
+          options={ACTIVITY_TABS}
+          value={mode}
+        />
       </Card.Header>
       <Card.Body className="gap-1">
+        {compact && !empty ? (
+          <View className="flex-row gap-1 pb-1">
+            <Text className="w-7 text-xs text-muted">Side</Text>
+            <Text className="flex-1 text-right text-xs text-muted">Price</Text>
+            <Text className="flex-1 text-right text-xs text-muted">Size</Text>
+          </View>
+        ) : null}
         {mode === "book"
           ? bookRows.map((row) => (
-              <LevelRow key={`${row.side}:${row.level.price}`} {...row} />
+              <LevelRow
+                compact={compact}
+                key={`${row.side}:${row.level.price}`}
+                {...row}
+              />
             ))
           : tradeRows.map((trade) => (
-              <TradeRow key={trade.tradeId} trade={trade} />
+              <TradeRow compact={compact} key={trade.tradeId} trade={trade} />
             ))}
         {empty ? (
           <Text

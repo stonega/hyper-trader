@@ -1,8 +1,10 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Market } from "@hyper-trader/hyperliquid/public";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
+import { useThemeColor } from "heroui-native/hooks";
 import { Skeleton } from "heroui-native/skeleton";
 import type { JSX } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,13 +15,16 @@ import {
   Platform,
   RefreshControl,
   ScrollView,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
-import { TextMarketChart } from "../../components/chart/text-market-chart";
+import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { MarketActivity } from "../../components/order-book/market-activity";
+import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
+import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useDraftRegistry } from "../../core/actions/draft-provider";
 import { useTradingContext } from "../../core/context/provider";
@@ -29,6 +34,7 @@ import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { CatalogStatus } from "../../features/markets/catalog-status";
 import {
   marketDisplayLabel,
+  marketPairLabel,
   marketPriceChangePercent,
   marketVenueLabel,
 } from "../../features/markets/discovery";
@@ -47,9 +53,14 @@ import {
   resolveMarketSelection,
 } from "../../features/markets/selection";
 import { useUsableTradeMarker } from "../../features/markets/use-usable-trade-marker";
+import { resolvePortfolioTarget } from "../../features/portfolio/portfolio-query";
 import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
+import { MarketCandlestickChart } from "../../features/trade/candlestick-chart";
+import type { TradeChartInterval } from "../../features/trade/market-chart-config";
 import { useTradeMarketData } from "../../features/trade/market-data";
 import { OrderPanel } from "../../features/trade/order-panel";
+import { useTradeAccountSnapshot } from "../../features/trade/trade-account-query";
+import { shouldSplitTradeWorkspace } from "../../features/trade/trade-layout";
 import {
   buildTradeReview,
   cloidFromRandomBytes,
@@ -58,108 +69,86 @@ import {
   evaluateTradeGate,
   reconcileTradeDraft,
   resolveCanonicalMarketSwitch,
-  signerBindingForTradeContext,
   type TradeAuthority,
-  type TradeConnectivity,
   type TradeDraft,
   type TradeSignerState,
+  tradeConnectivityFromCatalogFreshness,
   tradeDraftValueKey,
   tradeReviewScopeKey,
 } from "../../features/trade/trade-model";
 import { expoCryptographicRandomBytes } from "../../platform/security/agent-signer";
 
-function shortAddress(address: string | null): string {
-  return address === null
-    ? "no account"
-    : `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
-function connectivityFromFreshness(
-  freshness: "fresh" | "refreshing" | "stale" | "offline",
-): TradeConnectivity {
-  if (freshness === "offline") return "offline";
-  if (freshness === "stale") return "stale";
-  if (freshness === "refreshing") return "reconnecting";
-  return "current";
-}
-
 function MarketSummary({ market }: { readonly market: Market }): JSX.Element {
+  const orderable =
+    market.orderAvailability === "enabled" && market.lifecycle === "active";
   return (
-    <Card variant="default" className="gap-4">
-      <Card.Header className="flex-row flex-wrap items-start justify-between gap-3">
-        <View className="min-w-52 flex-1 gap-1">
-          <Card.Title className="text-2xl">
+    <Card variant="default" className="gap-3">
+      <Card.Header className="flex-row items-start justify-between gap-3">
+        <View className="min-w-0 flex-1 gap-1">
+          <Card.Title className="text-xl">
             {marketDisplayLabel(market)}
           </Card.Title>
-          <Card.Description>
-            {marketVenueLabel(market)} · {market.canonicalId}
-          </Card.Description>
+          <Card.Description>{marketVenueLabel(market)}</Card.Description>
         </View>
-        <Chip
-          accessibilityLabel={
-            market.orderAvailability === "enabled" &&
-            market.lifecycle === "active"
-              ? "Order metadata is present; freshness and authority are checked separately"
-              : "Browse-only market"
-          }
-          color={
-            market.orderAvailability === "enabled" &&
-            market.lifecycle === "active"
-              ? "success"
-              : "warning"
-          }
-          size="sm"
-          variant="soft"
-        >
-          {market.orderAvailability === "enabled" &&
-          market.lifecycle === "active"
-            ? "Order metadata present"
-            : market.lifecycle === "delisted"
-              ? "Delisted · browse only"
-              : "Browse only"}
-        </Chip>
+        <View className="items-end gap-1">
+          <Text
+            adjustsFontSizeToFit
+            className="text-2xl font-semibold tabular-nums text-foreground"
+            numberOfLines={1}
+          >
+            {formatMarketPrice(market)}
+          </Text>
+          <Text className="text-sm tabular-nums text-muted">
+            {formatPercent(marketPriceChangePercent(market))} · 24h
+          </Text>
+        </View>
       </Card.Header>
-      <Card.Body className="gap-4">
-        <Text className="text-4xl font-semibold tabular-nums text-foreground">
-          {formatMarketPrice(market)}
-        </Text>
-        <View className="flex-row flex-wrap gap-x-6 gap-y-3">
-          <Stat
-            label="24h change"
-            value={formatPercent(marketPriceChangePercent(market))}
-          />
+      <Card.Body className="flex-row flex-wrap items-end gap-x-4 gap-y-2">
+        <View className="min-w-28 flex-1">
           <Stat
             label="24h volume"
             value={formatCompactDecimal(market.dayNtlVlm)}
           />
-          {market.family === "perp" ? (
-            <>
+        </View>
+        {market.family === "perp" ? (
+          <>
+            <View className="min-w-24 flex-1">
               <Stat
                 label="Funding"
                 value={formatCompactDecimal(market.funding)}
               />
+            </View>
+            <View className="min-w-28 flex-1">
               <Stat
                 label="Open interest"
                 value={formatCompactDecimal(market.openInterest)}
               />
-              <Stat
-                label="Margin"
-                value={
-                  market.onlyIsolated
-                    ? "Isolated only"
-                    : (market.marginMode ?? "Cross or isolated")
-                }
-              />
-            </>
-          ) : market.family === "spot" ? (
+            </View>
+          </>
+        ) : market.family === "spot" ? (
+          <View className="min-w-28 flex-1">
             <Stat
               label="Pair"
               value={`${market.baseToken.name}/${market.quoteToken.name}`}
             />
-          ) : (
+          </View>
+        ) : (
+          <View className="min-w-28 flex-1">
             <Stat label="Outcome" value={market.sideName} />
-          )}
-        </View>
+          </View>
+        )}
+        <Chip
+          accessibilityLabel={
+            orderable
+              ? "Order metadata is present; freshness and authority are checked separately"
+              : "Browse-only market"
+          }
+          color={orderable ? "success" : "warning"}
+          size="sm"
+          variant="soft"
+        >
+          {orderable ? "Trading" : "Browse only"}
+        </Chip>
       </Card.Body>
     </Card>
   );
@@ -173,7 +162,7 @@ function Stat({
   readonly value: string;
 }): JSX.Element {
   return (
-    <View className="min-w-32 flex-1 gap-1">
+    <View className="gap-1">
       <Text className="text-xs uppercase tracking-wide text-muted">
         {label}
       </Text>
@@ -200,6 +189,8 @@ function TradeLoading(): JSX.Element {
 
 export default function TradeScreen(): JSX.Element {
   const insets = useSafeAreaInsets();
+  const { width, fontScale } = useWindowDimensions();
+  const splitWorkspace = shouldSplitTradeWorkspace({ width, fontScale });
   const router = useRouter();
   const params = useLocalSearchParams<{ market?: string | string[] }>();
   const tradingContext = useTradingContext();
@@ -225,12 +216,13 @@ export default function TradeScreen(): JSX.Element {
   );
   const preferences = useMarketPreferences();
   const reducedMotion = useReducedMotion();
-  const { catalog, catalogQuery, presentation } = useMarketCatalogPresentation(
-    current.network,
-  );
+  const accent = useThemeColor("accent");
+  const { catalog, catalogQuery, isBootstrap, presentation } =
+    useMarketCatalogPresentation(current.network);
   const [layoutReady, setLayoutReady] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
-  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [candleInterval, setCandleInterval] =
+    useState<TradeChartInterval>("15m");
   const [draftState, setDraftState] = useState<{
     readonly draft: TradeDraft | null;
     readonly invalidationMessage: string | null;
@@ -248,15 +240,28 @@ export default function TradeScreen(): JSX.Element {
       catalog?.markets ?? [],
       requestedMarket,
       preferences.preferences.lastMarketId,
+      {
+        allowVolumeFallback:
+          !isBootstrap ||
+          (requestedMarket === null &&
+            preferences.preferences.lastMarketId === null),
+      },
     );
   }, [
     catalog?.markets,
+    isBootstrap,
     preferences.preferences.lastMarketId,
     preferences.status,
     requestedMarket,
   ]);
   const market = selection?.market ?? null;
-  const marketData = useTradeMarketData(current.network, market);
+  const accountTarget = resolvePortfolioTarget(current).target;
+  const accountQuery = useTradeAccountSnapshot(current, accountTarget, market);
+  const marketData = useTradeMarketData(
+    current.network,
+    market,
+    candleInterval,
+  );
   const signerState: TradeSignerState =
     current.signer === null
       ? "missing"
@@ -267,15 +272,19 @@ export default function TradeScreen(): JSX.Element {
           : "locked";
   const authority = useMemo<TradeAuthority>(
     () => ({
-      connectivity: connectivityFromFreshness(presentation.freshness),
-      // The portfolio/account integration owns the authoritative account adapter.
-      // Trade never fabricates funds,
-      // leverage, target kind, or account-state versions while that seam is absent.
-      account: null,
+      connectivity: tradeConnectivityFromCatalogFreshness(
+        presentation.freshness,
+      ),
+      account: accountQuery.data ?? null,
       signerState,
       actionRuntimeAvailable: actionRuntime.available,
     }),
-    [actionRuntime.available, presentation.freshness, signerState],
+    [
+      accountQuery.data,
+      actionRuntime.available,
+      presentation.freshness,
+      signerState,
+    ],
   );
   const authorityScope = market
     ? tradeReviewScopeKey({ market, context: current, authority })
@@ -399,17 +408,29 @@ export default function TradeScreen(): JSX.Element {
     router.setParams({ market: next.canonicalId });
   };
 
-  const openReview = async () => {
+  const openReview = async (requestedDraft: TradeDraft) => {
     if (!market || !draftState.draft || !gate?.enabled) {
       throw new Error(
         gate?.reason ?? "A current market and draft are required.",
       );
     }
+    const reviewDraft = {
+      ...draftState.draft,
+      side: requestedDraft.side,
+    };
+    if (
+      tradeDraftValueKey(reviewDraft) !== tradeDraftValueKey(requestedDraft)
+    ) {
+      throw new Error("The order changed before review could start.");
+    }
+    const requestedReviewScope = `${authorityScope}:${tradeDraftValueKey(reviewDraft)}`;
+    setDraftState({ draft: reviewDraft, invalidationMessage: null });
+    reviewScopeRef.current = requestedReviewScope;
     Keyboard.dismiss();
     const capture = tradingContext.capture();
     const operation = operationFence.current.begin(
       market.canonicalId,
-      reviewScope,
+      requestedReviewScope,
     );
     const cloid = cloidFromRandomBytes(await expoCryptographicRandomBytes(16));
     if (
@@ -425,7 +446,7 @@ export default function TradeScreen(): JSX.Element {
       context: current,
       capturedContextEpoch: capture.epoch,
       authority,
-      draft: draftState.draft,
+      draft: reviewDraft,
       cloid,
       nowMs: Date.now(),
     });
@@ -441,34 +462,6 @@ export default function TradeScreen(): JSX.Element {
     router.push("/action-review");
   };
 
-  const unlockSession = async () => {
-    const manager = signerSession.manager;
-    if (
-      manager === null ||
-      current.network !== "testnet" ||
-      current.masterAccount === null ||
-      current.targetAccount === null ||
-      current.signer === null
-    )
-      return;
-    setSessionMessage("Unlocking this exact testnet account and target…");
-    const capture = tradingContext.capture();
-    try {
-      await manager.unlock({
-        binding: signerBindingForTradeContext(current),
-        capturedContextEpoch: capture.epoch,
-        isContextCurrent: () => tradingContext.canCommit(capture),
-      });
-      setSessionMessage(
-        "Trading session unlocked. The draft was preserved and still requires fresh account data.",
-      );
-    } catch {
-      setSessionMessage(
-        "Unlock stopped safely. No order was reviewed, signed, or submitted.",
-      );
-    }
-  };
-
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -476,8 +469,11 @@ export default function TradeScreen(): JSX.Element {
     >
       <ScrollView
         className="flex-1 bg-background"
-        contentContainerClassName="gap-5 px-5 pb-10"
-        contentContainerStyle={{ paddingTop: Math.max(insets.top, 20) }}
+        contentContainerClassName="gap-3 px-3"
+        contentContainerStyle={{
+          paddingBottom: floatingTabBarInset(insets.bottom) + 16,
+          paddingTop: Math.max(insets.top, 20),
+        }}
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         keyboardShouldPersistTaps="handled"
         onLayout={() => setLayoutReady(true)}
@@ -490,55 +486,57 @@ export default function TradeScreen(): JSX.Element {
                     marketData.candles.refetch(),
                     marketData.book.refetch(),
                     marketData.trades.refetch(),
+                    ...(accountTarget === null ? [] : [accountQuery.refetch()]),
                   ]
                 : [];
               void Promise.all([catalogQuery.refetch(), ...detailRefreshes]);
             }}
-            refreshing={catalogQuery.isRefetching || marketDataRefreshing}
+            refreshing={
+              catalogQuery.isRefetching ||
+              marketDataRefreshing ||
+              accountQuery.isRefetching
+            }
           />
         }
         showsVerticalScrollIndicator={false}
       >
-        <View className="gap-3">
-          <View className="flex-row flex-wrap items-start justify-between gap-3">
-            <Text
-              accessibilityRole="header"
-              className="min-w-44 flex-1 text-4xl font-semibold tracking-tight text-foreground"
-            >
-              Trade
-            </Text>
-            <Chip
-              accessibilityLabel={`${current.network} network, account ${shortAddress(current.targetAccount)}, session ${signerState}`}
-              color={current.network === "testnet" ? "accent" : "warning"}
+        <ScreenHeading
+          network={current.network}
+          rightAccessory={<GlobalAccountSwitcher avatarOnly />}
+          showContext={false}
+          title="Trade"
+          titleAccessory={
+            <Button
+              accessibilityHint="Opens the market selector."
+              accessibilityLabel={
+                market
+                  ? `Switch market. ${marketPairLabel(market)}`
+                  : "Choose a market"
+              }
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="h-10 min-h-10 min-w-0 max-w-40 gap-1 px-3"
+              hitSlop={COMPACT_SEGMENT_HIT_SLOP}
+              onPress={() => setSwitcherOpen(true)}
               size="sm"
-              variant="soft"
+              variant="secondary"
             >
-              {current.network} · {shortAddress(current.targetAccount)}
-            </Chip>
-          </View>
-          <Text className="text-base leading-6 text-muted">
-            Inspect, draft, and reach explicit review without leaving this
-            market surface.
-          </Text>
-          <Text className="text-sm leading-5 text-muted">
-            Session · {signerState.replaceAll("_", " ")} · target{" "}
-            {shortAddress(current.targetAccount)}
-          </Text>
-        </View>
-
-        <GlobalAccountSwitcher />
-
-        <Button
-          accessibilityHint="Opens the complete searchable catalog without changing account or network."
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="min-h-12 w-full"
-          onPress={() => setSwitcherOpen(true)}
-          variant="secondary"
-        >
-          {market
-            ? `Switch market · ${marketDisplayLabel(market)} · ${marketVenueLabel(market)}`
-            : "Choose a market"}
-        </Button>
+              <Button.Label
+                adjustsFontSizeToFit
+                className="min-w-0 shrink"
+                numberOfLines={1}
+              >
+                {market ? marketPairLabel(market) : "Market"}
+              </Button.Label>
+              <Ionicons
+                accessibilityElementsHidden
+                color={accent}
+                importantForAccessibility="no-hide-descendants"
+                name="chevron-down"
+                size={16}
+              />
+            </Button>
+          }
+        />
 
         {invalidRestoredMarket ? (
           <Text
@@ -553,11 +551,15 @@ export default function TradeScreen(): JSX.Element {
         {market ? (
           <>
             <MarketSummary market={market} />
-            <CatalogStatus
-              onRetry={() => void catalogQuery.refetch()}
-              sourceErrors={catalog?.sourceErrors ?? []}
-              state={presentation}
-            />
+            {presentation.freshness === "stale" ||
+            presentation.freshness === "offline" ||
+            presentation.content !== "ready" ||
+            presentation.hasPartialSources ? (
+              <CatalogStatus
+                onRetry={() => void catalogQuery.refetch()}
+                state={presentation}
+              />
+            ) : null}
             {marketDataHasCachedContent &&
             (marketDataUnavailable ||
               presentation.freshness === "offline" ||
@@ -566,88 +568,72 @@ export default function TradeScreen(): JSX.Element {
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-warning"
               >
-                Cached chart or activity rows remain visible. Presentation-feed
-                errors do not independently open or close review; the order
-                panel reports the authoritative gate.
+                Some market data may be out of date. Pull to refresh.
               </Text>
             ) : marketDataRefreshing && marketDataHasCachedContent ? (
               <Text
                 accessibilityLiveRegion="polite"
                 className="text-sm leading-5 text-muted"
               >
-                Cached chart and activity remain visible while current rows
-                refresh.
+                Updating market data…
               </Text>
             ) : null}
-            <TextMarketChart
+            <MarketCandlestickChart
               candles={marketData.candles.data}
+              interval={candleInterval}
               loading={marketData.candles.isPending}
               market={market}
+              onIntervalChange={setCandleInterval}
+              compact
+              realtime
               unavailable={
                 marketData.candles.isError &&
                 marketData.candles.data === undefined
               }
             />
-            <MarketActivity
-              book={marketData.book.data}
-              bookLoading={marketData.book.isPending}
-              bookUnavailable={
-                marketData.book.isError || marketData.book.isRefetchError
+            <View
+              className={
+                splitWorkspace ? "flex-row items-stretch gap-2" : "gap-3"
               }
-              trades={marketData.trades.data}
-              tradesLoading={marketData.trades.isPending}
-              tradesUnavailable={
-                marketData.trades.isError || marketData.trades.isRefetchError
-              }
-            />
-            {draftState.draft && gate ? (
-              <OrderPanel
-                authority={authority}
-                draft={draftState.draft}
-                gate={gate}
-                invalidationMessage={draftState.invalidationMessage}
-                key={`${draftState.draft.binding.contextKey}:${draftState.draft.binding.marketCanonicalId}:${draftState.draft.binding.metadataFingerprint}`}
-                market={market}
-                onDraftChange={(draft) =>
-                  setDraftState({ draft, invalidationMessage: null })
+            >
+              {draftState.draft && gate ? (
+                <OrderPanel
+                  authority={authority}
+                  compact={splitWorkspace}
+                  draft={draftState.draft}
+                  gate={gate}
+                  invalidationMessage={draftState.invalidationMessage}
+                  key={`${draftState.draft.binding.contextKey}:${draftState.draft.binding.marketCanonicalId}:${draftState.draft.binding.metadataFingerprint}`}
+                  market={market}
+                  onDraftChange={(draft) =>
+                    setDraftState({ draft, invalidationMessage: null })
+                  }
+                  onReview={openReview}
+                  style={splitWorkspace ? { flex: 1.35 } : undefined}
+                />
+              ) : (
+                <View
+                  className="min-w-0"
+                  style={splitWorkspace ? { flex: 1.35 } : undefined}
+                >
+                  <TradeLoading />
+                </View>
+              )}
+              <MarketActivity
+                book={marketData.book.data}
+                bookLoading={marketData.book.isPending}
+                bookUnavailable={
+                  marketData.book.isError || marketData.book.isRefetchError
                 }
-                onReview={openReview}
+                compact={splitWorkspace}
+                style={splitWorkspace ? { flex: 1 } : undefined}
+                trades={marketData.trades.data}
+                tradesLoading={marketData.trades.isPending}
+                tradesUnavailable={
+                  marketData.trades.isError || marketData.trades.isRefetchError
+                }
               />
-            ) : (
-              <TradeLoading />
-            )}
-            {gate?.code === "locked" ? (
-              <Card variant="secondary" className="gap-3">
-                <Card.Body className="gap-2">
-                  <Card.Title>Unlock preserved draft</Card.Title>
-                  <Card.Description>
-                    Device authentication unlocks only this exact testnet
-                    binding. It does not approve or submit the order.
-                  </Card.Description>
-                  {sessionMessage ? (
-                    <Text
-                      accessibilityLiveRegion="polite"
-                      className="text-sm text-muted"
-                    >
-                      {sessionMessage}
-                    </Text>
-                  ) : null}
-                </Card.Body>
-                <Card.Footer>
-                  <Button
-                    animation={reducedMotion ? "disable-all" : undefined}
-                    className="min-h-12 w-full"
-                    isDisabled={signerSession.manager === null}
-                    onPress={() => void unlockSession()}
-                    variant="secondary"
-                  >
-                    {signerSession.manager === null
-                      ? "Unlock unavailable in this gated build"
-                      : "Unlock trading session"}
-                  </Button>
-                </Card.Footer>
-              </Card>
-            ) : null}
+            </View>
             {gate?.code === "read_only" || gate?.code === "expired_agent" ? (
               <SetupResumeCard />
             ) : null}
@@ -661,8 +647,8 @@ export default function TradeScreen(): JSX.Element {
               <Card.Title>No valid market selected</Card.Title>
               <Card.Description>
                 {presentation.content === "unavailable"
-                  ? "The catalog is unavailable and no trustworthy saved market can be restored."
-                  : "The current catalog has no markets. Retry when current metadata is available."}
+                  ? "Markets could not be loaded. Pull to refresh."
+                  : "No markets are available. Pull to refresh."}
               </Card.Description>
             </Card.Body>
           </Card>

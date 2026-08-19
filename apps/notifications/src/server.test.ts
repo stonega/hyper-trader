@@ -1,4 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import type { MarketCatalog } from "@hyper-trader/hyperliquid/public";
 
 import type {
   AccountLinkResponse,
@@ -16,6 +17,7 @@ import type {
   RuleResponse,
 } from "./application";
 import {
+  createMarketCatalogRequestHandler,
   createNotificationRequestHandler,
   startNotificationServer,
 } from "./server";
@@ -147,6 +149,105 @@ function getRequest(path: string, credential = "33".repeat(32)): Request {
 }
 
 describe("bounded public notification API", () => {
+  test("serves only health and catalogs from the standalone catalog handler", async () => {
+    const handler = createMarketCatalogRequestHandler({
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: {
+        readPublished: async (network) => ({
+          network,
+          generation: 4,
+          publishedAtMs: 1_800_000_000_000,
+          catalog: { markets: [], quarantined: [], sourceErrors: [] },
+        }),
+      },
+    });
+
+    expect(
+      (
+        await handler(
+          new Request("https://notify.example.com/v1/market-catalog/testnet"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (await handler(new Request("https://notify.example.com/health"))).status,
+    ).toBe(200);
+    expect(
+      (
+        await handler(
+          new Request("https://notify.example.com/v1/installations", {
+            method: "POST",
+          }),
+        )
+      ).status,
+    ).toBe(405);
+    expect(
+      (await handler(new Request("https://notify.example.com/v1/alerts/abc")))
+        .status,
+    ).toBe(404);
+  });
+
+  test("serves a generation-pinned public market catalog without bearer auth", async () => {
+    const application = new FakeApplication();
+    const marketCatalog: MarketCatalog = {
+      markets: [],
+      quarantined: [],
+      sourceErrors: [],
+    };
+    const handler = createNotificationRequestHandler({
+      application,
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: {
+        readPublished: async (network) => ({
+          network,
+          generation: 7,
+          publishedAtMs: 1_800_000_000_000,
+          catalog: marketCatalog,
+        }),
+      },
+    });
+
+    const response = await handler(
+      new Request("https://notify.example.com/v1/market-catalog/testnet"),
+      { ip: "192.0.2.1" },
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("etag")).toBe('"market-catalog-testnet-7"');
+    expect(response.headers.get("cache-control")).toContain("stale-if-error");
+    expect(await response.json()).toEqual({
+      schemaVersion: 1,
+      network: "testnet",
+      generation: 7,
+      publishedAtMs: 1_800_000_000_000,
+      markets: [],
+      quarantined: [],
+      sourceErrors: [],
+    });
+    expect(application.calls).toEqual([]);
+
+    const notModified = await handler(
+      new Request("https://notify.example.com/v1/market-catalog/testnet", {
+        headers: { "if-none-match": '"market-catalog-testnet-7"' },
+      }),
+      { ip: "192.0.2.1" },
+    );
+    expect(notModified.status).toBe(304);
+  });
+
+  test("reports an unpublished catalog as temporarily unavailable", async () => {
+    const handler = createNotificationRequestHandler({
+      application: new FakeApplication(),
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: { readPublished: async () => null },
+    });
+    const response = await handler(
+      new Request("https://notify.example.com/v1/market-catalog/mainnet"),
+      { ip: "192.0.2.1" },
+    );
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+  });
+
   test("routes bounded strict requests without exposing private authority", async () => {
     const application = new FakeApplication();
     const handler = createNotificationRequestHandler({

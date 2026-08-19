@@ -12,6 +12,7 @@
     "mobile": "bun --cwd apps/mobile start",
     "mobile:android": "bun --cwd apps/mobile android",
     "mobile:ios": "bun --cwd apps/mobile ios",
+    "market-catalog": "bun --cwd apps/notifications start:catalog",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:secrets": "bun scripts/check-secrets.ts",
@@ -20,11 +21,17 @@
     "test:mobile": "bun --cwd apps/mobile test:mobile",
     "test:e2e:mobile": "bun scripts/check-mobile-e2e.ts",
     "test:e2e:mobile:device": "bash scripts/run-mobile-e2e-device.sh",
-    "test:notifications": "bun apps/notifications/test/run-postgres.ts"
+    "test:notifications": "bun apps/notifications/test/run-postgres.ts",
+    "db:local:up": "bun scripts/local-postgres.ts up",
+    "db:local:down": "bun scripts/local-postgres.ts down",
+    "db:local:status": "bun scripts/local-postgres.ts status"
   },
   "overrides": {
     "expo-constants": "57.0.10"
   },
+  "trustedDependencies": [
+    "@shopify/react-native-skia"
+  ],
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",
     "typescript": "~6.0.3"

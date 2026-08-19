@@ -124,6 +124,11 @@ describe("query ownership and public persistence", () => {
     const restored = new QueryClient();
     hydrate(restored, { mutations: [], queries: [] });
     expect(restored.getQueryCache().getAll()).toHaveLength(0);
+    expect(
+      isAllowlistedPublicQuery(
+        queryKeys.public.marketCatalogBootstrap("testnet"),
+      ),
+    ).toBe(false);
   });
 
   test("never persists mutation variables or paused private work", () => {

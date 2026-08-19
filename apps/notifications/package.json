@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Portable Bun and PostgreSQL notification service for Hyper Trader.",
   "scripts": {
+    "start:catalog": "bun src/catalog/catalog-service-main.ts",
     "test:postgres": "bun test/run-postgres.ts",
     "typecheck": "tsc --noEmit"
   },

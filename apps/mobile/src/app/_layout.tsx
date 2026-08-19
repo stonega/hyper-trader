@@ -16,10 +16,13 @@ import { DraftRegistryProvider } from "../core/actions/draft-provider";
 import { TradingContextProvider } from "../core/context/provider";
 import { NativeLifecycleProvider } from "../core/lifecycle/provider";
 import { MobileQueryProvider } from "../core/query/provider";
-import { SignerSessionProvider } from "../core/session/provider";
 import { StreamRuntimeProvider } from "../core/streams/provider";
 import { AccountDirectoryProvider } from "../features/accounts/account-directory-provider";
-import { ActionRuntimeProvider } from "../features/actions/runtime-provider";
+import { ActiveAccountContextRestorer } from "../features/accounts/active-account-context-restorer";
+import {
+  DevelopmentActionRuntimeProvider,
+  DevelopmentSignerSessionProvider,
+} from "../features/actions/development-trading-runtime";
 import { NotificationRuntimeProvider } from "../features/notifications/provider";
 import { AppearancePreferenceProvider } from "../features/settings/appearance-provider";
 import { ScopedTradingPreferencesProvider } from "../features/settings/preferences-provider";
@@ -28,7 +31,7 @@ import "../global.css";
 
 void SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout(): JSX.Element | null {
+export default function RootLayout(): JSX.Element {
   const [fontsLoaded, fontError] = useFonts({
     BarlowSemiCondensed_400Regular,
     BarlowSemiCondensed_500Medium,
@@ -42,8 +45,8 @@ export default function RootLayout(): JSX.Element | null {
     }
   }, [fontError, fontsLoaded]);
 
-  if (!fontsLoaded && !fontError) return null;
-
+  // Mount behind the native splash so cache restoration and market requests
+  // can run in parallel with local font loading on a cold start.
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
@@ -51,12 +54,13 @@ export default function RootLayout(): JSX.Element | null {
           <SafeAreaProvider>
             <MobileQueryProvider>
               <AccountDirectoryProvider>
-                <SignerSessionProvider>
+                <DevelopmentSignerSessionProvider>
                   <StreamRuntimeProvider>
                     <DraftRegistryProvider>
                       <TradingContextProvider>
+                        <ActiveAccountContextRestorer />
                         <ScopedTradingPreferencesProvider>
-                          <ActionRuntimeProvider>
+                          <DevelopmentActionRuntimeProvider>
                             <NativeLifecycleProvider>
                               <NotificationRuntimeProvider>
                                 <StatusBar style="auto" />
@@ -94,12 +98,12 @@ export default function RootLayout(): JSX.Element | null {
                                 </Stack>
                               </NotificationRuntimeProvider>
                             </NativeLifecycleProvider>
-                          </ActionRuntimeProvider>
+                          </DevelopmentActionRuntimeProvider>
                         </ScopedTradingPreferencesProvider>
                       </TradingContextProvider>
                     </DraftRegistryProvider>
                   </StreamRuntimeProvider>
-                </SignerSessionProvider>
+                </DevelopmentSignerSessionProvider>
               </AccountDirectoryProvider>
             </MobileQueryProvider>
           </SafeAreaProvider>

@@ -137,6 +137,16 @@ export function marketDisplayLabel(market: Market): string {
   return market.displaySymbol;
 }
 
+export function marketPairLabel(market: Market): string {
+  if (market.family === "spot") {
+    return `${market.baseToken.name}-${market.quoteToken.name}`;
+  }
+  if (market.family === "perp") {
+    return `${market.displaySymbol}-USDC`;
+  }
+  return market.displaySymbol;
+}
+
 export function compareMarkets(
   left: Market,
   right: Market,

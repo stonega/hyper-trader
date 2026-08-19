@@ -15,7 +15,6 @@ import {
 
 export const AGENT_AUTHORIZATION_DURATION_MS = 30 * 24 * 60 * 60 * 1_000;
 export const SETUP_ATTEMPT_DURATION_MS = 24 * 60 * 60 * 1_000;
-const AUTHORITY_TIME_TOLERANCE_MS = 5_000;
 
 export interface SecretMaterial {
   readonly bytes: Uint8Array;
@@ -84,8 +83,6 @@ export interface AgentRegistrationAuthority {
     readonly authoritativeTime: number;
     readonly targetAuthorized: boolean;
     readonly targetKind: "master" | "subaccount" | "vault";
-    readonly namedAgentLimit: number;
-    readonly namedAgents: readonly NamedAgentRegistration[];
   }>;
   verify(input: {
     readonly network: "testnet";
@@ -122,12 +119,6 @@ export type SetupVerificationResult =
       readonly effectiveExpiry: number;
     }
   | {
-      readonly status: "expiry_confirmation_required";
-      readonly attemptId: string;
-      readonly requestedExpiry: number;
-      readonly effectiveExpiry: number;
-    }
-  | {
       readonly status: "inert";
       readonly reason:
         | "not_pending"
@@ -144,7 +135,6 @@ export interface ApiWalletSetupCoordinator {
     readonly connectedMasterAccount: string;
     readonly targetAccount: string;
     readonly registrationName: string;
-    readonly replaceExisting?: boolean;
   }): Promise<SetupAttempt>;
   requestApproval(
     attemptId: string,
@@ -154,11 +144,6 @@ export interface ApiWalletSetupCoordinator {
   verifyExternalReturn(
     input: WalletReturnInput,
   ): Promise<SetupVerificationResult>;
-  confirmShorterExpiry(
-    input: WalletReturnInput & {
-      readonly acceptedExpiry: number;
-    },
-  ): Promise<SetupVerificationResult>;
   cancel(attemptId: string): Promise<void>;
 }
 
@@ -166,14 +151,6 @@ function assertSafeTime(value: number, field: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new TypeError(`${field} must be a positive millisecond timestamp.`);
   }
-}
-
-export function maximumAgentRegistrationExpiry(
-  attempt: Pick<SetupAttempt, "expiresAt">,
-): number {
-  const maximum = attempt.expiresAt + AGENT_AUTHORIZATION_DURATION_MS;
-  assertSafeTime(maximum, "maximum agent registration expiry");
-  return maximum;
 }
 
 export function normalizeSetupAddress(value: string): string {
@@ -283,7 +260,6 @@ export function createApiWalletSetupCoordinator(options: {
 
   const verify = async (
     input: WalletReturnInput,
-    acceptedExpiry?: number,
   ): Promise<SetupVerificationResult> => {
     const attempt = options.repository.getPendingAttempt(input.attemptId);
     if (!attempt) return { status: "inert", reason: "not_pending" };
@@ -308,30 +284,15 @@ export function createApiWalletSetupCoordinator(options: {
     }
     const registration = proof.registration;
     const validUntil = registration?.validUntil;
-    const maximumExpiry = maximumAgentRegistrationExpiry(attempt);
-    const maximumRemainingExpiry =
-      proof.authoritativeTime +
-      AGENT_AUTHORIZATION_DURATION_MS +
-      AUTHORITY_TIME_TOLERANCE_MS;
     if (
       !proof.targetAuthorized ||
       !exactRegistration(attempt, registration) ||
       validUntil === null ||
       validUntil === undefined ||
       !Number.isSafeInteger(validUntil) ||
-      validUntil <= proof.authoritativeTime ||
-      validUntil > maximumExpiry ||
-      validUntil > maximumRemainingExpiry
+      validUntil <= proof.authoritativeTime
     ) {
       return { status: "inert", reason: "registration_unverified" };
-    }
-    if (validUntil < attempt.requestedExpiry && acceptedExpiry !== validUntil) {
-      return {
-        status: "expiry_confirmation_required",
-        attemptId: attempt.id,
-        requestedExpiry: attempt.requestedExpiry,
-        effectiveExpiry: validUntil,
-      };
     }
     const activated = options.repository.consumeAndActivate({
       attemptId: attempt.id,
@@ -373,25 +334,6 @@ export function createApiWalletSetupCoordinator(options: {
           "The selected target is not authoritatively linked to this master account.",
         );
       }
-      if (
-        !Number.isSafeInteger(inspection.namedAgentLimit) ||
-        inspection.namedAgentLimit < 1 ||
-        inspection.namedAgentLimit > 3 ||
-        !Array.isArray(inspection.namedAgents)
-      ) {
-        throw new Error("Authoritative named-agent slot state is malformed.");
-      }
-      for (const namedAgent of inspection.namedAgents) {
-        normalizeSetupAddress(namedAgent.agentAddress);
-        if (
-          !/^[\x20-\x7e]{1,16}$/.test(namedAgent.registrationName) ||
-          (namedAgent.validUntil !== null &&
-            (!Number.isSafeInteger(namedAgent.validUntil) ||
-              namedAgent.validUntil <= 0))
-        ) {
-          throw new Error("Authoritative named-agent slot state is malformed.");
-        }
-      }
       const pending = options.repository.getPendingAttemptForTarget({
         network,
         masterAccount,
@@ -404,18 +346,6 @@ export function createApiWalletSetupCoordinator(options: {
           );
         }
         await removePendingAttempt(pending, "expired");
-      }
-      const sameName = inspection.namedAgents.find(
-        (agent) => agent.registrationName === registrationName,
-      );
-      if (sameName && !input.replaceExisting) {
-        throw new Error("Replacing the existing named agent requires review.");
-      }
-      if (
-        !sameName &&
-        inspection.namedAgents.length >= inspection.namedAgentLimit
-      ) {
-        throw new Error("No reviewed named-agent slot is available.");
       }
       const generation = options.repository.nextGeneration({
         network,
@@ -485,7 +415,6 @@ export function createApiWalletSetupCoordinator(options: {
       return options.wallet.requestApproval({ attempt, typedData });
     },
     verifyExternalReturn: (input) => verify(input),
-    confirmShorterExpiry: (input) => verify(input, input.acceptedExpiry),
     async cancel(attemptId) {
       const attempt = options.repository.getPendingAttempt(attemptId);
       if (!attempt) return;
