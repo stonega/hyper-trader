@@ -54,15 +54,25 @@ reservation, codec input, or signature. Any market, metadata fingerprint,
 account version, network, account, target, epoch, or normalized-intent change
 stops before reservation and requires fresh review.
 
+Available margin is a volatile validation input rather than an account-identity
+field. Confirmation always uses the newly fetched value to recheck buying power,
+but a harmless mark-to-market or funding fluctuation does not by itself stale an
+otherwise unchanged review. Insufficient refreshed margin still stops before
+reservation. Leverage, margin mode, position size, market metadata, signer, and
+context remain exact review fences.
+
 Trigger input is validated but fails closed because the reviewed action codec does not own a trigger
 codec. Bulk cancel remains outside the public reviewed action surface. Outcome
 markets remain browse-only. Missing constraints are never guessed.
 
 ## Visible phases and Back behavior
 
-The text-only modal/result surfaces use an opaque `bg-background` root and one
-mounted HeroUI Native card shell. Inner content fades for at most 160 ms;
-system Reduced Motion disables staged animation. Actions are at least 48 points.
+One root-owned HeroUI Native bottom sheet remains mounted from immutable review
+through authentication, one-shot submission, and reconciliation. Its fixed,
+scrollable surface keeps the review details visible while the title, description,
+and Review/Submit/Status progress rail reflect the current phase. Inner content
+fades for at most 160 ms; system Reduced Motion disables staged animation.
+Actions are at least 48 points.
 
 | Phase | Hardware/UI Back |
 |---|---|
@@ -74,8 +84,9 @@ system Reduced Motion disables staged animation. Actions are at least 48 points.
 | Persisting `submission_started` | Consume Back. |
 | One-shot submission | Consume Back. |
 | Reconciling | Dismiss; scoped signer-free work continues. |
-| Accepted, rejected, expired, or ambiguous | Dismiss to the underlying Trade or Portfolio context. |
-| Failed before submission | Return to review; a prepared nonce is abandoned and never reused. |
+| Accepted | Announce acceptance, then close the sheet automatically. |
+| Rejected, expired, or ambiguous | Keep the result in the sheet until dismissed to the underlying Trade or Portfolio context. |
+| Failed before submission | Return to the order for a fresh review; a prepared nonce is abandoned and never reused. |
 
 States use explicit text and accessibility announcements rather than color.
 Native screen-reader focus and announcement timing still require VoiceOver and
@@ -117,12 +128,27 @@ fields, context epoch, and exact intent must still match the immutable review
 before the journal can reserve a nonce. The exchange client then consumes the
 write-once transport permit created by `submission_started`.
 
+The authenticated SecureStore prompt may transiently move the native app to
+`inactive` or Android `blur` while the signer is still unlocking. That exact
+pre-session transition no longer cancels its own protected read; backgrounding
+still cancels. When the read completes before the native active event, a bounded
+activity gate waits up to 1.5 seconds for active focus before signer construction.
+Failure, timeout, background, or a stale context disposes the protected material.
+Pre-submission presentation maps only allowlisted recovery
+classes—authentication interrupted, credential invalidated, or context
+changed—and never exposes native error text.
+
 Distributed and release builds receive neither manager nor orchestrator, so
 submission remains unavailable while the release gate is conditional. The
 development runtime currently exposes market and limit orders only. An
 uncertain response remains durably unresolved and cannot be submitted again;
 the authoritative restart reconciler is tracked as P6 in the closure plan and
 must be completed before response-loss drills are routine.
+
+The action sheet is mounted beside the root Expo Router stack inside the shared
+action runtime. Opening a confirmed action therefore does not navigate or depend
+on a second route chunk, and Trade and Portfolio use the same review,
+confirmation, and result surface without duplicating the pipeline.
 
 ## Guarded example
 

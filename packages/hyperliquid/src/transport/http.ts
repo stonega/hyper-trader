@@ -48,6 +48,7 @@ const RESPONSE_WEIGHT_TWENTY = new Set([
 ]);
 
 const DOCUMENTED_WEIGHT_TWENTY = new Set([
+  "activeAssetData",
   "allMids",
   "candleSnapshot",
   "clearinghouseState",

@@ -57,6 +57,7 @@ export function SignerSessionProvider({
     ),
   );
   const stateRef = useRef(state);
+  const read = useCallback(() => stateRef.current, []);
   const lock = useCallback(
     (reason: SignerSessionLockReason) => {
       if (manager) {
@@ -96,8 +97,8 @@ export function SignerSessionProvider({
   }, [lock, manager]);
 
   const value = useMemo(
-    () => ({ ...state, lock, read: () => stateRef.current, manager }),
-    [lock, manager, state],
+    () => ({ ...state, lock, read, manager }),
+    [lock, manager, read, state],
   );
 
   return (

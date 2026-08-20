@@ -1,4 +1,5 @@
 import type {
+  ActiveAssetData,
   ClearinghouseState,
   SpotClearinghouseState,
 } from "@hyper-trader/hyperliquid";
@@ -61,6 +62,7 @@ function validObservationTime(observedAtMs: number): boolean {
 
 export function tradePerpAccountSnapshot(input: {
   readonly state: ClearinghouseState;
+  readonly activeAsset: ActiveAssetData;
   readonly market: Extract<Market, { readonly family: "perp" }>;
   readonly observedAtMs: number;
 }): TradeAccountSnapshot | null {
@@ -68,7 +70,13 @@ export function tradePerpAccountSnapshot(input: {
     !validObservationTime(input.observedAtMs) ||
     !Number.isSafeInteger(input.state.time) ||
     input.state.time < 0 ||
-    !isDecimalString(input.state.withdrawable)
+    input.activeAsset.coin !== input.market.coin ||
+    !isDecimalString(input.activeAsset.availableToTrade[0]) ||
+    input.activeAsset.availableToTrade[0].startsWith("-") ||
+    !isDecimalString(input.activeAsset.availableToTrade[1]) ||
+    input.activeAsset.availableToTrade[1].startsWith("-") ||
+    !Number.isSafeInteger(input.activeAsset.leverage.value) ||
+    input.activeAsset.leverage.value < 1
   ) {
     return null;
   }
@@ -81,19 +89,19 @@ export function tradePerpAccountSnapshot(input: {
     position !== null &&
     (!isDecimalString(position.size) ||
       !Number.isSafeInteger(position.leverage.value) ||
-      position.leverage.value < 1)
+      position.leverage.value < 1 ||
+      position.leverage.value !== input.activeAsset.leverage.value ||
+      position.leverage.type !== input.activeAsset.leverage.type)
   ) {
     return null;
   }
-  const marginMode =
-    position?.leverage.type === "cross" ||
-    position?.leverage.type === "isolated"
-      ? position.leverage.type
-      : null;
   return Object.freeze({
-    availableFunds: input.state.withdrawable,
-    leverage: position?.leverage.value ?? null,
-    marginMode,
+    availableFunds: Object.freeze({
+      buy: input.activeAsset.availableToTrade[0],
+      sell: input.activeAsset.availableToTrade[1],
+    }),
+    leverage: input.activeAsset.leverage.value,
+    marginMode: input.activeAsset.leverage.type,
     positionSize: position?.size ?? ("0" as DecimalString),
     version: input.state.time,
     observedAtMs: input.observedAtMs,
@@ -122,7 +130,10 @@ export function tradeSpotAccountSnapshot(input: {
   const positionSize = baseBalances[0]?.total ?? ("0" as DecimalString);
   if (availableFunds === null || !isDecimalString(positionSize)) return null;
   return Object.freeze({
-    availableFunds,
+    availableFunds: Object.freeze({
+      buy: availableFunds,
+      sell: availableFunds,
+    }),
     leverage: null,
     marginMode: null,
     positionSize,

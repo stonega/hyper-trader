@@ -8,7 +8,7 @@ import { Input } from "heroui-native/input";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type StyleProp, View, type ViewStyle } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
@@ -96,6 +96,14 @@ export function OrderPanel({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const errorLeverage = useRef(draft.leverage);
+
+  useEffect(() => {
+    if (errorLeverage.current === draft.leverage) return;
+    errorLeverage.current = draft.leverage;
+    setFormError(null);
+  }, [draft.leverage]);
+
   const structurallyOrderable = hasSupportedOrderMetadata(market);
   const controls = controlsForMarket(market, draft.orderType);
   const referencePrice = market.midPx ?? market.markPx ?? null;
@@ -124,7 +132,7 @@ export function OrderPanel({
     try {
       update({
         size: sizeForPreset({
-          availableFunds: account.availableFunds,
+          availableFunds: account.availableFunds[draft.side],
           referencePrice,
           leverage,
           percentage,
@@ -397,7 +405,7 @@ export function OrderPanel({
             Available {market.family === "spot" ? "funds" : "margin"}
           </Text>
           <Text className="shrink-0 text-right text-base tabular-nums text-foreground">
-            {account?.availableFunds ?? "Unavailable"}
+            {account?.availableFunds[draft.side] ?? "Unavailable"}
           </Text>
         </View>
 

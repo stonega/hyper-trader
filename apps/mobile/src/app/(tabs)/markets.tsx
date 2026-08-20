@@ -3,7 +3,6 @@ import { useRouter } from "expo-router";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import { Input } from "heroui-native/input";
-import { Skeleton } from "heroui-native/skeleton";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
@@ -12,6 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
+import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
@@ -34,6 +34,7 @@ const FAMILY_FILTERS: readonly {
 ];
 
 const EMPTY_MARKET_IDS: readonly string[] = [];
+const MARKET_LOADING_ITEMS = ["market-1", "market-2", "market-3"] as const;
 
 function FilterChip({
   label,
@@ -62,18 +63,12 @@ function FilterChip({
 }
 
 function LoadingCatalog(): JSX.Element {
-  const reducedMotion = useReducedMotion();
   return (
-    <View accessibilityLabel="Loading market catalog" className="gap-3 px-5">
-      {[0, 1, 2].map((index) => (
-        <Skeleton
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="h-40 w-full rounded-2xl"
-          key={index}
-          variant={reducedMotion ? "none" : "shimmer"}
-        />
-      ))}
-    </View>
+    <LoadingSkeletons
+      accessibilityLabel="Loading market catalog"
+      className="gap-3 px-5"
+      items={MARKET_LOADING_ITEMS}
+    />
   );
 }
 
@@ -135,6 +130,11 @@ export default function MarketsScreen(): JSX.Element {
       ),
     [refetchCatalog],
   );
+  const showCatalogStatus =
+    presentation.content !== "ready" ||
+    presentation.freshness === "stale" ||
+    presentation.freshness === "offline" ||
+    presentation.hasPartialSources;
 
   const openMarket = (market: Market) => {
     preferences.selectMarket(market.canonicalId);
@@ -207,24 +207,32 @@ export default function MarketsScreen(): JSX.Element {
         />
       </ScrollView>
 
-      {presentation.content !== "ready" ||
-      presentation.freshness === "stale" ||
-      presentation.freshness === "offline" ||
-      presentation.hasPartialSources ? (
-        <CatalogStatus
-          onRetry={() => void refetchCatalog()}
-          state={presentation}
-        />
-      ) : null}
       {preferences.status === "error" ? (
         <Text accessibilityRole="alert" className="text-sm text-warning">
           Favorites could not be saved.
         </Text>
       ) : null}
       {presentation.content === "ready" ? (
-        <Text accessibilityLiveRegion="polite" className="text-sm text-muted">
-          {markets.length} markets
-        </Text>
+        <View className="flex-row items-center justify-between gap-3">
+          <Text
+            accessibilityLiveRegion="polite"
+            className="shrink-0 text-sm text-muted"
+          >
+            {markets.length} markets
+          </Text>
+          {showCatalogStatus ? (
+            <CatalogStatus
+              compact
+              onRetry={() => void refetchCatalog()}
+              state={presentation}
+            />
+          ) : null}
+        </View>
+      ) : showCatalogStatus ? (
+        <CatalogStatus
+          onRetry={() => void refetchCatalog()}
+          state={presentation}
+        />
       ) : null}
     </View>
   );

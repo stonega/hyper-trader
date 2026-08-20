@@ -8,6 +8,7 @@ import {
   type InfoRequestOptions,
 } from "../transport/http";
 import {
+  parseActiveAssetData,
   parseClearinghouseState,
   parseHistoricalOrders,
   parseNamedApiWalletRegistrations,
@@ -23,6 +24,7 @@ import {
 import type {
   AccountDataResult,
   AccountTarget,
+  ActiveAssetData,
   ClearinghouseState,
   HistoricalOrder,
   NamedApiWalletRegistration,
@@ -77,6 +79,11 @@ export interface AccountDataClient {
     dex: string,
     options?: InfoRequestOptions,
   ): Promise<AccountDataResult<ClearinghouseState>>;
+  getActiveAssetData(
+    target: AccountTarget,
+    coin: string,
+    options?: InfoRequestOptions,
+  ): Promise<AccountDataResult<ActiveAssetData>>;
   getSpotClearinghouseState(
     target: AccountTarget,
     options?: InfoRequestOptions,
@@ -177,6 +184,34 @@ export function createAccountDataClientFromTransport(
           ),
         ),
       );
+    },
+    async getActiveAssetData(target, coin, options = {}) {
+      validateAccountTarget(target);
+      if (coin.trim() === "" || coin !== coin.trim()) {
+        throw new HyperliquidValidationError(
+          "activeAssetData.coin",
+          "expected a non-empty canonical coin",
+        );
+      }
+      const data = parseActiveAssetData(
+        await transport.request(
+          { type: "activeAssetData", user: target.address, coin },
+          options,
+        ),
+      );
+      if (data.user !== target.address.toLowerCase()) {
+        throw new HyperliquidValidationError(
+          "activeAssetData.user",
+          "response did not match the requested account",
+        );
+      }
+      if (data.coin !== coin) {
+        throw new HyperliquidValidationError(
+          "activeAssetData.coin",
+          "response did not match the requested market",
+        );
+      }
+      return result(target, null, data);
     },
     async getSpotClearinghouseState(target, options = {}) {
       validateAccountTarget(target);

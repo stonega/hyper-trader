@@ -81,6 +81,7 @@ function harness(
   let throwAfterMarker = false;
   let raceTerminalTransition = false;
   let throwDuringTransport = false;
+  let unlockFailure: unknown = null;
   const repository: Parameters<
     typeof createActionOrchestrator
   >[0]["repository"] = {
@@ -165,6 +166,7 @@ function harness(
     session: {
       async unlock() {
         calls.push("unlock");
+        if (unlockFailure !== null) throw unlockFailure;
         return { status: "unlocked" as const };
       },
       async signTypedData() {
@@ -229,6 +231,9 @@ function harness(
     },
     loseTransportResponse: () => {
       throwDuringTransport = true;
+    },
+    failUnlock: (error: unknown) => {
+      unlockFailure = error;
     },
   };
 }
@@ -381,6 +386,38 @@ describe("shared action orchestrator", () => {
     expect(h.calls).not.toContain("submit");
   });
 
+  test.each([
+    [
+      "authentication_failed",
+      "Device authentication did not complete. Try again and finish the Face ID, biometric, or passcode prompt.",
+    ],
+    [
+      "missing_or_invalidated",
+      "The protected API wallet is no longer available. Set up a new testnet API wallet before trading.",
+    ],
+    [
+      "app_not_active",
+      "Device authentication was interrupted. Keep Hyper Trader open and try again.",
+    ],
+  ] as const)(
+    "shows safe recovery for %s unlock failures",
+    async (code, message) => {
+      const h = harness({ status: "ok", response: { type: "default" } });
+      h.failUnlock(
+        Object.assign(new Error("native detail is not presented"), { code }),
+      );
+
+      const result = await h.orchestrator.confirm(h.review);
+
+      expect(result).toMatchObject({
+        phase: "failed_before_submission",
+        journalId: null,
+        message,
+      });
+      expect(h.calls).toEqual(["unlock"]);
+    },
+  );
+
   test("denies mainnet review before session access", () => {
     expect(() =>
       createActionReview({
@@ -453,6 +490,9 @@ describe("shared action orchestrator", () => {
       );
       expect((await h.orchestrator.confirm(h.review)).phase).toBe(
         "failed_before_submission",
+      );
+      expect(h.orchestrator.read().message).toBe(
+        "The latest market or account details could not be confirmed for this order. Return to the order, refresh, and try again.",
       );
       expect(h.calls).not.toContain("reserve");
     },

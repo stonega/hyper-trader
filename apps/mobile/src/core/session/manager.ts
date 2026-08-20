@@ -24,6 +24,26 @@ export type SignerSessionStopReason =
   | "credential_invalidated"
   | "compromised_device";
 
+export type SignerSessionLifecycleStopReason = Extract<
+  SignerSessionStopReason,
+  "app_inactive" | "app_background" | "android_blur"
+>;
+
+export type SignerSessionUnlockFailureCode =
+  | "app_not_active"
+  | "context_changed"
+  | "session_invalidated";
+
+export class SignerSessionUnlockError extends Error {
+  readonly code: SignerSessionUnlockFailureCode;
+
+  constructor(code: SignerSessionUnlockFailureCode) {
+    super("The signer unlock could not complete in the current app context.");
+    this.name = "SignerSessionUnlockError";
+    this.code = code;
+  }
+}
+
 export interface ProtectedAgentSecret {
   readonly binding: SignerBinding;
   readonly bytes: Uint8Array;
@@ -78,6 +98,16 @@ export interface SignerSessionManager {
   lock(reason: SignerSessionStopReason): void;
 }
 
+export function shouldLockSignerSessionForLifecycle(
+  snapshot: SignerSessionSnapshot,
+  reason: SignerSessionLifecycleStopReason,
+): boolean {
+  return !(
+    snapshot.status === "unlocking" &&
+    (reason === "app_inactive" || reason === "android_blur")
+  );
+}
+
 function sameUnlockRequest(
   state: SignerSessionSnapshot,
   binding: SignerBinding,
@@ -102,6 +132,22 @@ function unlockFailureReason(error: unknown): SignerSessionStopReason {
   ) {
     return "credential_invalidated";
   }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "context_changed"
+  ) {
+    return "context_changed";
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "app_not_active"
+  ) {
+    return "app_inactive";
+  }
   return "authentication_error";
 }
 
@@ -115,6 +161,7 @@ export function createSignerSessionManager(options: {
     secret: ProtectedAgentSecret,
   ) => Promise<DestroyableAgentSigner>;
   readonly isActiveAndFocused: () => boolean;
+  readonly waitUntilActiveAndFocused?: () => Promise<boolean>;
   readonly onStateChange?: (state: SignerSessionSnapshot) => void;
 }): SignerSessionManager {
   let epoch = 0;
@@ -149,6 +196,40 @@ export function createSignerSessionManager(options: {
     clearSigner();
     inFlight = null;
     publish({ status: "locked", epoch, reason });
+  };
+  const assertUnlockCurrent = (
+    unlockEpoch: number,
+    input: {
+      readonly isContextCurrent: () => boolean;
+    },
+  ) => {
+    if (epoch !== unlockEpoch) {
+      throw new SignerSessionUnlockError("session_invalidated");
+    }
+    if (!input.isContextCurrent()) {
+      throw new SignerSessionUnlockError("context_changed");
+    }
+    if (!options.isActiveAndFocused()) {
+      throw new SignerSessionUnlockError("app_not_active");
+    }
+  };
+  const settleActiveFocus = async (
+    unlockEpoch: number,
+    input: {
+      readonly isContextCurrent: () => boolean;
+    },
+  ) => {
+    if (options.isActiveAndFocused()) return;
+    const restored = await options.waitUntilActiveAndFocused?.();
+    if (epoch !== unlockEpoch) {
+      throw new SignerSessionUnlockError("session_invalidated");
+    }
+    if (!input.isContextCurrent()) {
+      throw new SignerSessionUnlockError("context_changed");
+    }
+    if (restored !== true || !options.isActiveAndFocused()) {
+      throw new SignerSessionUnlockError("app_not_active");
+    }
   };
 
   const manager: SignerSessionManager = {
@@ -203,33 +284,14 @@ export function createSignerSessionManager(options: {
         let candidate: DestroyableAgentSigner | null = null;
         try {
           await options.deviceAuth.assertAvailable();
-          if (
-            epoch !== unlockEpoch ||
-            !input.isContextCurrent() ||
-            !options.isActiveAndFocused()
-          ) {
-            throw new Error("The signer unlock was invalidated before access.");
-          }
+          assertUnlockCurrent(unlockEpoch, input);
           secret = await options.vault.read(binding);
           assertSignerBinding(binding, secret.binding);
-          if (
-            epoch !== unlockEpoch ||
-            !input.isContextCurrent() ||
-            !options.isActiveAndFocused()
-          ) {
-            throw new Error("The signer unlock was invalidated after access.");
-          }
+          await settleActiveFocus(unlockEpoch, input);
+          assertUnlockCurrent(unlockEpoch, input);
           candidate = await options.signerFactory(secret);
           assertSignerBinding(binding, candidate.binding);
-          if (
-            epoch !== unlockEpoch ||
-            !input.isContextCurrent() ||
-            !options.isActiveAndFocused()
-          ) {
-            throw new Error(
-              "The signer unlock was invalidated before publish.",
-            );
-          }
+          assertUnlockCurrent(unlockEpoch, input);
           signer = candidate;
           candidate = null;
           const unlockedAt = options.timer.now();

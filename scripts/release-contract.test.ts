@@ -18,10 +18,18 @@ describe("production release contract", () => {
     const expo = appConfig.expo as {
       readonly platforms?: readonly string[];
       readonly updates?: { readonly enabled?: boolean };
+      readonly plugins?: readonly unknown[];
     };
+    const routerPlugin = expo.plugins?.find(
+      (
+        plugin,
+      ): plugin is readonly [string, { readonly asyncRoutes?: unknown }] =>
+        Array.isArray(plugin) && plugin[0] === "expo-router",
+    );
 
     expect(expo.platforms).toEqual(["ios", "android"]);
     expect(expo.updates).toEqual({ enabled: false });
+    expect(routerPlugin?.[1].asyncRoutes).toBe(false);
     expect(scripts["test:mobile"]).toBeTruthy();
     expect(scripts["test:e2e:mobile"]).toBeTruthy();
     expect(scripts["test:e2e:mobile:device"]).toBeTruthy();

@@ -45,14 +45,25 @@ Portfolio does not guess. The query function itself accepts any explicit
 `AccountTarget`, so the account-management integration can provide those target
 types without changing normalization.
 
-For an exact target, the client requests clearinghouse state and open orders
-for every validated perpetual DEX plus spot balances, fills, recent funding,
-and portfolio periods. Partial endpoint failures produce visible source-gap
-records. Aborted context work rejects rather than returning an empty snapshot.
-Normalization runs inside the query function, so malformed source values fail
-the query instead of throwing during rendering. An uncached catalog failure is
+For an exact target, the live account query requests clearinghouse state and
+open orders for every validated perpetual DEX plus spot balances. A separate
+history query requests fills, recent funding, and portfolio periods only after
+live account data is available. Slow history therefore cannot delay current
+positions, orders, balances, or action evidence. Partial endpoint failures
+produce source-gap records. Aborted context work rejects rather than returning
+an empty snapshot. Normalization runs at the query composition boundary, so
+malformed source values fail before rendering. An uncached catalog failure is
 also visible and retryable. Cached data remains on screen during a same-owner
 refresh, offline, stale, or error state, while action review is disabled.
+
+All independent endpoints inside each query start together. A normal pull
+refresh reuses a healthy catalog and waits only for the live account query;
+fills, funding, and performance refresh immediately afterward in the
+background. An existing account or catalog fetch is reused instead of canceled
+and restarted. Catalog recovery joins the gesture only when metadata is
+missing, stale, or failed and no catalog refresh is already running. The pull
+indicator represents that bounded manual work alone; background polling does
+not hold it open.
 
 ## Performance and source gaps
 

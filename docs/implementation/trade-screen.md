@@ -12,11 +12,15 @@ The root `ActionRuntimeProvider` still has no production orchestrator while the
 security review is conditional. Trade permits immutable review in that state but
 keeps confirmation and submission unavailable. Trade now loads a narrow, authoritative account
 snapshot for the selected market and exact resolved account target. Perpetuals
-read that venue's clearinghouse state and display its `withdrawable` value as
-available margin; spot reads the quote-token balance and subtracts held funds.
-The adapter also carries the selected position's current leverage, margin mode,
-size, account version, and observation time when present. It does not infer an
-unknown target kind, duplicate balance, malformed value, or missing leverage.
+read both that venue's clearinghouse state and the market-specific
+`activeAssetData`. Order Entry displays the applicable long or short
+`availableToTrade` value as available margin; it never substitutes the
+withdrawal-only `withdrawable` value. Spot reads the quote-token balance and
+subtracts held funds. The adapter also carries the selected market's current
+leverage and margin mode plus the selected position size, account version, and
+observation time. It does not infer an unknown target kind, duplicate balance,
+malformed value, response-account mismatch, response-market mismatch, or
+missing leverage.
 The focused query refreshes every 20 seconds, participates in pull-to-refresh,
 and the review boundary independently rejects an account observation older than
 30 seconds. Deterministic fixtures cover perpetual margin with and without an
@@ -82,6 +86,10 @@ the selected window, candle count, and exact open, high, low, and close values.
 Victory's single price axis owns all four OHLC keys; this is required for it to
 materialize the four point arrays consumed by the candlestick primitive. The
 shared key tuple prevents the axis and renderer contracts from drifting apart.
+Within the plot, a vertical drag shifts the price window and a two-finger pinch
+changes the visible time span and candle density. These interactions update the
+authoritative chart domains, keeping the price axis and visible endpoint times
+synchronized with the candle geometry.
 
 ## Layout composition
 
@@ -93,10 +101,12 @@ session actions. The pair control uses a down chevron and opens the complete
 market selector. Selector results use compact left-aligned rows with the pair,
 maximum leverage, and HIP-3 provider when present; normal trading availability
 is implicit, while exceptional availability remains visible and the active
-market uses a quiet checkmark. Markets discovery cards reuse the same token icon
-and hyphenated pair label, such as `BTC-USDC`, so selection and discovery share
-one visible identity. Native discovery cards omit the redundant `Native` venue
-line, while spot, outcome, and HIP-3 provider labels remain visible. The Markets
+market uses a quiet checkmark. The Trade summary follows the same rule by
+omitting the normal `Trading` chip while retaining `Browse only`. Markets
+discovery cards reuse the same token icon and hyphenated pair label, such as
+`BTC-USDC`, so selection and discovery share one visible identity. Native
+discovery and Trade summary cards omit the redundant `Native` venue line, while
+spot, outcome, and HIP-3 provider labels remain visible. The Markets
 search field uses `Search markets` as its placeholder and accessible label
 without a duplicate label above it. Token icons load from one fixed public icon
 host for presentation only and fall back to deterministic initials; icon success
@@ -117,8 +127,10 @@ only in the split workspace; all review gates, required fields, accessibility
 labels, and explicit confirmation behavior are unchanged. The two cards are
 direct siblings in a stretched row, so Book/Trades always matches the current
 Order Entry height; stacked layouts retain intrinsic card heights. Catalog
-status is shown only for stale, offline, unavailable, or partial-source states
-so a healthy feed does not displace the trading workspace.
+status is shown only for stale, offline, unavailable, or partial-source states.
+It renders as a compact status row inside the market summary card so a healthy
+feed does not displace the trading workspace and an exceptional feed does not
+add another full card.
 
 The backend catalog worker always requests native perpetual, spot, and testnet
 outcome metadata first, then loads returned HIP-3 DEXes in rate-bounded pages
@@ -165,11 +177,21 @@ Applicable controls are intentionally narrow:
 | HIP-3 | same family controls, evidence-specific review gate |
 | Outcome/delisted/browse-only | no editable order controls |
 
-Leverage is display-only. An order review must exactly match authoritative
-account leverage and margin mode; changing either requires its separately
-reviewed action. Hidden limit-order slippage is ignored. Decimal size presets
-use `BigInt` arithmetic and fail visibly when the result falls below size
-precision.
+Leverage is display-only. When the authoritative account snapshot first loads
+or later changes, Order Entry synchronizes the draft's current leverage while
+preserving side, type, size, price, TIF, reduce-only, and slippage input. The
+final review boundary still rejects a leverage change that races review
+preparation. Intentionally changing leverage or margin mode requires its
+separately reviewed action. Hidden limit-order slippage is ignored. Decimal
+size presets use `BigInt` arithmetic and fail visibly when the result falls
+below size precision.
+
+Perpetual trading capacity remains directional. `availableToTrade[0]` is bound
+to Buy/Long and `availableToTrade[1]` to Sell/Short. Presets use the currently
+bound draft side, review uses the side chosen by the final action, and the
+pre-submission authoritative refresh fetches the same market-specific value
+again. A withdrawal limit of zero therefore cannot be presented as zero trading
+margin or block an otherwise valid testnet order.
 
 Review preparation captures the current context epoch and creates a
 cryptographic 16-byte `cloid` with `expo-crypto`. Its interruption token is bound
@@ -177,8 +199,11 @@ to canonical market, safety metadata, exact reference price, context/signer,
 connectivity, confirmation-runtime capability, and every account snapshot field. A
 price-only, metadata-only, account-only, market, account, or network change while
 randomness is pending rejects the late completion. Successful preparation hands
-the deep-frozen snapshot to the root review overlay; opening review itself does
-not unlock, sign, reserve, or submit.
+the deep-frozen snapshot to the root action bottom sheet; opening review itself
+does not navigate, unlock, sign, reserve, or submit. The same sheet advances
+through review, submission, and authoritative status. Acceptance closes it
+automatically after a brief accessible confirmation; all non-success outcomes
+remain visible until the user dismisses them.
 
 ## Visible phases and Back behavior
 
@@ -188,7 +213,7 @@ not unlock, sign, reserve, or submit.
 | Market switcher search keyboard | Dismiss the keyboard before closing the switcher. |
 | Market switcher | Close to the unchanged Trade context. |
 | Drafting | Normal tab/root navigation; the mounted draft is retained. |
-| Review/result overlay | The action runtime owns Back consumption, dismissal, and result behavior. |
+| Review/submission/status sheet | The action runtime owns Back consumption, dismissal, automatic success close, and result behavior. |
 
 Trade has one vertical `ScrollView`. The market switcher owns a separate modal
 `FlatList`, preventing nested vertical scroll traps. All actions use at least
@@ -200,9 +225,10 @@ of color, and disable staged motion under system Reduced Motion.
 Review reports a specific reason for invalid clock, mainnet, non-orderable
 metadata, pending HIP-3 evidence, stale/offline/reconnecting metadata,
 read-only/missing binding, expired agent, and stale account state. An unavailable
-confirmation runtime does not block immutable review; the review overlay omits
+confirmation runtime does not block immutable review; the review sheet omits
 confirmation and explains that submission is unavailable. Presentation-only candle, book, or recent-trade
 errors preserve cached rows and do not independently decide action authority.
 
 Accepted, rejected, expired, ambiguous, and reconciling presentation remains in
-the root result overlay. No screen-local duplicate pipeline exists.
+the root action sheet. Accepted closes automatically; other results remain
+available for acknowledgement. No screen-local duplicate pipeline exists.

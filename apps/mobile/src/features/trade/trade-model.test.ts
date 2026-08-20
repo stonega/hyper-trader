@@ -38,7 +38,7 @@ const context: NormalizedTradingContext = {
   },
 };
 const account: TradeAccountSnapshot = {
-  availableFunds: "1000",
+  availableFunds: { buy: "1000", sell: "900" },
   leverage: 5,
   marginMode: "cross",
   positionSize: "0",
@@ -136,6 +136,24 @@ describe("Trade draft ownership", () => {
     });
     expect(preserved.preserved).toBe(true);
     expect(preserved.draft).toBe(draft);
+
+    const synchronizedLeverage = reconcileTradeDraft(
+      { ...draft, leverage: null },
+      {
+        market: NATIVE_DUPLICATE,
+        context,
+        account,
+      },
+    );
+    expect(synchronizedLeverage).toMatchObject({
+      preserved: true,
+      draft: {
+        leverage: account.leverage,
+        size: "2.5",
+        limitPrice: "10.25",
+        side: "sell",
+      },
+    });
 
     const changedMetadata = reconcileTradeDraft(draft, {
       market: { ...NATIVE_DUPLICATE, maxLeverage: 10 },
@@ -371,6 +389,7 @@ describe("canonical switching and review handoff", () => {
       reduceOnly: false,
       cloid: "0x00000000000000000000000000000042",
     });
+    expect(review.validation.account.availableMargin).toBe("900");
     expect(review.presentation).toEqual({
       market: NATIVE_DUPLICATE.canonicalId,
       account: context.targetAccount as string,
@@ -405,7 +424,7 @@ describe("canonical switching and review handoff", () => {
         cloid: "0x00000000000000000000000000000044",
         nowMs: NOW,
       }),
-    ).toThrow("current account leverage");
+    ).toThrow("Account leverage changed");
 
     expect(() =>
       buildTradeReview({
@@ -477,7 +496,10 @@ describe("canonical switching and review handoff", () => {
         ...input,
         authority: {
           ...readyAuthority,
-          account: { ...account, availableFunds: "1" },
+          account: {
+            ...account,
+            availableFunds: { buy: "1", sell: "1" },
+          },
         },
       }),
     ).toThrow("insufficient current margin");

@@ -5,9 +5,8 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import { useThemeColor } from "heroui-native/hooks";
-import { Skeleton } from "heroui-native/skeleton";
-import type { JSX } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { JSX, ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
@@ -25,15 +24,16 @@ import { MarketActivity } from "../../components/order-book/market-activity";
 import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
+import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useDraftRegistry } from "../../core/actions/draft-provider";
 import { useTradingContext } from "../../core/context/provider";
+import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { CatalogStatus } from "../../features/markets/catalog-status";
 import {
-  marketDisplayLabel,
   marketPairLabel,
   marketPriceChangePercent,
   marketVenueLabel,
@@ -78,17 +78,30 @@ import {
 } from "../../features/trade/trade-model";
 import { expoCryptographicRandomBytes } from "../../platform/security/agent-signer";
 
-function MarketSummary({ market }: { readonly market: Market }): JSX.Element {
+const TRADE_LOADING_ITEMS = ["summary", "chart", "activity", "order"] as const;
+
+function MarketSummary({
+  market,
+  status,
+}: {
+  readonly market: Market;
+  readonly status?: ReactNode;
+}): JSX.Element {
   const orderable =
     market.orderAvailability === "enabled" && market.lifecycle === "active";
+  const venueLabel =
+    market.family === "perp" && (market.dexIndex === 0 || market.dexName === "")
+      ? null
+      : marketVenueLabel(market);
   return (
     <Card variant="default" className="gap-3">
       <Card.Header className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1 gap-1">
-          <Card.Title className="text-xl">
-            {marketDisplayLabel(market)}
-          </Card.Title>
-          <Card.Description>{marketVenueLabel(market)}</Card.Description>
+          <Card.Title className="text-xl">{marketPairLabel(market)}</Card.Title>
+          {status}
+          {venueLabel === null ? null : (
+            <Card.Description>{venueLabel}</Card.Description>
+          )}
         </View>
         <View className="items-end gap-1">
           <Text
@@ -137,18 +150,16 @@ function MarketSummary({ market }: { readonly market: Market }): JSX.Element {
             <Stat label="Outcome" value={market.sideName} />
           </View>
         )}
-        <Chip
-          accessibilityLabel={
-            orderable
-              ? "Order metadata is present; freshness and authority are checked separately"
-              : "Browse-only market"
-          }
-          color={orderable ? "success" : "warning"}
-          size="sm"
-          variant="soft"
-        >
-          {orderable ? "Trading" : "Browse only"}
-        </Chip>
+        {orderable ? null : (
+          <Chip
+            accessibilityLabel="Browse-only market"
+            color="warning"
+            size="sm"
+            variant="soft"
+          >
+            Browse only
+          </Chip>
+        )}
       </Card.Body>
     </Card>
   );
@@ -172,18 +183,11 @@ function Stat({
 }
 
 function TradeLoading(): JSX.Element {
-  const reducedMotion = useReducedMotion();
   return (
-    <View accessibilityLabel="Loading selected Trade market" className="gap-3">
-      {["summary", "chart", "activity", "order"].map((key) => (
-        <Skeleton
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="h-40 w-full rounded-2xl"
-          key={key}
-          variant={reducedMotion ? "none" : "shimmer"}
-        />
-      ))}
-    </View>
+    <LoadingSkeletons
+      accessibilityLabel="Loading selected Trade market"
+      items={TRADE_LOADING_ITEMS}
+    />
   );
 }
 
@@ -227,6 +231,8 @@ export default function TradeScreen(): JSX.Element {
     readonly draft: TradeDraft | null;
     readonly invalidationMessage: string | null;
   }>({ draft: null, invalidationMessage: null });
+  const manualRefreshGate = useRef(false);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const operationFence = useRef(createTradeOperationFence());
   const requestedMarket = normalizeMarketRouteParam(params.market);
   const selection = useMemo<ResolvedMarketSelection | null>(() => {
@@ -356,12 +362,18 @@ export default function TradeScreen(): JSX.Element {
         account: authority.account,
         preferences: tradeDefaults,
       });
-      return reconciled.preserved
-        ? previous
-        : {
-            draft: reconciled.draft,
-            invalidationMessage: reconciled.message,
-          };
+      if (reconciled.preserved) {
+        return reconciled.draft === previous.draft
+          ? previous
+          : {
+              draft: reconciled.draft,
+              invalidationMessage: previous.invalidationMessage,
+            };
+      }
+      return {
+        draft: reconciled.draft,
+        invalidationMessage: reconciled.message,
+      };
     });
   }, [
     authority.account,
@@ -392,10 +404,43 @@ export default function TradeScreen(): JSX.Element {
     marketData.candles.isError ||
     marketData.book.isError ||
     marketData.trades.isError;
-  const marketDataRefreshing =
-    marketData.candles.isRefetching ||
-    marketData.book.isRefetching ||
-    marketData.trades.isRefetching;
+  const refetchAccount = accountQuery.refetch;
+  const refetchBook = marketData.book.refetch;
+  const refetchCandles = marketData.candles.refetch;
+  const refetchCatalog = catalogQuery.refetch;
+  const refetchTrades = marketData.trades.refetch;
+  const refreshFromPullGesture = useCallback(
+    () =>
+      runManualRefresh(
+        manualRefreshGate,
+        async () => {
+          const detailRefreshes = market
+            ? [
+                refetchCandles(),
+                refetchBook(),
+                refetchTrades(),
+                ...(accountTarget === null ? [] : [refetchAccount()]),
+              ]
+            : [];
+          await Promise.all([refetchCatalog(), ...detailRefreshes]);
+        },
+        setIsPullRefreshing,
+      ),
+    [
+      accountTarget,
+      market,
+      refetchAccount,
+      refetchBook,
+      refetchCandles,
+      refetchCatalog,
+      refetchTrades,
+    ],
+  );
+  const showCatalogStatus =
+    presentation.freshness === "stale" ||
+    presentation.freshness === "offline" ||
+    presentation.content !== "ready" ||
+    presentation.hasPartialSources;
 
   const switchMarket = (canonicalId: string) => {
     const next = resolveCanonicalMarketSwitch(
@@ -459,7 +504,6 @@ export default function TradeScreen(): JSX.Element {
       );
     }
     actionRuntime.openReview(review);
-    router.push("/action-review");
   };
 
   return (
@@ -480,22 +524,8 @@ export default function TradeScreen(): JSX.Element {
         refreshControl={
           <RefreshControl
             accessibilityLabel="Refresh Trade market and activity"
-            onRefresh={() => {
-              const detailRefreshes = market
-                ? [
-                    marketData.candles.refetch(),
-                    marketData.book.refetch(),
-                    marketData.trades.refetch(),
-                    ...(accountTarget === null ? [] : [accountQuery.refetch()]),
-                  ]
-                : [];
-              void Promise.all([catalogQuery.refetch(), ...detailRefreshes]);
-            }}
-            refreshing={
-              catalogQuery.isRefetching ||
-              marketDataRefreshing ||
-              accountQuery.isRefetching
-            }
+            onRefresh={refreshFromPullGesture}
+            refreshing={isPullRefreshing}
           />
         }
         showsVerticalScrollIndicator={false}
@@ -550,16 +580,18 @@ export default function TradeScreen(): JSX.Element {
 
         {market ? (
           <>
-            <MarketSummary market={market} />
-            {presentation.freshness === "stale" ||
-            presentation.freshness === "offline" ||
-            presentation.content !== "ready" ||
-            presentation.hasPartialSources ? (
-              <CatalogStatus
-                onRetry={() => void catalogQuery.refetch()}
-                state={presentation}
-              />
-            ) : null}
+            <MarketSummary
+              market={market}
+              status={
+                showCatalogStatus ? (
+                  <CatalogStatus
+                    compact
+                    onRetry={() => void catalogQuery.refetch()}
+                    state={presentation}
+                  />
+                ) : undefined
+              }
+            />
             {marketDataHasCachedContent &&
             (marketDataUnavailable ||
               presentation.freshness === "offline" ||
@@ -569,13 +601,6 @@ export default function TradeScreen(): JSX.Element {
                 className="text-sm leading-5 text-warning"
               >
                 Some market data may be out of date. Pull to refresh.
-              </Text>
-            ) : marketDataRefreshing && marketDataHasCachedContent ? (
-              <Text
-                accessibilityLiveRegion="polite"
-                className="text-sm leading-5 text-muted"
-              >
-                Updating market data…
               </Text>
             ) : null}
             <MarketCandlestickChart

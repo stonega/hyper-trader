@@ -83,22 +83,42 @@ describe("account data client", () => {
       masterAddress: MASTER_ADDRESS,
     };
 
-    const [perps, spot, orders, historical, fills, funding, status, portfolio] =
-      await Promise.all([
-        client.getClearinghouseState(target, "alpha"),
-        client.getSpotClearinghouseState(target),
-        client.getOpenOrders(target, "alpha"),
-        client.getHistoricalOrders(target),
-        client.getFills(target),
-        client.getFunding(target, { startTime: 1_720_000_000_000 }),
-        client.getOrderStatus(target, 99),
-        client.getPortfolio(target),
-      ]);
+    const [
+      perps,
+      activeAsset,
+      spot,
+      orders,
+      historical,
+      fills,
+      funding,
+      status,
+      portfolio,
+    ] = await Promise.all([
+      client.getClearinghouseState(target, "alpha"),
+      client.getActiveAssetData(target, "alpha:DUP"),
+      client.getSpotClearinghouseState(target),
+      client.getOpenOrders(target, "alpha"),
+      client.getHistoricalOrders(target),
+      client.getFills(target),
+      client.getFunding(target, { startTime: 1_720_000_000_000 }),
+      client.getOrderStatus(target, 99),
+      client.getPortfolio(target),
+    ]);
 
     expect(perps).toMatchObject({
       target,
       sourceDex: "alpha",
       data: { withdrawable: "123.4567890123456789", positions: [] },
+    });
+    expect(activeAsset).toMatchObject({
+      target,
+      sourceDex: null,
+      data: {
+        user: SUBACCOUNT_ADDRESS,
+        coin: "alpha:DUP",
+        leverage: { type: "cross", value: 5 },
+        availableToTrade: ["50.0000000000000001", "45.0000000000000001"],
+      },
     });
     expect(spot.data.balances[0]?.total).toBe("123.4567890123456789");
     expect(orders).toMatchObject({
@@ -115,6 +135,44 @@ describe("account data client", () => {
     );
     expect(bodies.every(({ user }) => user === SUBACCOUNT_ADDRESS)).toBe(true);
     expect(JSON.stringify(bodies)).not.toContain(AGENT_ADDRESS);
+  });
+
+  test("rejects active-asset data for a different account or market", async () => {
+    const target = {
+      kind: "master",
+      address: MASTER_ADDRESS,
+    } as const;
+    const client = createAccountDataClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json({
+          ...ACCOUNT_RESPONSES.activeAssetData,
+          user: SUBACCOUNT_ADDRESS,
+          coin: "BTC",
+        }),
+    });
+
+    await expect(client.getActiveAssetData(target, "ETH")).rejects.toThrow(
+      "activeAssetData.user",
+    );
+  });
+
+  test("rejects malformed directional trading capacity", async () => {
+    const client = createAccountDataClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json({
+          ...ACCOUNT_RESPONSES.activeAssetData,
+          availableToTrade: ["1"],
+        }),
+    });
+
+    await expect(
+      client.getActiveAssetData(
+        { kind: "master", address: SUBACCOUNT_ADDRESS },
+        "alpha:DUP",
+      ),
+    ).rejects.toThrow("activeAssetData.availableToTrade");
   });
 
   test("handles an empty master account and uses the vault address", async () => {

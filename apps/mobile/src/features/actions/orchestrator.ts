@@ -366,6 +366,49 @@ function sameIntent(
   return serializeSecretFreeIntent(left) === serializeSecretFreeIntent(right);
 }
 
+function failureCode(error: unknown): string | null {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
+function preSubmissionFailureMessage(
+  phase: ActionFlowPhase,
+  error: unknown,
+): string {
+  if (phase === "unlocking") {
+    const code = failureCode(error);
+    if (code === "missing_or_invalidated" || code === "malformed_record") {
+      return "The protected API wallet is no longer available. Set up a new testnet API wallet before trading.";
+    }
+    if (code === "authentication_failed") {
+      return "Device authentication did not complete. Try again and finish the Face ID, biometric, or passcode prompt.";
+    }
+    if (code === "app_not_active" || code === "session_invalidated") {
+      return "Device authentication was interrupted. Keep Hyper Trader open and try again.";
+    }
+    if (code === "context_changed") {
+      return "The selected account changed during confirmation. Return to the order and review it again.";
+    }
+    return "The selected account or API wallet could not be confirmed. Check the account and try again.";
+  }
+  switch (phase) {
+    case "refreshing":
+      return "The latest market or account details could not be confirmed for this order. Return to the order, refresh, and try again.";
+    case "reserving":
+      return "The order could not be prepared safely. Return to the order and try again.";
+    case "signing":
+      return "The API wallet could not sign this order. Unlock it and try again.";
+    case "submission_start":
+      return "The order was not submitted because safe submission could not be started. Return to the order and try again.";
+    default:
+      return "The order was not submitted. Return to the order and try again.";
+  }
+}
+
 export function createActionOrchestrator(options: {
   readonly repository: ActionRepository;
   readonly session: ActionSessionPort;
@@ -418,6 +461,7 @@ export function createActionOrchestrator(options: {
   const reconcileFailure = (
     generation: number,
     journalId: string | null,
+    error: unknown,
   ): ActionFlowState => {
     const reflectDurable = (record: PreparedActionRecord): ActionFlowState => {
       if (state.phase === "submission_start") {
@@ -500,7 +544,7 @@ export function createActionOrchestrator(options: {
       type: "FAIL_BEFORE_SUBMISSION",
       generation,
       journalId: record?.journalId,
-      message: "The action stopped safely before exchange submission.",
+      message: preSubmissionFailureMessage(state.phase, error),
     });
     return state;
   };
@@ -646,8 +690,8 @@ export function createActionOrchestrator(options: {
           phase,
         });
         return state;
-      } catch {
-        return reconcileFailure(generation, journalId);
+      } catch (error) {
+        return reconcileFailure(generation, journalId, error);
       }
     },
   };

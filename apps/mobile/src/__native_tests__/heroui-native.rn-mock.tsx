@@ -135,6 +135,16 @@ export const Dialog = Object.assign(DialogRoot, {
   Description: Copy,
 });
 
+export const BottomSheet = Object.assign(DialogRoot, {
+  Trigger: Container,
+  Portal: DialogPortal,
+  Overlay: Container,
+  Content: Container,
+  Close: DialogClose,
+  Title: Copy,
+  Description: Copy,
+});
+
 export function Skeleton({ accessibilityLabel }: CommonProps): ReactNode {
   return <View accessibilityLabel={accessibilityLabel} />;
 }

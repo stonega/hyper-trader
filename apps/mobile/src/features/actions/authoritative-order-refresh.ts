@@ -149,12 +149,16 @@ async function loadAccountSnapshot(input: {
   readonly market: Market;
 }): Promise<TradeAccountSnapshot> {
   if (input.market.family === "perp") {
-    const state = await input.client.accounts.getClearinghouseState(
-      input.target,
-      input.market.dexName,
-    );
+    const [state, activeAsset] = await Promise.all([
+      input.client.accounts.getClearinghouseState(
+        input.target,
+        input.market.dexName,
+      ),
+      input.client.accounts.getActiveAssetData(input.target, input.market.coin),
+    ]);
     const snapshot = tradePerpAccountSnapshot({
       state: state.data,
+      activeAsset: activeAsset.data,
       market: input.market,
       observedAtMs: Date.now(),
     });
@@ -181,8 +185,9 @@ function sameReviewedAccount(
   const expectedLeverage = market.family === "spot" ? 1 : refreshed.leverage;
   const expectedMarginMode =
     market.family === "spot" ? undefined : (refreshed.marginMode ?? undefined);
+  // Available margin moves with mark price and funding. The caller validates
+  // the freshly fetched value for buying power, so it is not an identity fence.
   return (
-    review.validation.account.availableMargin === refreshed.availableFunds &&
     review.validation.account.leverage === (expectedLeverage ?? undefined) &&
     review.validation.account.marginMode === expectedMarginMode &&
     review.validation.account.positionSize === refreshed.positionSize
@@ -279,7 +284,7 @@ export async function refreshReviewedOrder(input: {
     },
     market: refreshedMarketValidation(market),
     account: {
-      availableMargin: account.availableFunds,
+      availableMargin: account.availableFunds[review.validated.intent.side],
       ...(market.family === "spot"
         ? { leverage: 1 }
         : account.leverage === null

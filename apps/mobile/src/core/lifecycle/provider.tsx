@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { AppState, Platform } from "react-native";
 
 import { warmResumeMarkers } from "../performance/warm-resume";
+import { shouldLockSignerSessionForLifecycle } from "../session/manager";
 import { useSignerSession } from "../session/provider";
 import { useStreamRuntime } from "../streams/provider";
 import { createAppLifecycleController } from "./controller";
@@ -66,7 +67,16 @@ export function NativeLifecycleProvider({
         onlineManager.setOnline(online);
         streams.setOnline(online);
       },
-      lockSignerSession: signerSession.lock,
+      lockSignerSession(reason) {
+        if (
+          shouldLockSignerSessionForLifecycle(
+            signerSession.read().snapshot,
+            reason,
+          )
+        ) {
+          signerSession.lock(reason);
+        }
+      },
       startStreams: () => streams.setForeground(true),
       stopStreams(reason) {
         if (reason !== "offline") {
@@ -84,7 +94,7 @@ export function NativeLifecycleProvider({
       binding.dispose();
       streams.setForeground(false);
     };
-  }, [signerSession.lock, streams]);
+  }, [signerSession.lock, signerSession.read, streams]);
 
   return <>{children}</>;
 }

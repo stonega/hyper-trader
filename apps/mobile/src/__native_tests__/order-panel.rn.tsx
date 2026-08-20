@@ -34,7 +34,7 @@ const context: NormalizedTradingContext = {
   },
 };
 const account: TradeAccountSnapshot = {
-  availableFunds: "1000",
+  availableFunds: { buy: "1000", sell: "900" },
   leverage: 5,
   marginMode: "cross",
   observedAtMs: NOW,
@@ -143,5 +143,48 @@ describe("order panel directional review actions", () => {
 
     fireEvent.press(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByText("Leverage")).toBeNull();
+  });
+
+  test("clears a stale review error after account leverage synchronizes", async () => {
+    const onReview = jest.fn(async () => {
+      throw new Error("Account leverage changed while preparing review.");
+    });
+    const initialDraft = {
+      ...createTradeDraft({ account, context, market: NATIVE_DUPLICATE }),
+      size: "1",
+    };
+    const view = render(
+      <OrderPanel
+        authority={authority}
+        draft={initialDraft}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onReview={onReview}
+      />,
+    );
+
+    fireEvent.press(screen.getByRole("button", { name: "Buy / Long" }));
+    await screen.findByText("Account leverage changed while preparing review.");
+
+    const refreshedAccount = { ...account, leverage: 10, version: 2 };
+    view.rerender(
+      <OrderPanel
+        authority={{ ...authority, account: refreshedAccount }}
+        draft={{ ...initialDraft, leverage: 10 }}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onReview={onReview}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Account leverage changed while preparing review."),
+      ).toBeNull(),
+    );
   });
 });

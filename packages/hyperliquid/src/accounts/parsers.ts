@@ -5,6 +5,7 @@ import {
   parseNullableDecimalString,
 } from "../numbers/decimal";
 import type {
+  ActiveAssetData,
   ClearinghouseState,
   HistoricalOrder,
   MarginSummary,
@@ -57,6 +58,31 @@ function number(value: unknown, path: string): number {
     throw new HyperliquidValidationError(path, "expected a finite number");
   }
   return value;
+}
+
+function nonNegativeDecimal(value: unknown, path: string): DecimalString {
+  const parsed = parseDecimalString(value, path);
+  if (parsed.startsWith("-")) {
+    throw new HyperliquidValidationError(
+      path,
+      "expected a non-negative decimal value",
+    );
+  }
+  return parsed;
+}
+
+function decimalPair(
+  value: unknown,
+  path: string,
+): readonly [DecimalString, DecimalString] {
+  const values = list(value, path);
+  if (values.length !== 2) {
+    throw new HyperliquidValidationError(path, "expected exactly two values");
+  }
+  return [
+    nonNegativeDecimal(values[0], `${path}[0]`),
+    nonNegativeDecimal(values[1], `${path}[1]`),
+  ];
 }
 
 export function parseNamedApiWalletRegistrations(
@@ -214,6 +240,57 @@ export function parseClearinghouseState(
       source.withdrawable,
       `${path}.withdrawable`,
     ),
+  };
+}
+
+export function parseActiveAssetData(
+  payload: unknown,
+  path = "activeAssetData",
+): ActiveAssetData {
+  const source = object(payload, path);
+  const user = text(source.user, `${path}.user`);
+  if (!ADDRESS_PATTERN.test(user)) {
+    throw new HyperliquidValidationError(
+      `${path}.user`,
+      "expected a 42-character hexadecimal address",
+    );
+  }
+  const leverage = object(source.leverage, `${path}.leverage`);
+  const leverageType = text(leverage.type, `${path}.leverage.type`);
+  if (leverageType !== "cross" && leverageType !== "isolated") {
+    throw new HyperliquidValidationError(
+      `${path}.leverage.type`,
+      "expected cross or isolated",
+    );
+  }
+  const leverageValue = integer(leverage.value, `${path}.leverage.value`);
+  if (leverageValue < 1) {
+    throw new HyperliquidValidationError(
+      `${path}.leverage.value`,
+      "expected a positive integer",
+    );
+  }
+  return {
+    user: user.toLowerCase(),
+    coin: text(source.coin, `${path}.coin`),
+    leverage: {
+      type: leverageType,
+      value: leverageValue,
+      ...(leverage.rawUsd === undefined
+        ? {}
+        : {
+            rawUsd: parseDecimalString(
+              leverage.rawUsd,
+              `${path}.leverage.rawUsd`,
+            ),
+          }),
+    },
+    maxTradeSizes: decimalPair(source.maxTradeSzs, `${path}.maxTradeSzs`),
+    availableToTrade: decimalPair(
+      source.availableToTrade,
+      `${path}.availableToTrade`,
+    ),
+    markPrice: nonNegativeDecimal(source.markPx, `${path}.markPx`),
   };
 }
 

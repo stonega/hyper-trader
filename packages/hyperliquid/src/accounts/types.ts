@@ -57,6 +57,19 @@ export interface ClearinghouseState {
   readonly withdrawable: DecimalString;
 }
 
+export interface ActiveAssetData {
+  readonly user: string;
+  readonly coin: string;
+  readonly leverage: {
+    readonly type: "cross" | "isolated";
+    readonly value: number;
+    readonly rawUsd?: DecimalString;
+  };
+  readonly maxTradeSizes: readonly [DecimalString, DecimalString];
+  readonly availableToTrade: readonly [DecimalString, DecimalString];
+  readonly markPrice: DecimalString;
+}
+
 export interface SpotBalance {
   readonly coin: string;
   readonly token: number;

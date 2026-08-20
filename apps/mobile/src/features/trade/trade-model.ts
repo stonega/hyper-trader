@@ -25,9 +25,10 @@ import {
 } from "../actions/orchestrator";
 
 export type TradeOrderType = "market" | "limit";
+export type TradeSide = "buy" | "sell";
 
 export interface TradeAccountSnapshot {
-  readonly availableFunds: DecimalString;
+  readonly availableFunds: Readonly<Record<TradeSide, DecimalString>>;
   readonly leverage: number | null;
   readonly marginMode: "cross" | "isolated" | null;
   readonly positionSize: DecimalString;
@@ -37,7 +38,7 @@ export interface TradeAccountSnapshot {
 
 export interface TradeDraft {
   readonly binding: DraftContextBinding;
-  readonly side: "buy" | "sell";
+  readonly side: TradeSide;
   readonly orderType: TradeOrderType;
   readonly size: string;
   readonly limitPrice: string;
@@ -172,7 +173,8 @@ export function tradeReviewScopeKey(input: {
     input.authority.connectivity,
     input.authority.signerState,
     input.authority.actionRuntimeAvailable,
-    account?.availableFunds ?? null,
+    account?.availableFunds.buy ?? null,
+    account?.availableFunds.sell ?? null,
     account?.leverage ?? null,
     account?.marginMode ?? null,
     account?.positionSize ?? null,
@@ -295,7 +297,15 @@ export function reconcileTradeDraft(
     metadataFingerprint: tradeMarketFingerprint(input.market),
   });
   if (validation.valid) {
-    return { draft, preserved: true };
+    const currentLeverage =
+      input.market.family === "perp" ? (input.account?.leverage ?? null) : null;
+    return {
+      draft:
+        draft.leverage === currentLeverage
+          ? draft
+          : { ...draft, leverage: currentLeverage },
+      preserved: true,
+    };
   }
   return {
     draft: createTradeDraft(input),
@@ -587,7 +597,7 @@ export function buildTradeReview(input: {
     input.draft.leverage !== account.leverage
   ) {
     throw new Error(
-      "Order review must use the current account leverage. Change leverage through its separately reviewed action first.",
+      "Account leverage changed while this review was being prepared. Try again with the refreshed order.",
     );
   }
   const slippage =
@@ -662,7 +672,7 @@ export function buildTradeReview(input: {
         referencePrice: reference as DecimalString,
       },
       account: {
-        availableMargin: account.availableFunds,
+        availableMargin: account.availableFunds[input.draft.side],
         ...(leverage === null ? {} : { leverage }),
         ...(marginMode === undefined ? {} : { marginMode }),
         positionSize: account.positionSize,

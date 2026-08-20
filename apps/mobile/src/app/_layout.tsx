@@ -19,6 +19,7 @@ import { MobileQueryProvider } from "../core/query/provider";
 import { StreamRuntimeProvider } from "../core/streams/provider";
 import { AccountDirectoryProvider } from "../features/accounts/account-directory-provider";
 import { ActiveAccountContextRestorer } from "../features/accounts/active-account-context-restorer";
+import { ActionFlowSheet } from "../features/actions/action-flow-sheet";
 import {
   DevelopmentActionRuntimeProvider,
   DevelopmentSignerSessionProvider,
@@ -66,22 +67,6 @@ export default function RootLayout(): JSX.Element {
                                 <StatusBar style="auto" />
                                 <Stack screenOptions={{ headerShown: false }}>
                                   <Stack.Screen
-                                    name="action-review"
-                                    options={{
-                                      animation: "none",
-                                      gestureEnabled: false,
-                                      presentation: "modal",
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="action-result"
-                                    options={{
-                                      animation: "none",
-                                      gestureEnabled: false,
-                                      presentation: "modal",
-                                    }}
-                                  />
-                                  <Stack.Screen
                                     name="notification-settings"
                                     options={{
                                       animation: "none",
@@ -96,6 +81,7 @@ export default function RootLayout(): JSX.Element {
                                     }}
                                   />
                                 </Stack>
+                                <ActionFlowSheet />
                               </NotificationRuntimeProvider>
                             </NativeLifecycleProvider>
                           </DevelopmentActionRuntimeProvider>

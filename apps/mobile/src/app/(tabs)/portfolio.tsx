@@ -1,9 +1,7 @@
-import { useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
-import { Skeleton } from "heroui-native/skeleton";
 import type { JSX } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
@@ -19,8 +17,10 @@ import { PerformanceChart } from "../../components/chart/performance-chart";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
+import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
+import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
@@ -36,6 +36,10 @@ import {
   resolvePortfolioTarget,
   usePortfolioData,
 } from "../../features/portfolio/portfolio-query";
+import {
+  portfolioManualRefreshPlan,
+  runPortfolioRefreshPlan,
+} from "../../features/portfolio/portfolio-refresh";
 import {
   buildPortfolioCancelReview,
   buildPortfolioCloseReview,
@@ -76,26 +80,19 @@ const FILTERS: readonly {
   { value: "funding", label: "Funding" },
   { value: "activity", label: "Activity" },
 ];
+const PORTFOLIO_LOADING_ITEMS = ["headline", "chart", "rows"] as const;
 
 function LoadingPortfolio(): JSX.Element {
-  const reducedMotion = useReducedMotion();
   return (
-    <View accessibilityLabel="Loading private portfolio" className="gap-3">
-      {["headline", "chart", "rows"].map((key) => (
-        <Skeleton
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="h-40 w-full rounded-2xl"
-          key={key}
-          variant={reducedMotion ? "none" : "shimmer"}
-        />
-      ))}
-    </View>
+    <LoadingSkeletons
+      accessibilityLabel="Loading private portfolio"
+      items={PORTFOLIO_LOADING_ITEMS}
+    />
   );
 }
 
 export default function PortfolioScreen(): JSX.Element {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const reducedMotion = useReducedMotion();
   const tradingContext = useTradingContext();
   const { current } = tradingContext;
@@ -106,7 +103,7 @@ export default function PortfolioScreen(): JSX.Element {
     current.network,
   );
   const targetResolution = resolvePortfolioTarget(current);
-  const { portfolio, query, freshness } = usePortfolioData(
+  const { portfolio, query, historyQuery, freshness } = usePortfolioData(
     current,
     targetResolution.target,
     catalog?.markets,
@@ -118,6 +115,8 @@ export default function PortfolioScreen(): JSX.Element {
     readonly invalidationMessage: string | null;
   }>({ editor: null, invalidationMessage: null });
   const [actionError, setActionError] = useState<string | null>(null);
+  const manualRefreshGate = useRef(false);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const editor = interaction.editor;
 
   useEffect(() => {
@@ -262,7 +261,6 @@ export default function PortfolioScreen(): JSX.Element {
     actionRuntime.openReview(review);
     setInteraction({ editor: null, invalidationMessage: null });
     setActionError(null);
-    router.push("/action-review");
   };
 
   const reviewCancel = (order: PortfolioOpenOrderRow) => {
@@ -412,7 +410,35 @@ export default function PortfolioScreen(): JSX.Element {
   const failed =
     portfolio === null &&
     (catalogQuery.isError || query.isError || query.isRefetchError);
-  const refreshing = catalogQuery.isRefetching || query.isRefetching;
+  const refetchCatalog = catalogQuery.refetch;
+  const refetchPortfolio = query.refetch;
+  const refetchPortfolioHistory = historyQuery.refetch;
+  const manualRefreshPlan = portfolioManualRefreshPlan({
+    hasExactTarget: targetResolution.target !== null,
+    hasCatalog: catalog !== undefined,
+    catalogFresh: presentation.freshness === "fresh",
+    catalogFailed: catalogQuery.isError || catalogQuery.isRefetchError,
+    catalogRefreshing: catalogQuery.isRefetching,
+  });
+  const refreshFromPullGesture = useCallback(
+    () =>
+      runManualRefresh(
+        manualRefreshGate,
+        () =>
+          runPortfolioRefreshPlan(manualRefreshPlan, {
+            account: () => refetchPortfolio({ cancelRefetch: false }),
+            catalog: () => refetchCatalog({ cancelRefetch: false }),
+            history: () => refetchPortfolioHistory({ cancelRefetch: false }),
+          }),
+        setIsPullRefreshing,
+      ),
+    [
+      manualRefreshPlan,
+      refetchCatalog,
+      refetchPortfolio,
+      refetchPortfolioHistory,
+    ],
+  );
 
   return (
     <KeyboardAvoidingView
@@ -430,15 +456,9 @@ export default function PortfolioScreen(): JSX.Element {
         keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
-            accessibilityLabel="Refresh Portfolio account and market metadata"
-            onRefresh={() => {
-              const accountRefresh =
-                targetResolution.target !== null && catalog !== undefined
-                  ? [query.refetch()]
-                  : [];
-              void Promise.all([catalogQuery.refetch(), ...accountRefresh]);
-            }}
-            refreshing={refreshing}
+            accessibilityLabel="Refresh Portfolio account data"
+            onRefresh={refreshFromPullGesture}
+            refreshing={isPullRefreshing}
           />
         }
         showsVerticalScrollIndicator={false}
@@ -478,13 +498,7 @@ export default function PortfolioScreen(): JSX.Element {
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
-                onPress={() => {
-                  const accountRetry =
-                    targetResolution.target !== null && catalog !== undefined
-                      ? [query.refetch()]
-                      : [];
-                  void Promise.all([catalogQuery.refetch(), ...accountRetry]);
-                }}
+                onPress={() => void refreshFromPullGesture()}
                 variant="secondary"
               >
                 Retry account refresh

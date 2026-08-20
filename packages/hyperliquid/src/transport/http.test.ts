@@ -167,6 +167,11 @@ describe("info HTTP transport", () => {
   });
 
   test("fails closed for unknown weights and accounts for response size", () => {
+    expect(getInfoRequestBudget("activeAssetData")).toEqual({
+      requestType: "activeAssetData",
+      baseWeight: 20,
+      totalWeight: 20,
+    });
     expect(getInfoRequestBudget("recentTrades", 40)).toEqual({
       requestType: "recentTrades",
       baseWeight: 20,

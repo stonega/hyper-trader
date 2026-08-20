@@ -43,13 +43,19 @@ async function loadTradeAccountSnapshot(input: {
 }): Promise<TradeAccountSnapshot | null> {
   const client = createHyperliquidClient({ network: input.context.network });
   if (input.market.family === "perp") {
-    const result = await client.accounts.getClearinghouseState(
-      input.target,
-      input.market.dexName,
-      { signal: input.signal },
-    );
+    const [result, activeAsset] = await Promise.all([
+      client.accounts.getClearinghouseState(
+        input.target,
+        input.market.dexName,
+        { signal: input.signal },
+      ),
+      client.accounts.getActiveAssetData(input.target, input.market.coin, {
+        signal: input.signal,
+      }),
+    ]);
     return tradePerpAccountSnapshot({
       state: result.data,
+      activeAsset: activeAsset.data,
       market: input.market,
       observedAtMs: Date.now(),
     });

@@ -13,6 +13,7 @@ import {
   useTradingContext,
 } from "../../core/context/provider";
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
+import { createSignerActivityGate } from "../../core/session/activity-gate";
 import type { SignerSessionManager } from "../../core/session/manager";
 import {
   SignerSessionProvider,
@@ -43,25 +44,38 @@ export function DevelopmentSignerSessionProvider({
   children,
 }: PropsWithChildren): JSX.Element {
   const enabled = developmentBuild();
-  const activeAndFocused = useRef(AppState.currentState === "active");
+  const activityGateRef = useRef<ReturnType<
+    typeof createSignerActivityGate
+  > | null>(null);
+  if (activityGateRef.current === null) {
+    activityGateRef.current = createSignerActivityGate({
+      initiallyActiveAndFocused: AppState.currentState === "active",
+    });
+  }
+  const activityGate = activityGateRef.current;
   const [manager, setManager] = useState<SignerSessionManager | null>(null);
 
   useEffect(() => {
     const change = AppState.addEventListener("change", (state) => {
-      activeAndFocused.current = state === "active";
+      if (state === "background") {
+        activityGate.interrupt();
+        return;
+      }
+      activityGate.setActiveAndFocused(state === "active");
     });
     const focus = AppState.addEventListener("focus", () => {
-      activeAndFocused.current = AppState.currentState === "active";
+      activityGate.setActiveAndFocused(AppState.currentState === "active");
     });
     const blur = AppState.addEventListener("blur", () => {
-      activeAndFocused.current = false;
+      activityGate.setActiveAndFocused(false);
     });
     return () => {
       change.remove();
       focus.remove();
       blur.remove();
+      activityGate.dispose();
     };
-  }, []);
+  }, [activityGate]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -71,7 +85,8 @@ export function DevelopmentSignerSessionProvider({
       .then((runtime) => {
         if (!mounted) return;
         created = runtime.createSignerSessionManager({
-          isActiveAndFocused: () => activeAndFocused.current,
+          isActiveAndFocused: activityGate.isActiveAndFocused,
+          waitUntilActiveAndFocused: activityGate.waitUntilActiveAndFocused,
         });
         setManager(created);
       })
@@ -82,7 +97,7 @@ export function DevelopmentSignerSessionProvider({
       mounted = false;
       created?.lock("app_terminated");
     };
-  }, [enabled]);
+  }, [activityGate, enabled]);
 
   return (
     <SignerSessionProvider

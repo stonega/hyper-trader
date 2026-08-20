@@ -5,15 +5,27 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { processColor, StyleSheet, View } from "react-native";
-import { CartesianChart } from "victory-native";
+import { Gesture } from "react-native-gesture-handler";
+import { CartesianChart, type ChartBounds } from "victory-native";
 
 import { AppText as Text } from "../../components/app-text";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { formatMarketPrice } from "../markets/format";
 import { buildCandlestickChartModel } from "./candlestick-chart-model";
+import {
+  buildCandlestickChartDomains,
+  type CandlestickChartInteraction,
+  FULL_CANDLE_WINDOW,
+  horizontalFocalRatio,
+  minimumCandleWindowSpan,
+  type NumericRange,
+  pricePanOffset,
+  resolveCandlestickChartViewport,
+  zoomCandleWindow,
+} from "./candlestick-chart-viewport";
 import {
   TRADE_CANDLE_Y_KEYS,
   TRADE_CHART_INTERVALS,
@@ -38,6 +50,26 @@ const COMPACT_AXIS_FORMATTER = new Intl.NumberFormat("en-US", {
 const SMALL_AXIS_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 6,
 });
+
+const MINIMUM_VISIBLE_CANDLES = 12;
+const VERTICAL_DRAG_ACTIVATION_OFFSET = 6;
+const VERTICAL_DRAG_HORIZONTAL_TOLERANCE = 14;
+
+interface ChartInteractionState extends CandlestickChartInteraction {
+  readonly key: string;
+}
+
+interface VerticalDragStart {
+  readonly key: string;
+  readonly yOffset: number;
+}
+
+interface PinchStart {
+  readonly key: string;
+  readonly xWindow: NumericRange;
+  readonly focalRatio: number;
+  readonly minimumSpan: number;
+}
 
 function chartColor(value: string, fallback: string): string {
   const processed = processColor(value);
@@ -119,6 +151,128 @@ export function MarketCandlestickChart({
       candles ? buildCandlestickChartModel(candles, spec.windowLabel) : null,
     [candles, spec.windowLabel],
   );
+  const chartDomains = useMemo(
+    () => (model ? buildCandlestickChartDomains(model.data) : null),
+    [model],
+  );
+  const interactionKey = `${market.canonicalId}:${interval}`;
+  const defaultInteraction = useMemo<ChartInteractionState>(
+    () => ({
+      key: interactionKey,
+      xWindow: FULL_CANDLE_WINDOW,
+      yOffset: 0,
+    }),
+    [interactionKey],
+  );
+  const [storedInteraction, setStoredInteraction] =
+    useState<ChartInteractionState>(defaultInteraction);
+  const interaction =
+    storedInteraction.key === interactionKey
+      ? storedInteraction
+      : defaultInteraction;
+  const chartViewport = useMemo(
+    () =>
+      chartDomains
+        ? resolveCandlestickChartViewport(chartDomains, interaction)
+        : null,
+    [chartDomains, interaction],
+  );
+  const chartBoundsRef = useRef<ChartBounds | null>(null);
+  const interactionRef = useRef(interaction);
+  const minimumWindowSpanRef = useRef(
+    minimumCandleWindowSpan(model?.data.length ?? 0, MINIMUM_VISIBLE_CANDLES),
+  );
+  const verticalDragStartRef = useRef<VerticalDragStart | null>(null);
+  const pinchStartRef = useRef<PinchStart | null>(null);
+  interactionRef.current = interaction;
+  minimumWindowSpanRef.current = minimumCandleWindowSpan(
+    model?.data.length ?? 0,
+    MINIMUM_VISIBLE_CANDLES,
+  );
+
+  const chartGesture = useMemo(() => {
+    const verticalDrag = Gesture.Pan()
+      .minPointers(1)
+      .maxPointers(1)
+      .activeOffsetY([
+        -VERTICAL_DRAG_ACTIVATION_OFFSET,
+        VERTICAL_DRAG_ACTIVATION_OFFSET,
+      ])
+      .failOffsetX([
+        -VERTICAL_DRAG_HORIZONTAL_TOLERANCE,
+        VERTICAL_DRAG_HORIZONTAL_TOLERANCE,
+      ])
+      .runOnJS(true)
+      .onStart(() => {
+        const current = interactionRef.current;
+        verticalDragStartRef.current = {
+          key: current.key,
+          yOffset: current.yOffset,
+        };
+      })
+      .onUpdate(({ translationY }) => {
+        const start = verticalDragStartRef.current;
+        const bounds = chartBoundsRef.current;
+        if (!start || !bounds) return;
+
+        const current = interactionRef.current;
+        const next: ChartInteractionState = {
+          key: start.key,
+          xWindow:
+            current.key === start.key ? current.xWindow : FULL_CANDLE_WINDOW,
+          yOffset: pricePanOffset({
+            startOffset: start.yOffset,
+            translationY,
+            plotHeight: bounds.bottom - bounds.top,
+          }),
+        };
+        interactionRef.current = next;
+        setStoredInteraction(next);
+      })
+      .onFinalize(() => {
+        verticalDragStartRef.current = null;
+      });
+
+    const candleDensityPinch = Gesture.Pinch()
+      .runOnJS(true)
+      .onStart(({ focalX }) => {
+        const bounds = chartBoundsRef.current;
+        if (!bounds) return;
+
+        const current = interactionRef.current;
+        pinchStartRef.current = {
+          key: current.key,
+          xWindow: current.xWindow,
+          focalRatio: horizontalFocalRatio(focalX, bounds),
+          minimumSpan: minimumWindowSpanRef.current,
+        };
+      })
+      .onUpdate(({ focalX, scale }) => {
+        const start = pinchStartRef.current;
+        const bounds = chartBoundsRef.current;
+        if (!start || !bounds) return;
+
+        const current = interactionRef.current;
+        const next: ChartInteractionState = {
+          key: start.key,
+          xWindow: zoomCandleWindow({
+            startWindow: start.xWindow,
+            scale,
+            startFocalRatio: start.focalRatio,
+            currentFocalRatio: horizontalFocalRatio(focalX, bounds),
+            minimumSpan: start.minimumSpan,
+          }),
+          yOffset: current.key === start.key ? current.yOffset : 0,
+        };
+        interactionRef.current = next;
+        setStoredInteraction(next);
+      })
+      .onFinalize(() => {
+        pinchStartRef.current = null;
+      });
+
+    return Gesture.Simultaneous(verticalDrag, candleDensityPinch);
+  }, []);
   const colors = useMemo(
     () => ({
       positive: chartColor(success, FALLBACK_COLORS.positive),
@@ -177,7 +331,7 @@ export function MarketCandlestickChart({
           })}
         </View>
 
-        {model ? (
+        {model && chartViewport ? (
           <>
             <View
               accessibilityElementsHidden
@@ -185,6 +339,8 @@ export function MarketCandlestickChart({
               style={compact ? styles.compactChart : styles.chart}
             >
               <CartesianChart
+                customGestures={chartGesture}
+                domain={{ y: chartViewport.y }}
                 frame={{
                   lineColor: colors.grid,
                   lineWidth: {
@@ -196,7 +352,11 @@ export function MarketCandlestickChart({
                 }}
                 data={model.data}
                 domainPadding={{ left: 4, right: 4, top: 12, bottom: 12 }}
+                onChartBoundsChange={(bounds) => {
+                  chartBoundsRef.current = bounds;
+                }}
                 padding={{ left: 2, right: 48, top: 4, bottom: 4 }}
+                viewport={{ x: chartViewport.x }}
                 xKey="timestamp"
                 yKeys={[...TRADE_CANDLE_Y_KEYS]}
                 yAxis={[
@@ -235,10 +395,10 @@ export function MarketCandlestickChart({
             </View>
             <View className="flex-row justify-between gap-3">
               <Text className="text-xs tabular-nums text-muted">
-                {formatTimestamp(model.firstTimestamp, interval)}
+                {formatTimestamp(chartViewport.x[0], interval)}
               </Text>
               <Text className="text-right text-xs tabular-nums text-muted">
-                {formatTimestamp(model.lastTimestamp, interval)}
+                {formatTimestamp(chartViewport.x[1], interval)}
               </Text>
             </View>
             {compact ? (

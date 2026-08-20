@@ -597,7 +597,7 @@ U2 may start while U1 is under review because it is read-only and transport-safe
 - **Goal:** Implement one state-changing pipeline for Trade and Portfolio with pre-sign refresh, explicit review, safe result classification, and durable recovery.
 - **Requirements:** R2, R3, R24-R28, R31, R32, R37, R39, R47, R48, R50, R53, R54.
 - **Dependencies:** U3, U5, U6.
-- **Files:** `packages/hyperliquid/src/actions/validation.ts`, `packages/hyperliquid/src/actions/exchange-client.ts`, `packages/hyperliquid/src/reconciliation/`, `apps/mobile/src/features/actions/`, `apps/mobile/src/app/action-review.tsx`, `apps/mobile/src/app/action-result.tsx`, `apps/mobile/src/core/session/`, colocated tests and fixtures, `examples/testnet-order-workflow.ts`.
+- **Files:** `packages/hyperliquid/src/actions/validation.ts`, `packages/hyperliquid/src/actions/exchange-client.ts`, `packages/hyperliquid/src/reconciliation/`, `apps/mobile/src/features/actions/action-flow-sheet.tsx`, `apps/mobile/src/app/_layout.tsx`, `apps/mobile/src/core/session/`, colocated tests and fixtures, `examples/testnet-order-workflow.ts`.
 - **Approach:**
   - Implement decimal-safe validation for price, size, precision, notional, leverage, margin availability, reduce-only, time-in-force, trigger, slippage, tradability, and current context.
   - Build the action state machine in KTD11 as a pure reducer plus effect adapters.
@@ -619,7 +619,7 @@ U2 may start while U1 is under review because it is read-only and transport-safe
   - Keep essential fields and Review visible. Reveal price, leverage, trigger, TP/SL, reduce-only, time-in-force, and slippage only for supported market and order combinations.
   - Use the catalog's canonical identity and constraints. Disable actions for quarantine, stale-authority, read-only, locked, expired-agent, reconnecting, and mainnet states with explicit reasons.
   - Preserve valid user-entered fields through session unlock, keyboard changes, and tab switches. Expire the draft on context or metadata changes.
-  - Render accepted, rejected, expired, and reconciling feedback without navigating away from Trade except for the root review/result overlays.
+  - Render review, submission, accepted, rejected, expired, and reconciling feedback in one root action sheet without navigating away from Trade.
 - **Test Scenarios:** Native perp market order, HIP-3 limit order, spot order, side switch, size presets, keyboard avoidance, large text, unavailable leverage, delisted market, insufficient balance, expired session restoration, account switch invalidation, offline browse-only, result states, and rapid market switching.
 - **Verification:** Mobile tests cover control applicability and review payloads; Maestro covers market selection through mocked result; physical-device profiling verifies responsive input and cached switching.
 

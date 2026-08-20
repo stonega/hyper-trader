@@ -41,8 +41,10 @@ flowchart TB
   Setup --> Trade
   Markets[Markets] -->|Select market| Trade
   Trade --> Portfolio[Portfolio]
-  Portfolio -->|Manage position| Review[Action review]
-  Trade -->|Submit order| Review
+  Portfolio -->|Manage position| Review[Action sheet]
+  Trade -->|Review order| Review
+  Review -->|Confirm| Submit[Submit and check status]
+  Submit -->|Accepted| Trade
   Settings[Settings] --> Context[Account, network, security, and alerts]
   Context --> Trade
 ```
@@ -102,7 +104,7 @@ making the API wallet independently selectable.
 - R22. The inline panel must keep side, order type, price when applicable, size, leverage when applicable, available balance or margin, and the primary review action visible.
 - R23. Trigger settings, TP/SL, reduce-only, time-in-force, slippage, and other market-specific controls must appear only when applicable to the selected market and order type.
 - R24. Order values must be validated against current network, market metadata, precision, price, size, leverage, margin, reduce-only, and slippage rules before review.
-- R25. Review must show the account, network, market, side, order type, price or trigger, size, leverage or margin mode, reduce-only state, estimated fees, and relevant slippage before signing.
+- R25. One bottom sheet must show the account, network, market, side, order type, price or trigger, size, leverage or margin mode, reduce-only state, estimated fees, and relevant slippage before signing, then remain in place through submission and status checking. It closes automatically only after acceptance.
 - R26. If the trading session expires during order entry or review, device authentication must restore the same still-valid draft before signing.
 - R27. Submission must distinguish accepted, rejected, expired, and unresolved outcomes and reconcile each result with orders, fills, and positions.
 - R28. The first complete production trading slice must support testnet market and limit orders, open-order display, fills, position updates, cancellation, and position closing.

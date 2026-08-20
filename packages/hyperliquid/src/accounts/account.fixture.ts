@@ -24,6 +24,14 @@ export const EMPTY_CLEARINGHOUSE = {
 
 export const ACCOUNT_RESPONSES = {
   clearinghouseState: EMPTY_CLEARINGHOUSE,
+  activeAssetData: {
+    user: SUBACCOUNT_ADDRESS,
+    coin: "alpha:DUP",
+    leverage: { type: "cross", value: 5 },
+    maxTradeSzs: ["10.0000000000000001", "9.0000000000000001"],
+    availableToTrade: ["50.0000000000000001", "45.0000000000000001"],
+    markPx: "5.0000000000000001",
+  },
   spotClearinghouseState: {
     balances: [
       {

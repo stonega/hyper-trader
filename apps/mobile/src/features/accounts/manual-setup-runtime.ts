@@ -94,6 +94,7 @@ export interface ManualSetupRuntime {
   restoreTradingContext(account: SavedAccount): Promise<TradingContextIdentity>;
   createSignerSessionManager(input: {
     readonly isActiveAndFocused: () => boolean;
+    readonly waitUntilActiveAndFocused: () => Promise<boolean>;
   }): SignerSessionManager;
   createActionRepository(
     authority: ContextEpochAuthority,
@@ -329,7 +330,10 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         nowMs: Date.now(),
       });
     },
-    createSignerSessionManager({ isActiveAndFocused }) {
+    createSignerSessionManager({
+      isActiveAndFocused,
+      waitUntilActiveAndFocused,
+    }) {
       return createSignerSessionManager({
         timer: {
           now: Date.now,
@@ -341,6 +345,7 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         vault,
         signerFactory: createAgentSigner,
         isActiveAndFocused,
+        waitUntilActiveAndFocused,
       });
     },
     createActionRepository(authority) {

@@ -207,12 +207,26 @@ binding are unchanged and the app is both active and focused; otherwise discard
 the returned secret immediately. A late result can never recreate a stopped
 session.
 
+The app-initiated SecureStore authentication sheet is the narrow lifecycle
+exception needed for that authenticated read to complete. While the session is
+still `unlocking`, a transient `inactive` event or Android `blur` from the native
+sheet does not itself advance the session epoch. If the authenticated read
+resolves just before React Native reports active focus, the manager permits a
+bounded 1.5-second focus-settling window before constructing the signer. During
+that window the protected material remains local to the unlock frame. A real
+`background` event, context/epoch change, missing focus event, or timeout
+immediately fails the wait and disposes the material. After the session reaches
+`unlocked`, every `inactive`, `background`, or Android `blur` event locks it
+immediately. This exception never applies to an existing in-memory signer.
+
 Clear the session on the earliest of:
 
 - five minutes after unlock, without sliding renewal;
 - manual lock;
-- app `background` or `inactive` transition;
-- Android `blur`, including notification-drawer or system-overlay focus loss;
+- app `background`, or an `inactive` transition outside the exact pending native
+  authentication sheet described above;
+- Android `blur`, including notification-drawer or system-overlay focus loss,
+  outside that same pending authentication sheet;
 - network, master, target, signer-generation, or context-epoch change;
 - biometric/passcode enrollment invalidation or authentication error;
 - app termination, memory warning, or compromised-device stop.

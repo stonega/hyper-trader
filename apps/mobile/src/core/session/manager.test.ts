@@ -11,6 +11,7 @@ import {
   type ProtectedAgentSecret,
   type SessionTimer,
   SIGNER_SESSION_DURATION_MS,
+  shouldLockSignerSessionForLifecycle,
 } from "./manager";
 
 const BINDING: SignerBinding = {
@@ -85,6 +86,37 @@ function secret(binding = BINDING): ProtectedAgentSecret & {
 }
 
 describe("signer session manager", () => {
+  test("permits only the expected native authentication overlay while unlocking", () => {
+    const unlocking = {
+      status: "unlocking" as const,
+      epoch: 1,
+      binding: BINDING,
+      capturedContextEpoch: 4,
+    };
+    expect(shouldLockSignerSessionForLifecycle(unlocking, "app_inactive")).toBe(
+      false,
+    );
+    expect(shouldLockSignerSessionForLifecycle(unlocking, "android_blur")).toBe(
+      false,
+    );
+    expect(
+      shouldLockSignerSessionForLifecycle(unlocking, "app_background"),
+    ).toBe(true);
+    expect(
+      shouldLockSignerSessionForLifecycle(
+        {
+          status: "unlocked",
+          epoch: 1,
+          binding: BINDING,
+          capturedContextEpoch: 4,
+          unlockedAt: 10_000,
+          expiresAt: 20_000,
+        },
+        "app_inactive",
+      ),
+    ).toBe(true);
+  });
+
   test("denies mainnet before authentication or credential access", async () => {
     let authReads = 0;
     let vaultReads = 0;
@@ -153,9 +185,86 @@ describe("signer session manager", () => {
 
     manager.lock("app_background");
     read.resolve(material);
-    await expect(first).rejects.toThrow("invalidated");
+    await expect(first).rejects.toMatchObject({ code: "session_invalidated" });
     expect(material.disposed()).toBe(true);
     expect(manager.read().status).toBe("locked");
+  });
+
+  test("discards a protected key if the authentication sheet resolves before focus returns", async () => {
+    const read = deferred<ProtectedAgentSecret>();
+    const material = secret();
+    const timer = createTimer();
+    let active = true;
+    const manager = createSignerSessionManager({
+      timer: timer.timer,
+      deviceAuth: { assertAvailable: async () => undefined },
+      vault: { read: () => read.promise },
+      signerFactory: async () => ({
+        binding: BINDING,
+        signTypedData: async () => SIGNATURE,
+        destroy: () => undefined,
+      }),
+      isActiveAndFocused: () => active,
+    });
+    const unlock = manager.unlock({
+      binding: BINDING,
+      capturedContextEpoch: 4,
+      isContextCurrent: () => true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    active = false;
+    read.resolve(material);
+
+    await expect(unlock).rejects.toMatchObject({ code: "app_not_active" });
+    expect(material.disposed()).toBe(true);
+    expect(manager.read()).toMatchObject({
+      status: "locked",
+      reason: "app_inactive",
+    });
+  });
+
+  test("waits for the bounded active return after protected authentication", async () => {
+    const read = deferred<ProtectedAgentSecret>();
+    const activeReturn = deferred<boolean>();
+    const material = secret();
+    const timer = createTimer();
+    let active = true;
+    let signerCreations = 0;
+    const manager = createSignerSessionManager({
+      timer: timer.timer,
+      deviceAuth: { assertAvailable: async () => undefined },
+      vault: { read: () => read.promise },
+      signerFactory: async () => {
+        signerCreations += 1;
+        return {
+          binding: BINDING,
+          signTypedData: async () => SIGNATURE,
+          destroy: () => undefined,
+        };
+      },
+      isActiveAndFocused: () => active,
+      waitUntilActiveAndFocused: () => activeReturn.promise,
+    });
+    const unlock = manager.unlock({
+      binding: BINDING,
+      capturedContextEpoch: 4,
+      isContextCurrent: () => true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    active = false;
+    read.resolve(material);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(signerCreations).toBe(0);
+
+    active = true;
+    activeReturn.resolve(true);
+
+    await expect(unlock).resolves.toMatchObject({ status: "unlocked" });
+    expect(signerCreations).toBe(1);
+    expect(material.disposed()).toBe(true);
   });
 
   test("publishes only for the exact current binding and context epoch", async () => {

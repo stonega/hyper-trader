@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type {
   AccountTarget,
+  ActiveAssetData,
   ClearinghouseState,
   HyperliquidClient,
   SignerBinding,
 } from "@hyper-trader/hyperliquid";
+import { validateTradingAction } from "@hyper-trader/hyperliquid";
 
 import { NATIVE_DUPLICATE } from "../markets/fixture";
 import { PORTFOLIO_FIXTURE } from "../portfolio/portfolio.fixture";
@@ -79,7 +81,10 @@ function review() {
   });
 }
 
-function client(state: ClearinghouseState): HyperliquidClient {
+function client(
+  state: ClearinghouseState,
+  availableToTrade: ActiveAssetData["availableToTrade"] = ["118", "117"],
+): HyperliquidClient {
   return {
     network: "testnet",
     async getMarketCatalog() {
@@ -92,6 +97,20 @@ function client(state: ClearinghouseState): HyperliquidClient {
     accounts: {
       async getClearinghouseState(target: AccountTarget) {
         return { target, sourceDex: "", data: state };
+      },
+      async getActiveAssetData(target: AccountTarget) {
+        return {
+          target,
+          sourceDex: null,
+          data: {
+            user: target.address,
+            coin: NATIVE_DUPLICATE.coin,
+            leverage: { type: "cross", value: 5 },
+            maxTradeSizes: ["23", "22"],
+            availableToTrade,
+            markPrice: "10",
+          },
+        };
       },
     },
   } as unknown as HyperliquidClient;
@@ -126,7 +145,7 @@ describe("development authoritative order refresh", () => {
     });
   });
 
-  test("keeps the reviewed version only when authoritative account fields match", async () => {
+  test("revalidates volatile margin without treating it as a stale account", async () => {
     const candidate = review();
     const current = {
       context: {
@@ -158,9 +177,51 @@ describe("development authoritative order refresh", () => {
     const changed = await refreshReviewedOrder({
       review: candidate,
       clock: unusedClock,
+      client: client(PORTFOLIO_FIXTURE.perpStates[0].state, ["117", "116"]),
+      readCurrentContext: () => current,
+      now: () => NOW + 1_000,
+    });
+    expect(changed.account.availableMargin).toBe("117");
+    expect(changed.account.version).toBe(candidate.validation.account.version);
+    expect(validateTradingAction(changed).accountStateVersion).toBe(
+      candidate.validation.account.version,
+    );
+
+    const insufficient = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
+      client: client(PORTFOLIO_FIXTURE.perpStates[0].state, ["0.01", "0.02"]),
+      readCurrentContext: () => current,
+      now: () => NOW + 1_000,
+    });
+    expect(() => validateTradingAction(insufficient)).toThrow(
+      "insufficient current margin for this action",
+    );
+  });
+
+  test("changes the account version when a position field changes", async () => {
+    const candidate = review();
+    const current = {
+      context: {
+        network: "testnet" as const,
+        masterAccount: binding.masterAccount,
+        targetAccount: binding.targetAccount,
+        signer: {
+          agentAddress: binding.agentAddress,
+          generation: binding.generation,
+        },
+      },
+      epoch: 4,
+    };
+    const state = PORTFOLIO_FIXTURE.perpStates[0].state;
+    const position = state.positions[0];
+    if (!position) throw new Error("The fixture position is unavailable.");
+    const changed = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
       client: client({
-        ...PORTFOLIO_FIXTURE.perpStates[0].state,
-        withdrawable: "117",
+        ...state,
+        positions: [{ ...position, size: "2.6" }],
       }),
       readCurrentContext: () => current,
       now: () => NOW + 1_000,

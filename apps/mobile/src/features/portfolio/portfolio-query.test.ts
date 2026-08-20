@@ -6,6 +6,10 @@ import {
   portfolioCatalogCacheKey,
   portfolioQueryKey,
 } from "./portfolio-query-key";
+import {
+  portfolioManualRefreshPlan,
+  runPortfolioRefreshPlan,
+} from "./portfolio-refresh";
 
 const context = {
   network: "testnet" as const,
@@ -65,5 +69,76 @@ describe("portfolio query isolation", () => {
         "catalog-a",
       ),
     ).not.toEqual(keys[0]);
+  });
+});
+
+describe("portfolio manual refresh planning", () => {
+  test("refreshes only account data while the catalog is healthy", () => {
+    expect(
+      portfolioManualRefreshPlan({
+        hasExactTarget: true,
+        hasCatalog: true,
+        catalogFresh: true,
+        catalogFailed: false,
+        catalogRefreshing: false,
+      }),
+    ).toEqual({ account: true, catalog: false });
+  });
+
+  test("includes catalog recovery only when metadata needs it", () => {
+    expect(
+      portfolioManualRefreshPlan({
+        hasExactTarget: true,
+        hasCatalog: true,
+        catalogFresh: false,
+        catalogFailed: false,
+        catalogRefreshing: false,
+      }),
+    ).toEqual({ account: true, catalog: true });
+    expect(
+      portfolioManualRefreshPlan({
+        hasExactTarget: true,
+        hasCatalog: false,
+        catalogFresh: false,
+        catalogFailed: true,
+        catalogRefreshing: false,
+      }),
+    ).toEqual({ account: false, catalog: true });
+  });
+
+  test("does not restart a catalog refresh already in flight", () => {
+    expect(
+      portfolioManualRefreshPlan({
+        hasExactTarget: true,
+        hasCatalog: true,
+        catalogFresh: false,
+        catalogFailed: false,
+        catalogRefreshing: true,
+      }),
+    ).toEqual({ account: true, catalog: false });
+  });
+
+  test("finishes the gesture after live data and refreshes history afterward", async () => {
+    let finishAccount!: () => void;
+    let historyCalls = 0;
+    const account = new Promise<void>((resolve) => {
+      finishAccount = resolve;
+    });
+    const refresh = runPortfolioRefreshPlan(
+      { account: true, catalog: false },
+      {
+        account: () => account,
+        catalog: async () => undefined,
+        history: () => {
+          historyCalls += 1;
+          return new Promise(() => undefined);
+        },
+      },
+    );
+
+    expect(historyCalls).toBe(0);
+    finishAccount();
+    await refresh;
+    expect(historyCalls).toBe(1);
   });
 });
