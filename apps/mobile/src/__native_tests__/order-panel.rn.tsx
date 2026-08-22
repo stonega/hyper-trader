@@ -1,6 +1,7 @@
 import type { Market } from "@hyper-trader/hyperliquid/public";
 import { describe, expect, jest, test } from "@jest/globals";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -88,7 +89,7 @@ describe("order panel directional review actions", () => {
     expect(within(availableFundsRow).getByText("1000")).toBeTruthy();
   });
 
-  test("uses stacked perp actions and binds the pressed side into review", async () => {
+  test("uses a stacked execution rail and binds the pressed side into review", async () => {
     const { onReview } = renderPanel(NATIVE_DUPLICATE);
 
     expect(screen.queryByText("Order entry")).toBeNull();
@@ -97,8 +98,12 @@ describe("order panel directional review actions", () => {
     expect(
       screen.getByRole("button", { name: "Buy / Long" }).props.variant,
     ).toBe("primary");
+    const buy = screen.getByRole("button", { name: "Buy / Long" });
     const sell = screen.getByRole("button", { name: "Sell / Short" });
     expect(sell.props.variant).toBe("danger");
+    expect(screen.getByTestId("execution-action-rail")).toBeTruthy();
+    expect(buy.props.className).toContain("w-full");
+    expect(sell.props.className).toContain("w-full");
 
     fireEvent.press(sell);
 
@@ -114,6 +119,45 @@ describe("order panel directional review actions", () => {
     expect(screen.queryByText(/Long|Short/)).toBeNull();
   });
 
+  test("keeps the pressed side in Reviewing while the order review is pending", async () => {
+    let finishReview!: () => void;
+    const onReview = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishReview = resolve;
+        }),
+    );
+    render(
+      <OrderPanel
+        authority={authority}
+        draft={{
+          ...createTradeDraft({
+            account,
+            context,
+            market: NATIVE_DUPLICATE,
+          }),
+          size: "1",
+        }}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onReview={onReview}
+      />,
+    );
+
+    fireEvent.press(screen.getByRole("button", { name: "Buy / Long" }));
+
+    expect(await screen.findByText("Reviewing…")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Sell / Short" }).props
+        .accessibilityState,
+    ).toMatchObject({ disabled: true });
+
+    await act(async () => finishReview());
+    await waitFor(() => expect(screen.queryByText("Reviewing…")).toBeNull());
+  });
+
   test("opens leverage and advanced controls in the settings dialog", () => {
     renderPanel(NATIVE_DUPLICATE);
 
@@ -122,7 +166,7 @@ describe("order panel directional review actions", () => {
       within(controlsRow).getByRole("tab", { name: "Market" }),
     ).toBeTruthy();
     const show = within(controlsRow).getByRole("button", {
-      name: "Order settings",
+      name: "Order settings, 5× · 0.5%",
     });
     expect(show.props.accessibilityState).toEqual({ expanded: false });
     expect(screen.queryByText("Leverage")).toBeNull();
@@ -131,7 +175,7 @@ describe("order panel directional review actions", () => {
     fireEvent.press(show);
 
     expect(
-      screen.getByRole("button", { name: "Order settings" }).props
+      screen.getByRole("button", { name: "Order settings, 5× · 0.5%" }).props
         .accessibilityState,
     ).toEqual({ expanded: true });
     expect(screen.getByText("Leverage")).toBeTruthy();
@@ -141,7 +185,7 @@ describe("order panel directional review actions", () => {
     ).toBeTruthy();
     expect(screen.getByText("Maximum slippage · 0.5%")).toBeTruthy();
 
-    fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    fireEvent.press(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByText("Leverage")).toBeNull();
   });
 

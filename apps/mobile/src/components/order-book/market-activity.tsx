@@ -3,6 +3,7 @@ import type {
   L2Level,
   RecentTrade,
 } from "@hyper-trader/hyperliquid/public";
+import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
 import { useState } from "react";
@@ -22,18 +23,16 @@ function LevelRow({
   side,
   level,
   compact,
+  onSelectPrice,
 }: {
   readonly side: "Ask" | "Bid";
   readonly level: L2Level;
   readonly compact: boolean;
+  readonly onSelectPrice?: (price: string) => void;
 }) {
   if (compact) {
-    return (
-      <View
-        accessible
-        accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
-        className="flex-row items-baseline gap-1 py-1"
-      >
+    const content = (
+      <>
         <Text
           className={`w-7 text-xs font-medium ${side === "Ask" ? "text-danger" : "text-success"}`}
         >
@@ -41,30 +40,65 @@ function LevelRow({
         </Text>
         <Text
           adjustsFontSizeToFit
-          className="flex-1 text-right text-xs tabular-nums text-foreground"
+          className="flex-1 text-right font-mono text-xs text-foreground"
           numberOfLines={1}
         >
           {level.price}
         </Text>
         <Text
           adjustsFontSizeToFit
-          className="flex-1 text-right text-xs tabular-nums text-muted"
+          className="flex-1 text-right font-mono text-xs text-muted"
           numberOfLines={1}
         >
           {level.size}
         </Text>
+      </>
+    );
+    return onSelectPrice ? (
+      <Button
+        accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
+        accessibilityHint="Sets this price on a limit order."
+        className="h-10 min-h-10 w-full flex-row items-baseline justify-start gap-1 px-0 py-1"
+        onPress={() => onSelectPrice(level.price)}
+        size="sm"
+        variant="ghost"
+      >
+        {content}
+      </Button>
+    ) : (
+      <View
+        accessible
+        accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
+        className="flex-row items-baseline gap-1 py-1"
+      >
+        {content}
       </View>
     );
   }
-  return (
-    <View className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
+  const content = (
+    <>
       <Text className="min-w-10 text-xs font-medium text-muted">{side}</Text>
-      <Text className="flex-1 text-right text-sm tabular-nums text-foreground">
+      <Text className="flex-1 text-right font-mono text-sm text-foreground">
         {level.price}
       </Text>
-      <Text className="min-w-24 text-right text-sm tabular-nums text-muted">
+      <Text className="min-w-24 text-right font-mono text-sm text-muted">
         {level.size} · {level.orderCount} orders
       </Text>
+    </>
+  );
+  return onSelectPrice ? (
+    <Button
+      accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
+      accessibilityHint="Sets this price on a limit order."
+      className="min-h-12 w-full flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0 py-1"
+      onPress={() => onSelectPrice(level.price)}
+      variant="ghost"
+    >
+      {content}
+    </Button>
+  ) : (
+    <View className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
+      {content}
     </View>
   );
 }
@@ -98,14 +132,14 @@ function TradeRow({
         </Text>
         <Text
           adjustsFontSizeToFit
-          className="flex-1 text-right text-xs tabular-nums text-foreground"
+          className="flex-1 text-right font-mono text-xs text-foreground"
           numberOfLines={1}
         >
           {trade.price}
         </Text>
         <Text
           adjustsFontSizeToFit
-          className="flex-1 text-right text-xs tabular-nums text-muted"
+          className="flex-1 text-right font-mono text-xs text-muted"
           numberOfLines={1}
         >
           {trade.size}
@@ -116,10 +150,10 @@ function TradeRow({
   return (
     <View className="flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 py-1">
       <Text className="min-w-28 text-xs font-medium text-muted">{side}</Text>
-      <Text className="flex-1 text-right text-sm tabular-nums text-foreground">
+      <Text className="flex-1 text-right font-mono text-sm text-foreground">
         {trade.price}
       </Text>
-      <Text className="min-w-20 text-right text-sm tabular-nums text-muted">
+      <Text className="min-w-20 text-right font-mono text-sm text-muted">
         {trade.size}
       </Text>
     </View>
@@ -133,6 +167,7 @@ export function MarketActivity({
   trades,
   tradesLoading,
   tradesUnavailable,
+  onSelectPrice,
   compact = false,
   style,
 }: {
@@ -142,6 +177,7 @@ export function MarketActivity({
   readonly trades: readonly RecentTrade[] | undefined;
   readonly tradesLoading: boolean;
   readonly tradesUnavailable: boolean;
+  readonly onSelectPrice?: (price: string) => void;
   readonly compact?: boolean;
   readonly style?: StyleProp<ViewStyle>;
 }): JSX.Element {
@@ -199,11 +235,16 @@ export function MarketActivity({
               <LevelRow
                 compact={compact}
                 key={`${row.side}:${row.level.price}`}
+                onSelectPrice={onSelectPrice}
                 {...row}
               />
             ))
           : tradeRows.map((trade) => (
-              <TradeRow compact={compact} key={trade.tradeId} trade={trade} />
+              <TradeRow
+                compact={compact}
+                key={`${trade.time}:${trade.tradeId}`}
+                trade={trade}
+              />
             ))}
         {empty ? (
           <Text

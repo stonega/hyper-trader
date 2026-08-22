@@ -32,6 +32,8 @@ export interface TradeAccountSnapshot {
   readonly leverage: number | null;
   readonly marginMode: "cross" | "isolated" | null;
   readonly positionSize: DecimalString;
+  readonly entryPrice?: DecimalString | null;
+  readonly liquidationPrice?: DecimalString | null;
   readonly version: number;
   readonly observedAtMs: number;
 }

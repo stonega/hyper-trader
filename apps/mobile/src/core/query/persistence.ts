@@ -4,14 +4,11 @@ import { isPublicQueryKey, type PublicQueryFamily } from "./keys";
 
 export const PUBLIC_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 export const PUBLIC_CACHE_GC_TIME_MS = 24 * 60 * 60 * 1000;
-export const PUBLIC_CACHE_BUSTER = "hyper-trader-public-v1";
+export const PUBLIC_CACHE_BUSTER = "hyper-trader-public-v3";
 
-const persistedFamilies = new Set<PublicQueryFamily>([
-  "marketCatalog",
-  "midPrices",
-  "marketContext",
-  "candles",
-]);
+const persistedFamilies = new Set<PublicQueryFamily>(["marketCatalog"]);
+
+const PERSISTING_CACHE_EVENT_TYPES = new Set(["added", "removed", "updated"]);
 
 export function isAllowlistedPublicQuery(queryKey: QueryKey): boolean {
   return (
@@ -25,6 +22,17 @@ export function isAllowlistedPublicQuery(queryKey: QueryKey): boolean {
 export function shouldPersistPublicQuery(query: Query): boolean {
   return (
     query.state.status === "success" && isAllowlistedPublicQuery(query.queryKey)
+  );
+}
+
+export function shouldPersistPublicCacheEvent(event: {
+  readonly type: string;
+  readonly query?: Pick<Query, "queryKey">;
+}): boolean {
+  return (
+    PERSISTING_CACHE_EVENT_TYPES.has(event.type) &&
+    event.query !== undefined &&
+    isAllowlistedPublicQuery(event.query.queryKey)
   );
 }
 

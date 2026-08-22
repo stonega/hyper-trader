@@ -102,6 +102,7 @@ making the API wallet independently selectable.
 - R20. Trade must reopen the last valid market and show a complete searchable market switcher in its header.
 - R21. Trade must combine market identity, core statistics, charting, order-book or trade data, account context, and the inline order panel within one screen surface.
 - R22. The inline panel must keep side, order type, price when applicable, size, leverage when applicable, available balance or margin, and the primary review action visible.
+- R22a. Buy and Sell review actions must use one vertically stacked, side-aware execution rail, and selecting an order-book price must switch the draft to a limit order and populate its price without an intermediate screen.
 - R23. Trigger settings, TP/SL, reduce-only, time-in-force, slippage, and other market-specific controls must appear only when applicable to the selected market and order type.
 - R24. Order values must be validated against current network, market metadata, precision, price, size, leverage, margin, reduce-only, and slippage rules before review.
 - R25. One bottom sheet must show the account, network, market, side, order type, price or trigger, size, leverage or margin mode, reduce-only state, estimated fees, and relevant slippage before signing, then remain in place through submission and status checking. It closes automatically only after acceptance.
@@ -116,6 +117,7 @@ making the API wallet independently selectable.
 - R31. Position rows must expose a direct full-close review and applicable margin actions. Unavailable controls, including TP/SL until implemented end to end, must not be rendered.
 - R32. Direct portfolio actions must use the same validation, review, session-unlock, signing, result, and reconciliation rules as Trade.
 - R33. Portfolio must isolate loading, cached data, and action state by master account, sub-account or vault context, and network.
+- R33a. Portfolio endpoint fan-out must run in the backend; mobile keeps private aggregates in memory and uses account WebSocket events only to trigger an authoritative refresh.
 - R34. Portfolio may display balances and deposit information but must not perform deposits, withdrawals, or internal transfers.
 - R35. Any external funding handoff must identify the destination, active account, and network before leaving Hyper Trader.
 

@@ -36,9 +36,15 @@ import {
   parsePushTokenResponse,
   parseRuleResponse,
 } from "./application";
+import {
+  PortfolioSnapshotBusyError,
+  PortfolioSnapshotNotReadyError,
+  type PortfolioSnapshotReader,
+} from "./portfolio/portfolio-snapshot-reader";
 
 const JSON_CONTENT_TYPE = "application/json";
 const MAX_MARKET_CATALOG_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_PORTFOLIO_RESPONSE_BYTES = 4 * 1024 * 1024;
 const BEARER = /^Bearer ([0-9a-f]{64})$/;
 const PROTECTED_POST_PATHS = new Set([
   "/v1/challenges",
@@ -60,12 +66,14 @@ export interface MarketCatalogReader {
 export interface MarketCatalogServerOptions {
   readonly serviceOrigin: string;
   readonly marketCatalog: MarketCatalogReader;
+  readonly portfolioSnapshots?: PortfolioSnapshotReader;
 }
 
 export interface NotificationServerOptions {
   readonly application: NotificationApplication;
   readonly serviceOrigin: string;
   readonly marketCatalog?: MarketCatalogReader;
+  readonly portfolioSnapshots?: PortfolioSnapshotReader;
 }
 
 export interface NotificationDirectTlsServerBoundary {
@@ -99,24 +107,61 @@ export function createMarketCatalogRequestHandler(
       if (url.search !== "") {
         return jsonResponse(400, { error: "query_not_allowed" });
       }
+      if (request.method === "GET" && url.pathname === "/health") {
+        return jsonResponse(200, { status: "ok" });
+      }
+      const catalogMatch =
+        request.method === "GET"
+          ? /^\/v1\/market-catalog\/(testnet|mainnet)$/.exec(url.pathname)
+          : null;
+      if (catalogMatch?.[1]) {
+        return marketCatalogResponse(
+          request,
+          catalogMatch[1] as HyperliquidNetwork,
+          options.marketCatalog,
+        );
+      }
+      const portfolioMatch =
+        request.method === "POST"
+          ? /^\/v1\/portfolio-snapshots\/(live|history)$/.exec(url.pathname)
+          : null;
+      if (portfolioMatch?.[1]) {
+        if (!options.portfolioSnapshots) {
+          throw new ApplicationError(
+            503,
+            "portfolio snapshots are not configured",
+          );
+        }
+        return portfolioSnapshotResponse(
+          request,
+          portfolioMatch[1] as "live" | "history",
+          options.portfolioSnapshots,
+        );
+      }
       if (request.method !== "GET") {
         return jsonResponse(405, { error: "method_not_allowed" });
       }
-      if (url.pathname === "/health") {
-        return jsonResponse(200, { status: "ok" });
+      return jsonResponse(404, { error: "not_found" });
+    } catch (error) {
+      if (error instanceof BodyTooLargeError) {
+        return jsonResponse(413, { error: "body_too_large" });
       }
-      const match = /^\/v1\/market-catalog\/(testnet|mainnet)$/.exec(
-        url.pathname,
-      );
-      if (!match?.[1]) {
-        return jsonResponse(404, { error: "not_found" });
+      if (error instanceof ContractError || error instanceof SyntaxError) {
+        return jsonResponse(400, { error: "invalid_request" });
       }
-      return marketCatalogResponse(
-        request,
-        match[1] as HyperliquidNetwork,
-        options.marketCatalog,
-      );
-    } catch {
+      if (error instanceof ApplicationError) {
+        return jsonResponse(
+          error.status,
+          { error: applicationErrorCode(error.status) },
+          error.status === 429
+            ? {
+                "retry-after": String(
+                  Math.max(1, Math.ceil((error.retryAfterMs ?? 1_000) / 1_000)),
+                ),
+              }
+            : undefined,
+        );
+      }
       return jsonResponse(500, { error: "internal_error" });
     }
   };
@@ -150,6 +195,10 @@ export function createNotificationRequestHandler(
         request.method === "GET"
           ? /^\/v1\/market-catalog\/(testnet|mainnet)$/.exec(url.pathname)
           : null;
+      const portfolioPath =
+        request.method === "POST"
+          ? /^\/v1\/portfolio-snapshots\/(live|history)$/.exec(url.pathname)
+          : null;
       const credentialPath =
         /^\/v1\/installations\/([0-9a-f]{32})\/credential$/.exec(url.pathname);
       const pushTokenPath =
@@ -170,7 +219,12 @@ export function createNotificationRequestHandler(
           (credentialPath?.[1] !== undefined ||
             pushTokenPath?.[1] !== undefined ||
             isRule));
-      if (!isRegistration && !marketCatalogPath && !isKnownProtectedRoute) {
+      if (
+        !isRegistration &&
+        !marketCatalogPath &&
+        !portfolioPath &&
+        !isKnownProtectedRoute
+      ) {
         return jsonResponse(404, { error: "not_found" });
       }
       if (marketCatalogPath?.[1]) {
@@ -181,6 +235,19 @@ export function createNotificationRequestHandler(
           request,
           marketCatalogPath[1] as HyperliquidNetwork,
           options.marketCatalog,
+        );
+      }
+      if (portfolioPath?.[1]) {
+        if (!options.portfolioSnapshots) {
+          throw new ApplicationError(
+            503,
+            "portfolio snapshots are not configured",
+          );
+        }
+        return portfolioSnapshotResponse(
+          request,
+          portfolioPath[1] as "live" | "history",
+          options.portfolioSnapshots,
         );
       }
       const authenticated = isRegistration
@@ -417,6 +484,9 @@ async function marketCatalogResponse(
     quarantined: published.catalog.quarantined,
     sourceErrors: published.catalog.sourceErrors,
   });
+  if (snapshot.catalog.markets.length === 0) {
+    return jsonResponse(503, { error: "not_ready" }, { "retry-after": "30" });
+  }
   const etag = `"market-catalog-${snapshot.network}-${snapshot.generation}"`;
   if (request.headers.get("if-none-match") === etag) {
     return new Response(null, {
@@ -446,6 +516,59 @@ async function marketCatalogResponse(
     },
     MAX_MARKET_CATALOG_RESPONSE_BYTES,
   );
+}
+
+async function portfolioSnapshotResponse(
+  request: Request,
+  phase: "live" | "history",
+  reader: PortfolioSnapshotReader,
+): Promise<Response> {
+  const input = parsePortfolioSnapshotRequest(await readBoundedJson(request));
+  try {
+    const signal = AbortSignal.any([
+      request.signal,
+      AbortSignal.timeout(12_000),
+    ]);
+    const snapshot = await (phase === "live"
+      ? reader.readLive({ ...input, signal })
+      : reader.readHistory({ ...input, signal }));
+    return jsonResponse(
+      200,
+      snapshot,
+      {
+        "cache-control": "private, no-store",
+        "content-security-policy": "default-src 'none'",
+      },
+      MAX_PORTFOLIO_RESPONSE_BYTES,
+    );
+  } catch (error) {
+    if (error instanceof PortfolioSnapshotBusyError) {
+      throw new ApplicationError(429, "portfolio capacity exhausted", 1_000);
+    }
+    if (error instanceof PortfolioSnapshotNotReadyError) {
+      throw new ApplicationError(503, "portfolio source is not ready");
+    }
+    throw error;
+  }
+}
+
+function parsePortfolioSnapshotRequest(value: unknown): {
+  readonly network: HyperliquidNetwork;
+  readonly user: string;
+} {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ContractError("portfolio request must be an object");
+  }
+  const source = value as Readonly<Record<string, unknown>>;
+  if (
+    Object.keys(source).some((key) => key !== "network" && key !== "user") ||
+    (source.network !== "testnet" && source.network !== "mainnet") ||
+    typeof source.user !== "string" ||
+    !/^0x[0-9a-f]{40}$/.test(source.user)
+  ) {
+    throw new ContractError("portfolio request identity is invalid");
+  }
+  return { network: source.network, user: source.user };
 }
 
 function directTlsOptions(

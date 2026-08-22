@@ -30,7 +30,7 @@ describe("notification mobile export boundary", () => {
         if (!specifier) continue;
         if (
           specifier === "node:crypto" ||
-          specifier.includes("apps/notifications") ||
+          specifier.includes("apps/api") ||
           specifier.includes("notification-store") ||
           specifier.includes("application")
         ) {

@@ -6,8 +6,8 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "target": "ES2022",
-    "types": ["bun"]
+    "types": ["@cloudflare/workers-types", "bun"]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.test.ts"]
+  "include": ["src/cloudflare/**/*.ts"],
+  "exclude": ["src/cloudflare/**/*.test.ts"]
 }

@@ -10,6 +10,7 @@ import {
 import {
   parseActiveAssetData,
   parseClearinghouseState,
+  parseFrontendOpenOrders,
   parseHistoricalOrders,
   parseNamedApiWalletRegistrations,
   parseOpenOrders,
@@ -26,6 +27,7 @@ import type {
   AccountTarget,
   ActiveAssetData,
   ClearinghouseState,
+  FrontendOpenOrder,
   HistoricalOrder,
   NamedApiWalletRegistration,
   OpenOrder,
@@ -93,6 +95,11 @@ export interface AccountDataClient {
     dex: string,
     options?: InfoRequestOptions,
   ): Promise<AccountDataResult<readonly OpenOrder[]>>;
+  getFrontendOpenOrders(
+    target: AccountTarget,
+    dex: string,
+    options?: InfoRequestOptions,
+  ): Promise<AccountDataResult<readonly FrontendOpenOrder[]>>;
   getHistoricalOrders(
     target: AccountTarget,
     options?: InfoRequestOptions,
@@ -234,6 +241,19 @@ export function createAccountDataClientFromTransport(
         parseOpenOrders(
           await transport.request(
             { type: "openOrders", user: target.address, dex },
+            options,
+          ),
+        ),
+      );
+    },
+    async getFrontendOpenOrders(target, dex, options = {}) {
+      validateAccountTarget(target);
+      return result(
+        target,
+        dex,
+        parseFrontendOpenOrders(
+          await transport.request(
+            { type: "frontendOpenOrders", user: target.address, dex },
             options,
           ),
         ),

@@ -3,27 +3,41 @@ import {
   createAccountDataClient,
 } from "@hyper-trader/hyperliquid";
 import type { Market } from "@hyper-trader/hyperliquid/public";
-import { onlineManager, useQuery } from "@tanstack/react-query";
+import { onlineManager, useQuery, useQueryClient } from "@tanstack/react-query";
+import Constants from "expo-constants";
 import { useIsFocused } from "expo-router";
-import { useMemo, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
+import { createCoalescedTask } from "../../core/query/coalesced-task";
+import {
+  ACCOUNT_EVENT_COALESCE_MS,
+  mobileDataPolicies,
+} from "../../core/query/data-policies";
 import { queryKeys } from "../../core/query/keys";
+import {
+  type AccountEventChannel,
+  accountEventStreamKey,
+  createAccountEventWire,
+} from "../../core/streams/account-events";
+import { useStreamRuntime } from "../../core/streams/provider";
+import {
+  createPortfolioBackendClient,
+  type PortfolioBackendClient,
+} from "./backend-client";
 import {
   loadPortfolioAccountSnapshot,
   loadPortfolioHistorySnapshot,
-  mergePortfolioSnapshots,
   type PortfolioAccountSnapshot,
   type PortfolioHistorySnapshot,
 } from "./portfolio-loader";
 import {
+  combineNormalizedPortfolio,
   type NormalizedPortfolio,
-  normalizePortfolioSnapshot,
+  normalizePortfolioHistorySnapshot,
+  normalizePortfolioLiveSnapshot,
 } from "./portfolio-model";
-import {
-  portfolioCatalogCacheKey,
-  portfolioQueryKey,
-} from "./portfolio-query-key";
+import { portfolioCatalogCacheKey } from "./portfolio-query-key";
 
 export type PortfolioTargetResolution =
   | { readonly target: AccountTarget; readonly reason: null }
@@ -73,25 +87,76 @@ export function usePortfolioData(
 } {
   const isFocused = useIsFocused();
   const isOnline = useOnlineStatus();
+  const queryClient = useQueryClient();
+  const streams = useStreamRuntime();
+  const targetIdentity =
+    target === null
+      ? null
+      : JSON.stringify([
+          target.kind,
+          target.address.trim().toLowerCase(),
+          target.kind === "master"
+            ? null
+            : (target.masterAddress?.trim().toLowerCase() ?? null),
+        ]);
+  const targetUser = target?.address.trim().toLowerCase() ?? null;
   const accounts = useMemo(
     () => createAccountDataClient({ network: context.network }),
     [context.network],
   );
+  const backendSource = useMemo<{
+    readonly client: PortfolioBackendClient | null;
+    readonly configured: boolean;
+  }>(() => {
+    const origin =
+      process.env.EXPO_PUBLIC_BACKEND_ORIGIN ??
+      process.env.EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN ??
+      Constants.expoConfig?.extra?.backendOrigin ??
+      Constants.expoConfig?.extra?.notificationServiceOrigin;
+    if (typeof origin !== "string" || origin.length === 0) {
+      return { client: null, configured: false };
+    }
+    try {
+      return {
+        client: createPortfolioBackendClient({ origin }),
+        configured: true,
+      };
+    } catch {
+      return { client: null, configured: true };
+    }
+  }, []);
+  const backend = backendSource.client;
   const catalogFingerprint = useMemo(
     () => portfolioCatalogCacheKey(markets),
     [markets],
   );
-  const baseQueryKey =
-    target === null
-      ? [
-          ...queryKeys.private.accountSnapshot(context),
-          "portfolio-screen",
-          "no-exact-target",
-          catalogFingerprint,
-        ]
-      : portfolioQueryKey(context, target, catalogFingerprint);
+  const baseQueryKey = useMemo(
+    () =>
+      targetIdentity === null
+        ? [
+            ...queryKeys.private.accountSnapshot(context),
+            "portfolio-screen",
+            "no-exact-target",
+            catalogFingerprint,
+          ]
+        : [
+            ...queryKeys.private.accountSnapshot(context),
+            "portfolio-screen",
+            targetIdentity,
+            catalogFingerprint,
+          ],
+    [catalogFingerprint, context, targetIdentity],
+  );
+  const accountQueryKey = useMemo(
+    () => [...baseQueryKey, "account"],
+    [baseQueryKey],
+  );
+  const historyQueryKey = useMemo(
+    () => [...baseQueryKey, "history"],
+    [baseQueryKey],
+  );
   const query = useQuery<PortfolioAccountSnapshot>({
-    queryKey: [...baseQueryKey, "account"],
+    queryKey: accountQueryKey,
     enabled: target !== null && markets !== undefined,
     queryFn: ({ signal }) => {
       if (
@@ -102,22 +167,59 @@ export function usePortfolioData(
       ) {
         throw new Error("An exact account target and catalog are required.");
       }
-      return loadPortfolioAccountSnapshot({
-        accounts,
-        network: context.network,
-        masterAccount: context.masterAccount,
-        target,
-        markets,
-        signal,
-        now: Date.now(),
-      });
+      const masterAccount = context.masterAccount;
+      if (backend) {
+        return backend
+          .readLive(context.network, target.address.toLowerCase(), signal)
+          .then((snapshot) => ({
+            owner: {
+              network: context.network,
+              masterAccount,
+              target,
+            },
+            markets,
+            perpStates: snapshot.dexes.map((source) => {
+              const market = markets.find(
+                (candidate) =>
+                  candidate.family === "perp" &&
+                  candidate.dexName === source.dex,
+              );
+              return {
+                dexName: source.dex,
+                dexFullName:
+                  market?.family === "perp" ? market.dexFullName : null,
+                state: source.clearinghouse,
+                openOrders: source.openOrders,
+              };
+            }),
+            spotState: snapshot.spot,
+            observedAtMs: snapshot.generatedAtMs,
+            sourceGaps: snapshot.sourceGaps,
+          }));
+      }
+      if (
+        !backendSource.configured &&
+        typeof __DEV__ !== "undefined" &&
+        __DEV__
+      ) {
+        return loadPortfolioAccountSnapshot({
+          accounts,
+          network: context.network,
+          masterAccount,
+          target,
+          markets,
+          signal,
+          now: Date.now(),
+        });
+      }
+      throw new Error("The Portfolio backend is not configured.");
     },
-    refetchInterval: 30_000,
-    staleTime: 15_000,
+    refetchOnMount: "always",
+    staleTime: mobileDataPolicies.portfolioLive.staleTimeMs,
     subscribed: isFocused,
   });
   const historyQuery = useQuery<PortfolioHistorySnapshot>({
-    queryKey: [...baseQueryKey, "history"],
+    queryKey: historyQueryKey,
     enabled:
       target !== null && markets !== undefined && query.data !== undefined,
     queryFn: ({ signal }) => {
@@ -129,28 +231,123 @@ export function usePortfolioData(
       ) {
         throw new Error("An exact account target and catalog are required.");
       }
-      return loadPortfolioHistorySnapshot({
-        accounts,
-        network: context.network,
-        masterAccount: context.masterAccount,
-        target,
-        markets,
-        signal,
-        now: Date.now(),
-      });
+      const masterAccount = context.masterAccount;
+      if (backend) {
+        return backend
+          .readHistory(context.network, target.address.toLowerCase(), signal)
+          .then((snapshot) => ({
+            fills: snapshot.fills,
+            funding: snapshot.funding,
+            periods: snapshot.periods,
+            sourceGaps: snapshot.sourceGaps,
+          }));
+      }
+      if (
+        !backendSource.configured &&
+        typeof __DEV__ !== "undefined" &&
+        __DEV__
+      ) {
+        return loadPortfolioHistorySnapshot({
+          accounts,
+          network: context.network,
+          masterAccount,
+          target,
+          markets,
+          signal,
+          now: Date.now(),
+        });
+      }
+      throw new Error("The Portfolio backend is not configured.");
     },
-    refetchInterval: 120_000,
-    staleTime: 60_000,
+    refetchOnMount: "always",
+    staleTime: mobileDataPolicies.portfolioHistory.staleTimeMs,
     subscribed: isFocused,
   });
-  const portfolio = useMemo(
+  useEffect(() => {
+    if (!isFocused || targetUser === null || markets === undefined) return;
+    const user = targetUser;
+    const channels: readonly AccountEventChannel[] = [
+      "allDexsClearinghouseState",
+      "orderUpdates",
+      "userFills",
+      "userFundings",
+    ];
+    let active = true;
+    const liveInvalidation = createCoalescedTask(() => {
+      if (!active) return;
+      void queryClient.invalidateQueries(
+        {
+          queryKey: accountQueryKey,
+          exact: true,
+          refetchType: "active",
+        },
+        { cancelRefetch: false },
+      );
+    }, ACCOUNT_EVENT_COALESCE_MS);
+    const historyInvalidation = createCoalescedTask(() => {
+      if (!active) return;
+      void queryClient.invalidateQueries(
+        {
+          queryKey: historyQueryKey,
+          exact: true,
+          refetchType: "active",
+        },
+        { cancelRefetch: false },
+      );
+    }, ACCOUNT_EVENT_COALESCE_MS);
+    const cleanups = channels.map((channel) =>
+      streams.declare({
+        wire: createAccountEventWire(
+          accountEventStreamKey(context.network, user, channel),
+          user,
+          channel,
+        ),
+        loadBaseline: async () => ({ data: null }),
+        applyBaseline: () => undefined,
+        applyDelta: () => {
+          liveInvalidation.schedule();
+          if (channel === "userFills" || channel === "userFundings") {
+            historyInvalidation.schedule();
+          }
+        },
+      }),
+    );
+    return () => {
+      active = false;
+      liveInvalidation.cancel();
+      historyInvalidation.cancel();
+      for (const cleanup of cleanups) cleanup();
+    };
+  }, [
+    accountQueryKey,
+    context.network,
+    historyQueryKey,
+    isFocused,
+    markets,
+    queryClient,
+    streams,
+    targetUser,
+  ]);
+  const livePortfolio = useMemo(
     () =>
       query.data === undefined
         ? null
-        : normalizePortfolioSnapshot(
-            mergePortfolioSnapshots(query.data, historyQuery.data),
-          ),
-    [historyQuery.data, query.data],
+        : normalizePortfolioLiveSnapshot(query.data),
+    [query.data],
+  );
+  const portfolioHistory = useMemo(
+    () =>
+      historyQuery.data === undefined
+        ? null
+        : normalizePortfolioHistorySnapshot(historyQuery.data),
+    [historyQuery.data],
+  );
+  const portfolio = useMemo(
+    () =>
+      livePortfolio === null
+        ? null
+        : combineNormalizedPortfolio(livePortfolio, portfolioHistory),
+    [livePortfolio, portfolioHistory],
   );
   const freshness: PortfolioFreshness = !isOnline
     ? "offline"

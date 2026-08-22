@@ -38,12 +38,14 @@ import {
 
 export * from "./errors";
 export type { MarketCatalogRequestOptions } from "./markets/catalog";
+export { parseMarketContext } from "./markets/catalog";
 export * from "./markets/reads";
 export * from "./markets/snapshot";
 export * from "./markets/types";
 export * from "./network";
 export * from "./numbers/decimal";
 export * from "./numbers/precision";
+export * from "./portfolio-snapshot";
 export type {
   NotificationAccountDexSnapshot,
   NotificationAccountDexSnapshotRequest,

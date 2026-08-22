@@ -13,11 +13,11 @@ describe("shared action flow", () => {
     const confirming = reduceActionFlow(INITIAL_ACTION_FLOW, {
       type: "CONFIRM",
     });
-    expect(confirming.phase).toBe("unlocking");
+    expect(confirming.phase).toBe("refreshing");
     expect(actionFlowConsumesBack(confirming.phase)).toBe(true);
     let submitting = confirming;
     for (const phase of [
-      "refreshing",
+      "unlocking",
       "reserving",
       "signing",
       "submission_start",
@@ -46,7 +46,7 @@ describe("shared action flow", () => {
       reduceActionFlow(confirming, {
         type: "ADVANCE",
         generation: confirming.generation - 1,
-        phase: "refreshing",
+        phase: "unlocking",
       }),
     ).toBe(confirming);
   });
@@ -73,7 +73,7 @@ describe("shared action flow", () => {
 
     let submitting = confirming;
     for (const phase of [
-      "refreshing",
+      "unlocking",
       "reserving",
       "signing",
       "submission_start",

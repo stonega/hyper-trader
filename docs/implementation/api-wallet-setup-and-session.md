@@ -126,9 +126,13 @@ order confirmation needs a signing session.
 
 The signer-session manager is single-flight and owns only one exact normalized
 binding. Unlock captures its session epoch, context epoch, and binding before
-checking strong device-auth availability and reading SecureStore. It publishes
-only when all three still match and the app is active and focused. Every late
-secret is overwritten before disposal.
+checking strong device-auth availability and reading SecureStore. Transient
+`inactive` or Android `blur` handoffs receive one bounded active-focus settle
+before the protected read opens its biometric prompt and another after the read
+returns. A true background transition still invalidates the unlock immediately.
+The manager publishes only when the session epoch, context epoch, and binding
+still match and the app is active and focused. Every late secret is overwritten
+before disposal.
 
 The session expires exactly five minutes after unlock. Signing does not extend
 it. It is stopped on manual lock, app inactive/background, Android blur, context

@@ -7,6 +7,9 @@ import type { ActionFlowState } from "../features/actions/state-machine";
 const mockClear = jest.fn();
 let mockFlow: ActionFlowState;
 let mockReview: {
+  readonly validated: {
+    readonly intent: { readonly type: "limit_order" };
+  };
   readonly presentation: {
     readonly network: string;
     readonly account: string;
@@ -33,6 +36,7 @@ const mockRuntime = {
   readFlow: () => mockFlow,
   openReview: jest.fn(),
   confirm: jest.fn(),
+  reviewAndSubmit: jest.fn(),
   clear: mockClear,
   reset: jest.fn(),
 };
@@ -46,6 +50,7 @@ beforeEach(() => {
     message: null,
   };
   mockReview = {
+    validated: { intent: { type: "limit_order" } },
     presentation: {
       network: "Testnet",
       account: "0x1111111111111111111111111111111111111111",
@@ -74,7 +79,7 @@ jest.mock("../features/actions/runtime-provider", () => ({
 test("keeps immutable review inside the sheet when submission is unavailable", () => {
   render(<ActionFlowSheet />);
 
-  expect(screen.getByText("Review action")).toBeTruthy();
+  expect(screen.getByText("Confirm order")).toBeTruthy();
   expect(screen.getByText("BTC-USDC")).toBeTruthy();
   expect(screen.getByText("0.001 BTC")).toBeTruthy();
   expect(
@@ -83,9 +88,18 @@ test("keeps immutable review inside the sheet when submission is unavailable", (
     ),
   ).toBeTruthy();
   expect(screen.queryByRole("button", { name: /Confirm/i })).toBeNull();
-  expect(
-    screen.getByRole("button", { name: "Back without signing" }),
-  ).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel review" })).toBeTruthy();
+});
+
+test("sizes the sheet to its content and exposes one direct order action", () => {
+  mockRuntime.available = true;
+  render(<ActionFlowSheet />);
+
+  const content = screen.getByLabelText("Order action review");
+  expect(content.props.enableDynamicSizing).toBe(true);
+  expect(content.props.snapPoints).toBeUndefined();
+  expect(screen.getByRole("button", { name: "Place buy order" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Cancel review" })).toBeTruthy();
 });
 
 test("returns a failed confirmation to the order for a fresh review", () => {
@@ -104,11 +118,19 @@ test("returns a failed confirmation to the order for a fresh review", () => {
       "The latest market or account details could not be confirmed for this order. Return to the order, refresh, and try again.",
     ),
   ).toBeTruthy();
+  mockClear.mockImplementationOnce(() => {
+    mockFlow = {
+      phase: "review",
+      generation: 2,
+      journalId: null,
+      message: null,
+    };
+    mockReview = null;
+  });
   fireEvent.press(screen.getByRole("button", { name: "Return to order" }));
   expect(mockClear).toHaveBeenCalledTimes(1);
-  expect(
-    screen.queryByRole("button", { name: "Back without signing" }),
-  ).toBeNull();
+  expect(screen.queryByLabelText("Order action review")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Place buy order" })).toBeNull();
 });
 
 test("does not expose a dismiss action while submission is critical", () => {
@@ -123,6 +145,48 @@ test("does not expose a dismiss action while submission is critical", () => {
 
   expect(screen.getByText("Submitting")).toBeTruthy();
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("stays closed during background review and opens after authentication", () => {
+  mockRuntime.available = true;
+  mockReview = null;
+  mockFlow = {
+    phase: "refreshing",
+    generation: 1,
+    journalId: null,
+    message: null,
+  };
+  const view = render(<ActionFlowSheet />);
+
+  expect(screen.queryByLabelText("Order action review")).toBeNull();
+
+  mockReview = {
+    validated: { intent: { type: "limit_order" } },
+    presentation: {
+      network: "Testnet",
+      account: "0x1111111111111111111111111111111111111111",
+      market: "BTC-USDC",
+      action: "Limit order",
+      side: "Buy",
+      price: "100,000 USDC",
+      size: "0.001 BTC",
+      leverageAndMargin: "5× · Cross",
+      reduceOnly: "No",
+      estimatedFee: "Unavailable",
+      slippage: "Not applicable",
+    },
+  };
+  mockFlow = {
+    phase: "reserving",
+    generation: 1,
+    journalId: null,
+    message: null,
+  };
+  view.rerender(<ActionFlowSheet />);
+
+  expect(screen.getByLabelText("Order submission status")).toBeTruthy();
+  expect(screen.getByText("Preparing order")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Place buy order" })).toBeNull();
 });
 
 test("closes and clears the completed review after acceptance", () => {

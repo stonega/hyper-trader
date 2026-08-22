@@ -55,6 +55,19 @@ describe("signer activity gate", () => {
     expect(gate.isActiveAndFocused()).toBe(false);
   });
 
+  test("recovers when native activity listeners are rebound", async () => {
+    const gate = createSignerActivityGate({
+      initiallyActiveAndFocused: true,
+    });
+
+    gate.interrupt();
+    expect(gate.isActiveAndFocused()).toBe(false);
+
+    gate.setActiveAndFocused(true);
+    await expect(gate.waitUntilActiveAndFocused()).resolves.toBe(true);
+    expect(gate.isActiveAndFocused()).toBe(true);
+  });
+
   test("fails closed when focus does not return within the bounded window", async () => {
     const clock = timer();
     const gate = createSignerActivityGate({

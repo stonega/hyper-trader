@@ -232,9 +232,9 @@ Clear the session on the earliest of:
 - app termination, memory warning, or compromised-device stop.
 
 Each action still requires a review confirmation. If a session expires while a
-draft or review is open, successful device authentication is followed by fresh
-market/account data and full draft revalidation. Only an unchanged, still-valid
-draft returns to review.
+draft or review is open, fresh market/account data and full draft revalidation
+must succeed before device authentication is requested. Only an unchanged,
+still-valid draft may proceed to signing.
 
 ## Loss, compromise, rotation, and unlink
 

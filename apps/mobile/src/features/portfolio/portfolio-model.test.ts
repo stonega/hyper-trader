@@ -6,7 +6,10 @@ import {
   buildCancelIntent,
   buildCloseIntent,
   buildLeverageIntent,
+  combineNormalizedPortfolio,
   createCloseDraft,
+  normalizePortfolioHistorySnapshot,
+  normalizePortfolioLiveSnapshot,
   normalizePortfolioSnapshot,
   portfolioMarketClosePrice,
   portfolioOwnerKey,
@@ -59,6 +62,32 @@ describe("portfolio normalization", () => {
       "fill",
     ]);
     expect(portfolio.gaps).toContain("Performance range 30d was not returned.");
+  });
+
+  test("reuses normalized history when only the live account snapshot changes", () => {
+    const { fills, funding, periods, ...liveSource } = PORTFOLIO_FIXTURE;
+    const history = normalizePortfolioHistorySnapshot({
+      fills,
+      funding,
+      periods,
+    });
+    const first = combineNormalizedPortfolio(
+      normalizePortfolioLiveSnapshot(liveSource),
+      history,
+    );
+    const second = combineNormalizedPortfolio(
+      normalizePortfolioLiveSnapshot({
+        ...liveSource,
+        observedAtMs: liveSource.observedAtMs + 1,
+      }),
+      history,
+    );
+
+    expect(second.observedAtMs).toBe(first.observedAtMs + 1);
+    expect(second.ranges).toBe(first.ranges);
+    expect(second.fills).toBe(first.fills);
+    expect(second.funding).toBe(first.funding);
+    expect(second.activity).toBe(first.activity);
   });
 
   test("reports unknown market rows instead of guessing canonical identity", () => {

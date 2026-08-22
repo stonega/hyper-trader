@@ -36,6 +36,32 @@ function slippagePercent(bps: number | string): string {
   return Number.isFinite(value) ? `${value / 100}%` : "—";
 }
 
+function orderSettingsSummary(input: {
+  readonly compact: boolean;
+  readonly controls: ReturnType<typeof controlsForMarket>;
+  readonly draft: TradeDraft;
+  readonly leverage: number | null;
+}): string {
+  const parts = [
+    ...(input.controls.leverage && input.leverage !== null
+      ? [`${input.leverage}×`]
+      : []),
+    ...(input.controls.timeInForce
+      ? [
+          input.draft.timeInForce === "Alo"
+            ? "Post"
+            : input.draft.timeInForce.toUpperCase(),
+        ]
+      : []),
+    ...(input.controls.slippage
+      ? [slippagePercent(input.draft.slippageBps)]
+      : []),
+    ...(input.controls.reduceOnly && input.draft.reduceOnly ? ["Reduce"] : []),
+  ];
+  const visible = input.compact ? parts.slice(0, 2) : parts.slice(0, 3);
+  return visible.length > 0 ? visible.join(" · ") : "Settings";
+}
+
 function SelectorButton({
   label,
   selected,
@@ -113,6 +139,12 @@ export function OrderPanel({
     draft.size.trim() !== "" &&
     (!controls.price || draft.limitPrice.trim() !== "") &&
     (!controls.leverage || leverage !== null);
+  const settingsSummary = orderSettingsSummary({
+    compact,
+    controls,
+    draft,
+    leverage,
+  });
   const update = (next: Partial<TradeDraft>) => {
     setFormError(null);
     onDraftChange({ ...draft, ...next });
@@ -219,12 +251,12 @@ export function OrderPanel({
         >
           <Dialog.Trigger asChild>
             <Button
-              accessibilityHint="Opens leverage and advanced order controls."
-              accessibilityLabel="Order settings"
+              accessibilityHint="Opens order settings. Changes apply immediately."
+              accessibilityLabel={`Order settings, ${settingsSummary}`}
               accessibilityState={{ expanded: advancedOpen }}
               animation={reducedMotion ? "disable-all" : undefined}
+              className="h-10 min-h-10 min-w-0 max-w-36 gap-1 px-2"
               hitSlop={4}
-              isIconOnly
               onPress={() => setAdvancedOpen(true)}
               size="sm"
               variant={advancedOpen ? "secondary" : "ghost"}
@@ -236,6 +268,12 @@ export function OrderPanel({
                 name={advancedOpen ? "options" : "options-outline"}
                 size={18}
               />
+              <Button.Label
+                className="min-w-0 shrink text-xs font-medium"
+                numberOfLines={1}
+              >
+                {settingsSummary}
+              </Button.Label>
             </Button>
           </Dialog.Trigger>
           <Dialog.Portal unstable_accessibilityContainerViewIsModal>
@@ -251,7 +289,7 @@ export function OrderPanel({
               <View className="gap-1 pr-12">
                 <Dialog.Title>Order settings</Dialog.Title>
                 <Dialog.Description>
-                  Review leverage and adjust controls for this order.
+                  Changes apply immediately to this order.
                 </Dialog.Description>
               </View>
               {controls.leverage ? (
@@ -328,14 +366,6 @@ export function OrderPanel({
                   </View>
                 </View>
               ) : null}
-              <Button
-                animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 w-full"
-                onPress={() => setAdvancedOpen(false)}
-                variant="secondary"
-              >
-                Done
-              </Button>
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog>
@@ -346,6 +376,7 @@ export function OrderPanel({
             <Label>Limit price</Label>
             <Input
               accessibilityHint="Uses the selected market's current decimal and significant-figure limits."
+              className="font-mono"
               keyboardType="decimal-pad"
               onChangeText={(limitPrice) => update({ limitPrice })}
               placeholder="0"
@@ -359,6 +390,7 @@ export function OrderPanel({
           <Label>Size</Label>
           <Input
             accessibilityHint="Order size in base units. Precision is validated again before review."
+            className="font-mono"
             keyboardType="decimal-pad"
             onChangeText={(size) => update({ size })}
             placeholder="0"
@@ -417,16 +449,18 @@ export function OrderPanel({
             Draft reset · {invalidationMessage}
           </Text>
         ) : null}
-        <Text
-          accessibilityLiveRegion="polite"
-          className={
-            compact
-              ? "text-xs leading-4 text-warning"
-              : "text-sm leading-5 text-warning"
-          }
-        >
-          {gate.reason}
-        </Text>
+        {!gate.enabled ? (
+          <Text
+            accessibilityLiveRegion="polite"
+            className={
+              compact
+                ? "text-xs leading-4 text-warning"
+                : "text-sm leading-5 text-warning"
+            }
+          >
+            {gate.reason}
+          </Text>
+        ) : null}
         {formError ? (
           <Text
             accessibilityRole="alert"
@@ -441,9 +475,9 @@ export function OrderPanel({
           </Text>
         ) : null}
       </Card.Body>
-      <Card.Footer className="gap-2">
+      <Card.Footer className="flex-col gap-2" testID="execution-action-rail">
         <Button
-          accessibilityHint="Opens a buy order review. Nothing is signed yet."
+          accessibilityHint="Reviews this buy order, then requests device verification before submission."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 w-full"
           isDisabled={!gate.enabled || !formReady || reviewingSide !== null}
@@ -451,13 +485,13 @@ export function OrderPanel({
           variant="primary"
         >
           {reviewingSide === "buy"
-            ? "Preparing review…"
+            ? "Reviewing…"
             : market.family === "spot"
               ? "Buy"
               : "Buy / Long"}
         </Button>
         <Button
-          accessibilityHint="Opens a sell order review. Nothing is signed yet."
+          accessibilityHint="Reviews this sell order, then requests device verification before submission."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 w-full"
           isDisabled={!gate.enabled || !formReady || reviewingSide !== null}
@@ -465,7 +499,7 @@ export function OrderPanel({
           variant="danger"
         >
           {reviewingSide === "sell"
-            ? "Preparing review…"
+            ? "Reviewing…"
             : market.family === "spot"
               ? "Sell"
               : "Sell / Short"}

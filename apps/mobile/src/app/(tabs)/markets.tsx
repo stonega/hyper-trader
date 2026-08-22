@@ -5,7 +5,13 @@ import { Chip } from "heroui-native/chip";
 import { Input } from "heroui-native/input";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { FlatList, RefreshControl, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
@@ -15,8 +21,15 @@ import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
+import {
+  type MarketCatalogMode,
+  MarketCatalogModeToggle,
+} from "../../features/markets/catalog-mode-toggle";
 import { CatalogStatus } from "../../features/markets/catalog-status";
-import { discoverMarkets } from "../../features/markets/discovery";
+import {
+  discoverMarkets,
+  type MarketDiscoveryOptions,
+} from "../../features/markets/discovery";
 import { runManualRefresh } from "../../features/markets/manual-refresh";
 import { MarketRow } from "../../features/markets/market-row";
 import { useMarketPreferences } from "../../features/markets/preferences-provider";
@@ -34,7 +47,19 @@ const FAMILY_FILTERS: readonly {
 ];
 
 const EMPTY_MARKET_IDS: readonly string[] = [];
+const EMPTY_MARKETS: readonly Market[] = [];
 const MARKET_LOADING_ITEMS = ["market-1", "market-2", "market-3"] as const;
+const INITIAL_DISCOVERY_OPTIONS: MarketDiscoveryOptions = {
+  query: "",
+  families: [],
+  availability: "enabled",
+  lifecycle: "active",
+  favoritesOnly: false,
+  recentsOnly: false,
+  favoriteIds: EMPTY_MARKET_IDS,
+  recentIds: EMPTY_MARKET_IDS,
+  sort: "volume",
+};
 
 function FilterChip({
   label,
@@ -84,6 +109,7 @@ export default function MarketsScreen(): JSX.Element {
   const manualRefreshGate = useRef(false);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [query, setQuery] = useState("");
+  const [catalogMode, setCatalogMode] = useState<MarketCatalogMode>("strict");
   const [family, setFamily] = useState<MarketFamily | "all">("all");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [recentsOnly, setRecentsOnly] = useState(false);
@@ -97,21 +123,21 @@ export default function MarketsScreen(): JSX.Element {
     () => new Set(preferences.preferences.favoriteIds),
     [preferences.preferences.favoriteIds],
   );
-  const markets = useMemo(
-    () =>
-      discoverMarkets(catalog?.markets ?? [], {
-        query,
-        families: family === "all" ? [] : [family],
-        availability: "all",
-        lifecycle: "active",
-        favoritesOnly,
-        recentsOnly,
-        favoriteIds,
-        recentIds,
-        sort: "volume",
-      }),
+  const sourceMarkets = catalog?.markets ?? EMPTY_MARKETS;
+  const discoveryOptions = useMemo<MarketDiscoveryOptions>(
+    () => ({
+      query,
+      families: family === "all" ? [] : [family],
+      availability: catalogMode === "strict" ? "enabled" : "all",
+      lifecycle: "active",
+      favoritesOnly,
+      recentsOnly,
+      favoriteIds,
+      recentIds,
+      sort: "volume",
+    }),
     [
-      catalog?.markets,
+      catalogMode,
       family,
       favoriteIds,
       favoritesOnly,
@@ -119,6 +145,18 @@ export default function MarketsScreen(): JSX.Element {
       recentIds,
       recentsOnly,
     ],
+  );
+  const deferredMarkets = useDeferredValue(sourceMarkets, EMPTY_MARKETS);
+  const deferredDiscoveryOptions = useDeferredValue(
+    discoveryOptions,
+    INITIAL_DISCOVERY_OPTIONS,
+  );
+  const isDiscoveryPending =
+    deferredMarkets !== sourceMarkets ||
+    deferredDiscoveryOptions !== discoveryOptions;
+  const markets = useMemo(
+    () => discoverMarkets(deferredMarkets, deferredDiscoveryOptions),
+    [deferredDiscoveryOptions, deferredMarkets],
   );
   const refetchCatalog = catalogQuery.refetch;
   const refreshFromPullGesture = useCallback(
@@ -148,6 +186,12 @@ export default function MarketsScreen(): JSX.Element {
     >
       <ScreenHeading
         title="Markets"
+        titleAccessory={
+          <MarketCatalogModeToggle
+            mode={catalogMode}
+            onChange={setCatalogMode}
+          />
+        }
         network={current.network}
         accountLabel={
           current.targetAccount === null
@@ -249,7 +293,8 @@ export default function MarketsScreen(): JSX.Element {
       ? "Clear a search or filter to show more markets."
       : "Pull to refresh and try again.";
   const emptyContent =
-    presentation.content === "loading" ? (
+    presentation.content === "loading" ||
+    (isDiscoveryPending && markets.length === 0) ? (
       <LoadingCatalog />
     ) : (
       <View className="px-5">
@@ -269,6 +314,7 @@ export default function MarketsScreen(): JSX.Element {
         paddingBottom: floatingTabBarInset(insets.bottom) + 16,
       }}
       data={presentation.content === "ready" ? markets : []}
+      initialNumToRender={6}
       ItemSeparatorComponent={() => <View className="h-3" />}
       keyboardDismissMode="on-drag"
       keyboardShouldPersistTaps="handled"
@@ -276,6 +322,7 @@ export default function MarketsScreen(): JSX.Element {
       ListEmptyComponent={emptyContent}
       ListFooterComponent={footer}
       ListHeaderComponent={header}
+      maxToRenderPerBatch={6}
       refreshControl={
         <RefreshControl
           accessibilityLabel="Refresh market catalog"
@@ -296,6 +343,8 @@ export default function MarketsScreen(): JSX.Element {
           />
         </View>
       )}
+      updateCellsBatchingPeriod={50}
+      windowSize={5}
     />
   );
 }

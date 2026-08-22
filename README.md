@@ -19,7 +19,7 @@ release gates.
 
 ```text
 apps/mobile/             iOS and Android Expo app
-apps/notifications/      Bun backend and PostgreSQL market/notification state
+apps/api/                Backend API and PostgreSQL market/notification state
 packages/hyperliquid/    Typed public Hyperliquid API client
 docs/                    Architecture, setup, and user documentation
 examples/                Runnable package examples

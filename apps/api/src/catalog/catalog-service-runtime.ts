@@ -1,9 +1,13 @@
 import {
+  createInfoHttpTransport,
   createPublicHyperliquidClient,
   type HyperliquidNetwork,
   type PublicHyperliquidClient,
 } from "@hyper-trader/hyperliquid/public";
-
+import {
+  HyperliquidPortfolioSnapshotReader,
+  type PortfolioSnapshotReader,
+} from "../portfolio/portfolio-snapshot-reader";
 import type { NotificationDirectTlsServerBoundary } from "../server";
 import { startMarketCatalogServer } from "../server";
 import type { PostgresMarketCatalogStore } from "./market-catalog-store";
@@ -65,6 +69,7 @@ export function composeMarketCatalogServiceRuntime(input: {
   readonly clients?: Readonly<
     Record<HyperliquidNetwork, PublicHyperliquidClient>
   >;
+  readonly portfolioSnapshots?: PortfolioSnapshotReader;
 }): MarketCatalogServiceRuntime {
   const clients =
     input.clients ??
@@ -77,6 +82,15 @@ export function composeMarketCatalogServiceRuntime(input: {
     store: input.store,
     clients,
   });
+  const portfolioSnapshots =
+    input.portfolioSnapshots ??
+    new HyperliquidPortfolioSnapshotReader({
+      catalog: input.store,
+      transports: {
+        testnet: createInfoHttpTransport({ network: "testnet" }),
+        mainnet: createInfoHttpTransport({ network: "mainnet" }),
+      },
+    });
   let server: Bun.Server<undefined> | undefined;
   return new MarketCatalogServiceRuntime({
     synchronizer,
@@ -88,6 +102,7 @@ export function composeMarketCatalogServiceRuntime(input: {
           port: input.port,
           serverBoundary: input.serverBoundary,
           marketCatalog: input.store,
+          portfolioSnapshots,
         });
       },
       async stop() {

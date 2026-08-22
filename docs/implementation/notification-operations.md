@@ -403,7 +403,7 @@ public address and run `bun examples/notification-account-baseline.ts`. The
 example performs no signing or authenticated action.
 
 ```sh
-bun test apps/notifications/src packages/hyperliquid/src/public-boundary.test.ts
+bun test apps/api/src packages/hyperliquid/src/public-boundary.test.ts
 bun run test:notifications
 bun run typecheck
 bun run check

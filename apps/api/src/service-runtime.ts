@@ -1,4 +1,5 @@
 import {
+  createInfoHttpTransport,
   createPublicHyperliquidClient,
   type OpenWebSocketConnection,
   type PublicHyperliquidClient,
@@ -23,6 +24,7 @@ import {
 import { SharedMonitorRegistry } from "./monitor/registry";
 import { NotificationDeliveryWorker } from "./outbox/delivery-worker";
 import { NotificationReceiptWorker } from "./outbox/receipt-worker";
+import { HyperliquidPortfolioSnapshotReader } from "./portfolio/portfolio-snapshot-reader";
 import type { ExpoPushClient } from "./push/expo-push-client";
 import { NotificationRuleWorker } from "./rules/rule-worker";
 import {
@@ -243,6 +245,15 @@ export function composeNotificationServiceRuntime(
           port: input.config.port,
           serverBoundary: input.serverBoundary,
           marketCatalog: input.catalogStore,
+          portfolioSnapshots: input.catalogStore
+            ? new HyperliquidPortfolioSnapshotReader({
+                catalog: input.catalogStore,
+                transports: {
+                  testnet: createInfoHttpTransport({ network: "testnet" }),
+                  mainnet: createInfoHttpTransport({ network: "mainnet" }),
+                },
+              })
+            : undefined,
         });
   const catalogSync = input.catalogStore
     ? new MarketCatalogSynchronizer({
@@ -268,6 +279,7 @@ function notificationBunServerPort(input: {
   readonly port: number;
   readonly serverBoundary: NotificationDirectTlsServerBoundary;
   readonly marketCatalog?: PostgresMarketCatalogStore;
+  readonly portfolioSnapshots?: HyperliquidPortfolioSnapshotReader;
 }): NotificationServerRuntimePort {
   let server: Bun.Server<undefined> | undefined;
   return {

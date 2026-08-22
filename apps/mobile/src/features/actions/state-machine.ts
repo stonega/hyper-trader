@@ -34,6 +34,7 @@ export type ActionFlowAction =
       readonly generation: number;
       readonly phase: Extract<
         ActionFlowPhase,
+        | "unlocking"
         | "refreshing"
         | "reserving"
         | "signing"
@@ -72,8 +73,8 @@ const CRITICAL_PHASES: ReadonlySet<ActionFlowPhase> = new Set([
 
 const NEXT_PHASE: Readonly<Partial<Record<ActionFlowPhase, ActionFlowPhase>>> =
   {
-    unlocking: "refreshing",
-    refreshing: "reserving",
+    refreshing: "unlocking",
+    unlocking: "reserving",
     reserving: "signing",
     signing: "submission_start",
     submission_start: "submitting",
@@ -100,7 +101,7 @@ export function reduceActionFlow(
         return state;
       }
       return {
-        phase: "unlocking",
+        phase: "refreshing",
         generation: state.generation + 1,
         journalId: null,
         message: null,

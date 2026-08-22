@@ -10,11 +10,16 @@ import {
   loadMarketCatalog,
   type MarketCatalogBackendClient,
 } from "./catalog-client";
+import { NATIVE_DUPLICATE } from "./fixture";
 
 const EMPTY_CATALOG: MarketCatalog = {
   markets: [],
   quarantined: [],
   sourceErrors: [],
+};
+const VALID_CATALOG: MarketCatalog = {
+  ...EMPTY_CATALOG,
+  markets: [NATIVE_DUPLICATE],
 };
 
 describe("mobile market catalog backend", () => {
@@ -30,7 +35,7 @@ describe("mobile market catalog backend", () => {
             network: "testnet",
             generation: 3,
             publishedAtMs: 1_800_000_000_000,
-            markets: [],
+            markets: VALID_CATALOG.markets,
             quarantined: [],
             sourceErrors: [],
           },
@@ -39,7 +44,7 @@ describe("mobile market catalog backend", () => {
       }) as typeof globalThis.fetch,
     });
 
-    expect(await client.read("testnet")).toEqual(EMPTY_CATALOG);
+    expect(await client.read("testnet")).toEqual(VALID_CATALOG);
     expect(requested).toEqual([
       "https://notify.example.com/v1/market-catalog/testnet",
     ]);
@@ -47,11 +52,11 @@ describe("mobile market catalog backend", () => {
 
   test("requires the backend and never falls back to direct catalog discovery", async () => {
     const backend: MarketCatalogBackendClient = {
-      read: async () => EMPTY_CATALOG,
+      read: async () => VALID_CATALOG,
     };
 
     expect(await loadMarketCatalog({ network: "testnet", backend })).toEqual(
-      EMPTY_CATALOG,
+      VALID_CATALOG,
     );
     await expect(
       loadMarketCatalog({
@@ -66,11 +71,11 @@ describe("mobile market catalog backend", () => {
     const development: DevelopmentMarketCatalogClient = {
       readBootstrap: async (network) => {
         calls.push(network);
-        return EMPTY_CATALOG;
+        return VALID_CATALOG;
       },
       read: async (network) => {
         calls.push(network);
-        return EMPTY_CATALOG;
+        return VALID_CATALOG;
       },
     };
 
@@ -80,7 +85,7 @@ describe("mobile market catalog backend", () => {
         backend: null,
         development,
       }),
-    ).resolves.toEqual(EMPTY_CATALOG);
+    ).resolves.toEqual(VALID_CATALOG);
     expect(calls).toEqual(["testnet"]);
   });
 
@@ -90,17 +95,17 @@ describe("mobile market catalog backend", () => {
       client: {
         getMarketCatalog: async (options) => {
           requests.push(options);
-          return EMPTY_CATALOG;
+          return VALID_CATALOG;
         },
       },
     });
 
     await expect(client.readBootstrap("testnet")).resolves.toEqual({
-      ...EMPTY_CATALOG,
+      ...VALID_CATALOG,
       sourceErrors: [expect.objectContaining({ source: "backendCatalog" })],
     });
     await expect(client.read("testnet")).resolves.toEqual({
-      ...EMPTY_CATALOG,
+      ...VALID_CATALOG,
       sourceErrors: [expect.objectContaining({ source: "backendCatalog" })],
     });
     expect(requests).toEqual([
@@ -129,7 +134,7 @@ describe("mobile market catalog backend", () => {
             network: "testnet",
             generation: 3,
             publishedAtMs: 1_800_000_000_000,
-            markets: [],
+            markets: VALID_CATALOG.markets,
             quarantined: [],
             sourceErrors: [],
           },
@@ -138,8 +143,8 @@ describe("mobile market catalog backend", () => {
       }) as typeof globalThis.fetch,
     });
 
-    expect(await client.read("testnet")).toEqual(EMPTY_CATALOG);
-    expect(await client.read("testnet")).toEqual(EMPTY_CATALOG);
+    expect(await client.read("testnet")).toEqual(VALID_CATALOG);
+    expect(await client.read("testnet")).toEqual(VALID_CATALOG);
     expect(headers).toEqual([null, '"market-catalog-testnet-3"']);
   });
 
@@ -162,5 +167,28 @@ describe("mobile market catalog backend", () => {
     });
 
     await expect(client.read("testnet")).rejects.toThrow("wrong network");
+  });
+
+  test("rejects an empty backend generation", async () => {
+    const client = createMarketCatalogBackendClient({
+      origin: "https://notify.example.com",
+      fetch: (async (_input) =>
+        Response.json(
+          {
+            schemaVersion: 1,
+            network: "testnet",
+            generation: 3,
+            publishedAtMs: 1_800_000_000_000,
+            markets: [],
+            quarantined: [],
+            sourceErrors: [],
+          },
+          { headers: { etag: '"market-catalog-testnet-3"' } },
+        )) as typeof globalThis.fetch,
+    });
+
+    await expect(client.read("testnet")).rejects.toThrow(
+      "no validated markets",
+    );
   });
 });

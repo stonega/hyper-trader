@@ -1,6 +1,6 @@
 # Notification service foundation
 
-U11 adds a public-data-only Bun service in `apps/notifications` and reusable
+U11 adds a public-data-only Bun service in `apps/api` and reusable
 contracts and cryptography in `packages/notifications`. It has no signer,
 exchange action, private account transport, or Hyperliquid authenticated API.
 The only permitted Hyperliquid dependency is
@@ -228,7 +228,7 @@ metadata after 30 days. Independent tombstones are not deleted by this job.
 Run the deterministic, offline suite:
 
 ```sh
-bun test packages/notifications/src/*.test.ts apps/notifications/src/*.test.ts
+bun test packages/notifications/src/*.test.ts apps/api/src/*.test.ts
 ```
 
 Run migrations, rollback, restore, quota races, and independent-connection

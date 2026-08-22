@@ -190,6 +190,49 @@ describe("signer session manager", () => {
     expect(manager.read().status).toBe("locked");
   });
 
+  test("settles a transient focus loss before opening protected authentication", async () => {
+    const availability = deferred<void>();
+    const activeReturn = deferred<boolean>();
+    const timer = createTimer();
+    let active = true;
+    let vaultReads = 0;
+    const manager = createSignerSessionManager({
+      timer: timer.timer,
+      deviceAuth: { assertAvailable: () => availability.promise },
+      vault: {
+        read: async () => {
+          vaultReads += 1;
+          return secret();
+        },
+      },
+      signerFactory: async () => ({
+        binding: BINDING,
+        signTypedData: async () => SIGNATURE,
+        destroy: () => undefined,
+      }),
+      isActiveAndFocused: () => active,
+      waitUntilActiveAndFocused: () => activeReturn.promise,
+    });
+    const unlock = manager.unlock({
+      binding: BINDING,
+      capturedContextEpoch: 4,
+      isContextCurrent: () => true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    active = false;
+    availability.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(vaultReads).toBe(0);
+
+    active = true;
+    activeReturn.resolve(true);
+    await expect(unlock).resolves.toMatchObject({ status: "unlocked" });
+    expect(vaultReads).toBe(1);
+  });
+
   test("discards a protected key if the authentication sheet resolves before focus returns", async () => {
     const read = deferred<ProtectedAgentSecret>();
     const material = secret();

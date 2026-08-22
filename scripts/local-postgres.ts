@@ -1,6 +1,6 @@
 import { SQL } from "bun";
 
-import { migrateNotifications } from "../apps/notifications/src/db/migrations";
+import { migrateNotifications } from "../apps/api/src/db/migrations";
 
 const CONTAINER_NAME = "hyper-trader-postgres-local";
 const VOLUME_NAME = "hyper-trader-postgres-local-data";

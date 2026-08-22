@@ -24,6 +24,17 @@ export interface MarketDiscoveryOptions {
   readonly sort: MarketSort;
 }
 
+interface MarketDiscoveryProjection {
+  readonly funding: number | null;
+  readonly openInterest: number | null;
+  readonly priceChange: number | null;
+  readonly searchText: string;
+  readonly sortLabel: string;
+  readonly volume: number | null;
+}
+
+const projectionCache = new WeakMap<Market, MarketDiscoveryProjection>();
+
 function compareText(left: string, right: string): number {
   if (left === right) {
     return 0;
@@ -76,8 +87,8 @@ function matchesSearch(market: Market, tokens: readonly string[]): boolean {
   if (tokens.length === 0) {
     return true;
   }
-  const haystack = searchableValues(market).map(normalizeSearch).join("\n");
-  return tokens.every((token) => haystack.includes(token));
+  const searchText = marketProjection(market).searchText;
+  return tokens.every((token) => searchText.includes(token));
 }
 
 function decimalMetric(value: string | null | undefined): number | null {
@@ -88,7 +99,7 @@ function decimalMetric(value: string | null | undefined): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-export function marketPriceChangePercent(market: Market): number | null {
+function calculateMarketPriceChangePercent(market: Market): number | null {
   const current = decimalMetric(market.midPx ?? market.markPx);
   const previous = decimalMetric(market.prevDayPx);
   if (current === null || previous === null || previous === 0) {
@@ -97,21 +108,40 @@ export function marketPriceChangePercent(market: Market): number | null {
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
+function marketProjection(market: Market): MarketDiscoveryProjection {
+  const cached = projectionCache.get(market);
+  if (cached) return cached;
+  const projection = {
+    funding: market.family === "perp" ? decimalMetric(market.funding) : null,
+    openInterest:
+      market.family === "perp" ? decimalMetric(market.openInterest) : null,
+    priceChange: calculateMarketPriceChangePercent(market),
+    searchText: searchableValues(market).map(normalizeSearch).join("\n"),
+    sortLabel: normalizeSearch(marketDisplayLabel(market)),
+    volume: decimalMetric(market.dayNtlVlm),
+  };
+  projectionCache.set(market, projection);
+  return projection;
+}
+
+export function marketPriceChangePercent(market: Market): number | null {
+  return marketProjection(market).priceChange;
+}
+
 function marketNumericMetric(
   market: Market,
   sort: Exclude<MarketSort, "symbol">,
 ): number | null {
+  const projection = marketProjection(market);
   switch (sort) {
     case "volume":
-      return decimalMetric(market.dayNtlVlm);
+      return projection.volume;
     case "price_change":
-      return marketPriceChangePercent(market);
+      return projection.priceChange;
     case "funding":
-      return market.family === "perp" ? decimalMetric(market.funding) : null;
+      return projection.funding;
     case "open_interest":
-      return market.family === "perp"
-        ? decimalMetric(market.openInterest)
-        : null;
+      return projection.openInterest;
   }
 }
 
@@ -171,8 +201,8 @@ export function compareMarkets(
   }
 
   const symbolOrder = compareText(
-    marketDisplayLabel(left).toLocaleLowerCase("en-US"),
-    marketDisplayLabel(right).toLocaleLowerCase("en-US"),
+    marketProjection(left).sortLabel,
+    marketProjection(right).sortLabel,
   );
   return symbolOrder === 0
     ? compareText(left.canonicalId, right.canonicalId)

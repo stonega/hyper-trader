@@ -63,10 +63,19 @@ bun run market-catalog
 ```
 
 The executable applies forward migrations, synchronizes testnet and mainnet
-catalog generations, and exposes only `/health` and
-`/v1/market-catalog/{testnet|mainnet}`. It terminates TLS directly and reads key
+catalog generations, and exposes `/health`,
+`/v1/market-catalog/{testnet|mainnet}`, and the bounded Portfolio aggregation
+routes `/v1/portfolio-snapshots/{live|history}`. Portfolio requests use `POST`
+with `{ network, user }`; the public address is not placed in the URL, and
+responses are explicitly `no-store`. It terminates TLS directly and reads key
 material from files rather than ordinary environment-variable values. Set a
 unique, lowercase `NOTIFICATION_INSTANCE_ID` in multi-instance deployments.
+
+Catalog publication fails closed when core discovery contains no validated
+native perpetual market. The public catalog route also treats an absent or
+previously published empty generation as temporarily unavailable: it returns
+`503 { "error": "not_ready" }` with `Retry-After: 30` rather than presenting a
+successful empty catalog to mobile clients.
 
 ## Mobile configuration
 
@@ -76,6 +85,10 @@ transition, `EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` and Expo
 `extra.notificationServiceOrigin` remain accepted aliases because the catalog
 route is hosted by that service. The client captures the origin once and rejects
 runtime changes or invalid values.
+
+Portfolio uses this same origin for its versioned live and history aggregates.
+An invalid configured origin is an unavailable backend, not permission to fall
+back to device-side fan-out. Private aggregates remain memory-only on mobile.
 
 When no backend origin is supplied, Expo development builds may bootstrap only
 validated testnet core metadata directly from Hyperliquid so a physical-device
@@ -90,6 +103,40 @@ render that native subset as soon as it arrives while spot and outcome metadata
 continue loading. The complete core result atomically replaces the subset; the
 progressive request is never used in configured or release builds.
 
+## Cloudflare public-backend deployment
+
+The repository includes a Cloudflare Worker deployment adapter for the public
+market-catalog and Portfolio routes. It uses D1 for generation and incremental
+sync state, runs one bounded synchronization step per minute, and keeps the
+same exact-origin, request-size, response-size, ETag, and fail-closed HTTP
+contracts as the Bun service.
+
+The Worker keeps Portfolio live reads within Cloudflare's six simultaneous
+outbound-connection limit by batching three active DEXes at a time. Active DEX
+candidates come from bounded public order, fill, and funding activity and are
+intersected with the published catalog. A request reads at most 16 active DEXes;
+history-window or DEX-count saturation is returned as a source gap.
+
+This adapter is intentionally limited to public backend data. It does not host
+installation credentials, account-link proofs, push tokens, notification rules,
+or provider workers. Those capabilities still require the reviewed PostgreSQL,
+key-provider, deletion-ledger, Expo, and direct-TLS deployment authorities.
+
+Provision and deploy from the repository root:
+
+```sh
+wrangler d1 create hyper-trader-backend
+# Copy the returned database ID into apps/api/wrangler.jsonc.
+bun --cwd apps/api wrangler d1 migrations apply BACKEND_DB --remote
+# Set BACKEND_ORIGIN to the exact workers.dev or reviewed custom origin.
+bun run backend:deploy
+```
+
+The Worker name is `hyper-trader-backend`; its D1 database uses the same name.
+`BACKEND_ORIGIN` is a non-secret exact HTTPS origin and is source-controlled so
+an unexpected host fails with `421` instead of being inferred from forwarding
+headers. Wrangler configuration is the deployment source of truth.
+
 ## Verification
 
 The default tests inject fetch, clients, clocks, and stores and make no network
@@ -97,7 +144,7 @@ requests. PostgreSQL integration tests default to rootless Podman and use a
 disposable loopback-only container:
 
 ```sh
-bun test apps/notifications/src/catalog apps/mobile/src/features/markets/catalog-client.test.ts
+bun test apps/api/src/catalog apps/mobile/src/features/markets/catalog-client.test.ts
 bun run test:notifications
 bun run typecheck
 bun run check

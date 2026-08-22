@@ -14,6 +14,7 @@ jest.mock("react-native-reanimated", () => {
     FadeIn: transition,
     FadeOut: transition,
     ReduceMotion: { System: "system" },
+    runOnJS: (callback) => callback,
     useAnimatedStyle: (updater) => updater(),
     useSharedValue: (value) => React.useRef({ value }).current,
     withTiming: jest.fn((value) => value),

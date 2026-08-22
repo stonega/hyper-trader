@@ -52,7 +52,7 @@ describe("notification trust boundary", () => {
 async function* notificationFiles(pattern: string): AsyncGenerator<string> {
   for await (const relative of new Bun.Glob(pattern).scan({ cwd: ROOT })) {
     if (
-      relative.startsWith("apps/notifications/") ||
+      relative.startsWith("apps/api/") ||
       relative.startsWith("packages/notifications/") ||
       relative === "docs/implementation/notification-service.md" ||
       relative === "examples/notification-proof-digests.ts"

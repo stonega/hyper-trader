@@ -1,5 +1,8 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import type { MarketCatalog } from "@hyper-trader/hyperliquid/public";
+import type {
+  MarketCatalog,
+  PerpMarket,
+} from "@hyper-trader/hyperliquid/public";
 
 import type {
   AccountLinkResponse,
@@ -21,6 +24,28 @@ import {
   createNotificationRequestHandler,
   startNotificationServer,
 } from "./server";
+
+const NATIVE_MARKET: PerpMarket = {
+  family: "perp",
+  canonicalId: "perp:0:0",
+  displaySymbol: "BTC",
+  coin: "BTC",
+  dexIndex: 0,
+  dexName: "",
+  dexFullName: null,
+  universeIndex: 0,
+  orderAssetId: 0,
+  sizeDecimals: 5,
+  pricePrecision: { maxSignificantFigures: 5, maxDecimalPlaces: 1 },
+  maxLeverage: 50,
+  onlyIsolated: false,
+  marginMode: null,
+  marginTableId: null,
+  lifecycle: "active",
+  orderAvailability: "enabled",
+  validationReasons: [],
+  markPx: "100000",
+};
 
 class FakeApplication implements NotificationApplication {
   calls: string[] = [];
@@ -149,7 +174,7 @@ function getRequest(path: string, credential = "33".repeat(32)): Request {
 }
 
 describe("bounded public notification API", () => {
-  test("serves only health and catalogs from the standalone catalog handler", async () => {
+  test("serves bounded read surfaces and rejects notification routes from the standalone handler", async () => {
     const handler = createMarketCatalogRequestHandler({
       serviceOrigin: "https://notify.example.com",
       marketCatalog: {
@@ -157,7 +182,11 @@ describe("bounded public notification API", () => {
           network,
           generation: 4,
           publishedAtMs: 1_800_000_000_000,
-          catalog: { markets: [], quarantined: [], sourceErrors: [] },
+          catalog: {
+            markets: [NATIVE_MARKET],
+            quarantined: [],
+            sourceErrors: [],
+          },
         }),
       },
     });
@@ -190,7 +219,7 @@ describe("bounded public notification API", () => {
   test("serves a generation-pinned public market catalog without bearer auth", async () => {
     const application = new FakeApplication();
     const marketCatalog: MarketCatalog = {
-      markets: [],
+      markets: [NATIVE_MARKET],
       quarantined: [],
       sourceErrors: [],
     };
@@ -219,7 +248,7 @@ describe("bounded public notification API", () => {
       network: "testnet",
       generation: 7,
       publishedAtMs: 1_800_000_000_000,
-      markets: [],
+      markets: [NATIVE_MARKET],
       quarantined: [],
       sourceErrors: [],
     });
@@ -234,7 +263,56 @@ describe("bounded public notification API", () => {
     expect(notModified.status).toBe(304);
   });
 
-  test("reports an unpublished catalog as temporarily unavailable", async () => {
+  test("serves bounded no-store Portfolio aggregates without placing an address in the URL", async () => {
+    const user = `0x${"1".repeat(40)}`;
+    const calls: string[] = [];
+    const handler = createMarketCatalogRequestHandler({
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: { readPublished: async () => null },
+      portfolioSnapshots: {
+        async readLive(input) {
+          calls.push(`live:${input.network}:${input.user}`);
+          return {
+            schemaVersion: 1,
+            network: input.network,
+            user: input.user,
+            generatedAtMs: 1_800_000_000_000,
+            dexes: [],
+            spot: { balances: [] },
+            sourceGaps: [],
+          };
+        },
+        async readHistory(input) {
+          calls.push(`history:${input.network}:${input.user}`);
+          return {
+            schemaVersion: 1,
+            network: input.network,
+            user: input.user,
+            generatedAtMs: 1_800_000_000_000,
+            fills: [],
+            funding: [],
+            periods: [],
+            sourceGaps: [],
+          };
+        },
+      },
+    });
+
+    const response = await handler(
+      new Request("https://notify.example.com/v1/portfolio-snapshots/live", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ network: "testnet", user }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(calls).toEqual([`live:testnet:${user}`]);
+    expect(JSON.stringify(await response.json())).not.toContain("privateKey");
+  });
+
+  test("reports an unpublished or empty catalog as temporarily unavailable", async () => {
     const handler = createNotificationRequestHandler({
       application: new FakeApplication(),
       serviceOrigin: "https://notify.example.com",
@@ -246,6 +324,25 @@ describe("bounded public notification API", () => {
     );
     expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBe("30");
+
+    const emptyHandler = createNotificationRequestHandler({
+      application: new FakeApplication(),
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: {
+        readPublished: async (network) => ({
+          network,
+          generation: 8,
+          publishedAtMs: 1_800_000_000_000,
+          catalog: { markets: [], quarantined: [], sourceErrors: [] },
+        }),
+      },
+    });
+    const emptyResponse = await emptyHandler(
+      new Request("https://notify.example.com/v1/market-catalog/mainnet"),
+      { ip: "192.0.2.1" },
+    );
+    expect(emptyResponse.status).toBe(503);
+    expect(emptyResponse.headers.get("retry-after")).toBe("30");
   });
 
   test("routes bounded strict requests without exposing private authority", async () => {

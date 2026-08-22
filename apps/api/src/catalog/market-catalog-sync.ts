@@ -89,16 +89,26 @@ export class MarketCatalogSynchronizer {
     return false;
   }
 
-  #core(
+  async #core(
     lease: MarketCatalogSyncLease,
     signal: AbortSignal | undefined,
   ): Promise<MarketCatalog> {
     const admit = restBudgetAdmission();
-    return this.#clients[lease.network].getMarketCatalog({
+    const catalog = await this.#clients[lease.network].getMarketCatalog({
       scope: "core",
       signal,
       onRequestBudget: admit,
     });
+    if (
+      !catalog.markets.some(
+        (market) => market.family === "perp" && market.dexIndex === 0,
+      )
+    ) {
+      throw new Error(
+        "market catalog core contains no validated native perpetual markets",
+      );
+    }
+    return catalog;
   }
 
   #builderPage(

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   HyperliquidNetwork,
   MarketCatalog,
+  PerpMarket,
   PublicHyperliquidClient,
 } from "@hyper-trader/hyperliquid/public";
 import type { MarketCatalogSyncLease } from "./market-catalog-store";
@@ -31,6 +32,28 @@ function catalog(input: Partial<MarketCatalog> = {}): MarketCatalog {
   return { markets: [], quarantined: [], sourceErrors: [], ...input };
 }
 
+const NATIVE_MARKET: PerpMarket = {
+  family: "perp",
+  canonicalId: "perp:0:0",
+  displaySymbol: "BTC",
+  coin: "BTC",
+  dexIndex: 0,
+  dexName: "",
+  dexFullName: null,
+  universeIndex: 0,
+  orderAssetId: 0,
+  sizeDecimals: 5,
+  pricePrecision: { maxSignificantFigures: 5, maxDecimalPlaces: 1 },
+  maxLeverage: 50,
+  onlyIsolated: false,
+  marginMode: null,
+  marginTableId: null,
+  lifecycle: "active",
+  orderAvailability: "enabled",
+  validationReasons: [],
+  markPx: "100000",
+};
+
 describe("market catalog synchronizer", () => {
   test("syncs core before a bounded builder page and throttles lease checks", async () => {
     let now = 1_000;
@@ -56,6 +79,7 @@ describe("market catalog synchronizer", () => {
           : "request:core",
       );
       return catalog({
+        markets: options?.scope === "incremental" ? [] : [NATIVE_MARKET],
         ...(options?.scope === "incremental"
           ? {
               builderPage: {
@@ -85,6 +109,28 @@ describe("market catalog synchronizer", () => {
       "request:builder:37:37",
       "stored:builder",
     ]);
+  });
+
+  test("rejects an empty core generation instead of publishing it", async () => {
+    const calls: string[] = [];
+    const store: MarketCatalogSyncStore = {
+      claimDueSync: async () => lease(),
+      completeCore: async () => {
+        calls.push("stored");
+      },
+      completeBuilderPage: async () => ({ published: false }),
+      recordFailure: async () => {
+        calls.push("failed");
+      },
+    };
+    const sync = new MarketCatalogSynchronizer({
+      ownerId: "catalog-a",
+      store,
+      clients: clientsFor(async () => catalog()),
+    });
+
+    expect(await sync.runOnce()).toBe(true);
+    expect(calls).toEqual(["failed"]);
   });
 
   test("records a failed request without publishing partial state", async () => {

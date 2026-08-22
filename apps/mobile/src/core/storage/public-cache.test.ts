@@ -27,12 +27,18 @@ function memoryStorage(initial?: string) {
 describe("safe public cache persister", () => {
   test("keeps restoration pending until asynchronous storage resolves", async () => {
     let release: (value: string | null) => void = () => undefined;
+    let markStorageReadStarted: () => void = () => undefined;
     let settled = false;
+    const storageReadStarted = new Promise<void>((resolve) => {
+      markStorageReadStarted = resolve;
+    });
     const persister = createSafePublicCachePersister({
-      getItem: () =>
-        new Promise((resolve) => {
+      getItem: () => {
+        markStorageReadStarted();
+        return new Promise((resolve) => {
           release = resolve;
-        }),
+        });
+      },
       setItem: async () => undefined,
       removeItem: async () => undefined,
     });
@@ -43,7 +49,7 @@ describe("safe public cache persister", () => {
         return value;
       },
     );
-    await Promise.resolve();
+    await storageReadStarted;
     expect(settled).toBe(false);
     release(null);
 
@@ -56,6 +62,27 @@ describe("safe public cache persister", () => {
 
     expect(await persister.restoreClient()).toBeUndefined();
     expect(storage.values.has(PUBLIC_CACHE_STORAGE_KEY)).toBe(false);
+  });
+
+  test("removes obsolete public caches without reading them", async () => {
+    const storage = memoryStorage();
+    storage.values.set(
+      "hyper-trader.public-query-cache.v1",
+      "{large-old-cache",
+    );
+    storage.values.set(
+      "hyper-trader.public-query-cache.v2",
+      "{possibly-empty-catalog",
+    );
+    const persister = createSafePublicCachePersister(storage);
+
+    expect(await persister.restoreClient()).toBeUndefined();
+    expect(storage.values.has("hyper-trader.public-query-cache.v1")).toBe(
+      false,
+    );
+    expect(storage.values.has("hyper-trader.public-query-cache.v2")).toBe(
+      false,
+    );
   });
 
   test("strips private queries and every mutation from restored data", async () => {
@@ -87,7 +114,30 @@ describe("safe public cache persister", () => {
             queryHash: "public",
             queryKey: ["public", "mainnet", "marketCatalog"],
             state: {
-              data: { markets: 1 },
+              data: {
+                markets: [{ canonicalId: "perp:0:0" }],
+                quarantined: [],
+                sourceErrors: [],
+              },
+              dataUpdateCount: 1,
+              dataUpdatedAt: 1,
+              error: null,
+              errorUpdateCount: 0,
+              errorUpdatedAt: 0,
+              fetchFailureCount: 0,
+              fetchFailureReason: null,
+              fetchMeta: null,
+              isInvalidated: false,
+              status: "success",
+              fetchStatus: "idle",
+            },
+          },
+          {
+            dehydratedAt: 1,
+            queryHash: "empty-public",
+            queryKey: ["public", "testnet", "marketCatalog"],
+            state: {
+              data: { markets: [], quarantined: [], sourceErrors: [] },
               dataUpdateCount: 1,
               dataUpdatedAt: 1,
               error: null,

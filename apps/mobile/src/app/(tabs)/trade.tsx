@@ -1,12 +1,16 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { Market } from "@hyper-trader/hyperliquid/public";
+import type { AccountTarget } from "@hyper-trader/hyperliquid";
+import type {
+  HyperliquidNetwork,
+  Market,
+} from "@hyper-trader/hyperliquid/public";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX, ReactNode } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
@@ -28,6 +32,10 @@ import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useDraftRegistry } from "../../core/actions/draft-provider";
 import { useTradingContext } from "../../core/context/provider";
+import {
+  contextIdentityKey,
+  type NormalizedTradingContext,
+} from "../../core/context/supervisor";
 import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
@@ -57,9 +65,18 @@ import { resolvePortfolioTarget } from "../../features/portfolio/portfolio-query
 import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
 import { MarketCandlestickChart } from "../../features/trade/candlestick-chart";
 import type { TradeChartInterval } from "../../features/trade/market-chart-config";
-import { useTradeMarketData } from "../../features/trade/market-data";
+import {
+  useTradeCandleData,
+  useTradeMarketActivityData,
+  useTradeMarketData,
+  useTradeMarketDetailRefresh,
+} from "../../features/trade/market-data";
 import { OrderPanel } from "../../features/trade/order-panel";
-import { useTradeAccountSnapshot } from "../../features/trade/trade-account-query";
+import {
+  useTradeAccountSnapshot,
+  useTradeOpenOrders,
+} from "../../features/trade/trade-account-query";
+import { buildTradeChartOverlays } from "../../features/trade/trade-chart-overlays";
 import { shouldSplitTradeWorkspace } from "../../features/trade/trade-layout";
 import {
   buildTradeReview,
@@ -69,11 +86,13 @@ import {
   evaluateTradeGate,
   reconcileTradeDraft,
   resolveCanonicalMarketSwitch,
+  type TradeAccountSnapshot,
   type TradeAuthority,
   type TradeDraft,
   type TradeSignerState,
   tradeConnectivityFromCatalogFreshness,
   tradeDraftValueKey,
+  tradeMarketFingerprint,
   tradeReviewScopeKey,
 } from "../../features/trade/trade-model";
 import { expoCryptographicRandomBytes } from "../../platform/security/agent-signer";
@@ -106,7 +125,7 @@ function MarketSummary({
         <View className="items-end gap-1">
           <Text
             adjustsFontSizeToFit
-            className="text-2xl font-semibold tabular-nums text-foreground"
+            className="font-mono text-2xl font-semibold text-foreground"
             numberOfLines={1}
           >
             {formatMarketPrice(market)}
@@ -177,7 +196,7 @@ function Stat({
       <Text className="text-xs uppercase tracking-wide text-muted">
         {label}
       </Text>
-      <Text className="text-base tabular-nums text-foreground">{value}</Text>
+      <Text className="font-mono text-base text-foreground">{value}</Text>
     </View>
   );
 }
@@ -190,6 +209,87 @@ function TradeLoading(): JSX.Element {
     />
   );
 }
+
+const LiveTradeChart = memo(function LiveTradeChart({
+  context,
+  target,
+  network,
+  market,
+  account,
+  draft,
+  interval,
+  onIntervalChange,
+}: {
+  readonly context: NormalizedTradingContext;
+  readonly target: AccountTarget | null;
+  readonly network: HyperliquidNetwork;
+  readonly market: Market;
+  readonly account: TradeAccountSnapshot | null;
+  readonly draft: TradeDraft | null;
+  readonly interval: TradeChartInterval;
+  readonly onIntervalChange: (interval: TradeChartInterval) => void;
+}): JSX.Element {
+  const candles = useTradeCandleData(network, market, interval);
+  const openOrders = useTradeOpenOrders(context, target, market);
+  const overlays = useMemo(
+    () =>
+      buildTradeChartOverlays({
+        market,
+        lastPrice: candles.data?.at(-1)?.close ?? null,
+        account,
+        draft,
+        openOrders: openOrders.data ?? [],
+      }),
+    [account, candles.data, draft, market, openOrders.data],
+  );
+  return (
+    <MarketCandlestickChart
+      candles={candles.data}
+      canonicalMarketId={market.canonicalId}
+      compact
+      interval={interval}
+      canLoadOlder={candles.canFetchOlder}
+      historyError={candles.historyError}
+      liveRange={candles.liveRange}
+      loading={candles.isPending}
+      loadingOlder={candles.isFetchingOlder}
+      onLoadOlder={candles.fetchOlder}
+      onIntervalChange={onIntervalChange}
+      overlays={overlays}
+      realtime
+      unavailable={candles.isError && candles.data === undefined}
+    />
+  );
+});
+
+const LiveTradeActivity = memo(function LiveTradeActivity({
+  network,
+  market,
+  compact,
+  onSelectPrice,
+}: {
+  readonly network: HyperliquidNetwork;
+  readonly market: Market;
+  readonly compact: boolean;
+  readonly onSelectPrice: (price: string) => void;
+}): JSX.Element {
+  const activity = useTradeMarketActivityData(network, market);
+  return (
+    <MarketActivity
+      book={activity.book.data}
+      bookLoading={activity.book.isPending}
+      bookUnavailable={activity.book.isError || activity.book.isRefetchError}
+      compact={compact}
+      onSelectPrice={onSelectPrice}
+      style={compact ? { flex: 1 } : undefined}
+      trades={activity.trades.data}
+      tradesLoading={activity.trades.isPending}
+      tradesUnavailable={
+        activity.trades.isError || activity.trades.isRefetchError
+      }
+    />
+  );
+});
 
 export default function TradeScreen(): JSX.Element {
   const insets = useSafeAreaInsets();
@@ -260,14 +360,22 @@ export default function TradeScreen(): JSX.Element {
     preferences.status,
     requestedMarket,
   ]);
-  const market = selection?.market ?? null;
-  const accountTarget = resolvePortfolioTarget(current).target;
-  const accountQuery = useTradeAccountSnapshot(current, accountTarget, market);
-  const marketData = useTradeMarketData(
+  const catalogMarket = selection?.market ?? null;
+  const marketData = useTradeMarketData(current.network, catalogMarket);
+  const refreshMarketDetails = useTradeMarketDetailRefresh(
     current.network,
-    market,
+    catalogMarket,
     candleInterval,
   );
+  const market = useMemo(
+    () =>
+      catalogMarket === null
+        ? null
+        : { ...catalogMarket, ...marketData.context.data },
+    [catalogMarket, marketData.context.data],
+  );
+  const accountTarget = resolvePortfolioTarget(current).target;
+  const accountQuery = useTradeAccountSnapshot(current, accountTarget, market);
   const signerState: TradeSignerState =
     current.signer === null
       ? "missing"
@@ -339,8 +447,40 @@ export default function TradeScreen(): JSX.Element {
     }
   }, [preferences, selection]);
 
+  const draftReconciliationKey =
+    market === null
+      ? JSON.stringify(["no-market", scopedPreferences.status])
+      : JSON.stringify([
+          contextIdentityKey(current),
+          market.canonicalId,
+          tradeMarketFingerprint(market),
+          authority.account?.leverage ?? null,
+          scopedPreferences.status,
+          tradeDefaults?.defaultOrderType ?? null,
+          tradeDefaults?.defaultSlippageBps ?? null,
+        ]);
+  const draftReconciliationInputRef = useRef({
+    market,
+    context: current,
+    account: authority.account,
+    preferences: tradeDefaults,
+    preferencesStatus: scopedPreferences.status,
+  });
+  draftReconciliationInputRef.current = {
+    market,
+    context: current,
+    account: authority.account,
+    preferences: tradeDefaults,
+    preferencesStatus: scopedPreferences.status,
+  };
   useEffect(() => {
-    if (market === null || scopedPreferences.status === "loading") {
+    void draftReconciliationKey;
+    const input = draftReconciliationInputRef.current;
+    const reconciliationMarket = input.market;
+    if (
+      reconciliationMarket === null ||
+      input.preferencesStatus === "loading"
+    ) {
       setDraftState({ draft: null, invalidationMessage: null });
       return;
     }
@@ -348,19 +488,19 @@ export default function TradeScreen(): JSX.Element {
       if (previous.draft === null) {
         return {
           draft: createTradeDraft({
-            market,
-            context: current,
-            account: authority.account,
-            preferences: tradeDefaults,
+            market: reconciliationMarket,
+            context: input.context,
+            account: input.account,
+            preferences: input.preferences,
           }),
           invalidationMessage: previous.invalidationMessage,
         };
       }
       const reconciled = reconcileTradeDraft(previous.draft, {
-        market,
-        context: current,
-        account: authority.account,
-        preferences: tradeDefaults,
+        market: reconciliationMarket,
+        context: input.context,
+        account: input.account,
+        preferences: input.preferences,
       });
       if (reconciled.preserved) {
         return reconciled.draft === previous.draft
@@ -375,13 +515,7 @@ export default function TradeScreen(): JSX.Element {
         invalidationMessage: reconciled.message,
       };
     });
-  }, [
-    authority.account,
-    current,
-    market,
-    scopedPreferences.status,
-    tradeDefaults,
-  ]);
+  }, [draftReconciliationKey]);
 
   const draftBinding = draftState.draft?.binding ?? null;
   useEffect(() => {
@@ -396,19 +530,8 @@ export default function TradeScreen(): JSX.Element {
     selection !== null &&
     selection.source === "volume_fallback" &&
     (requestedMarket !== null || preferences.preferences.lastMarketId !== null);
-  const marketDataHasCachedContent =
-    marketData.candles.data !== undefined ||
-    marketData.book.data !== undefined ||
-    marketData.trades.data !== undefined;
-  const marketDataUnavailable =
-    marketData.candles.isError ||
-    marketData.book.isError ||
-    marketData.trades.isError;
   const refetchAccount = accountQuery.refetch;
-  const refetchBook = marketData.book.refetch;
-  const refetchCandles = marketData.candles.refetch;
   const refetchCatalog = catalogQuery.refetch;
-  const refetchTrades = marketData.trades.refetch;
   const refreshFromPullGesture = useCallback(
     () =>
       runManualRefresh(
@@ -416,9 +539,7 @@ export default function TradeScreen(): JSX.Element {
         async () => {
           const detailRefreshes = market
             ? [
-                refetchCandles(),
-                refetchBook(),
-                refetchTrades(),
+                refreshMarketDetails(),
                 ...(accountTarget === null ? [] : [refetchAccount()]),
               ]
             : [];
@@ -430,10 +551,8 @@ export default function TradeScreen(): JSX.Element {
       accountTarget,
       market,
       refetchAccount,
-      refetchBook,
-      refetchCandles,
       refetchCatalog,
-      refetchTrades,
+      refreshMarketDetails,
     ],
   );
   const showCatalogStatus =
@@ -452,6 +571,22 @@ export default function TradeScreen(): JSX.Element {
     if (next.lifecycle === "active") preferences.selectMarket(next.canonicalId);
     router.setParams({ market: next.canonicalId });
   };
+
+  const selectOrderBookPrice = useCallback((limitPrice: string) => {
+    operationFence.current.invalidate();
+    setDraftState((previous) =>
+      previous.draft === null
+        ? previous
+        : {
+            draft: {
+              ...previous.draft,
+              orderType: "limit",
+              limitPrice,
+            },
+            invalidationMessage: null,
+          },
+    );
+  }, []);
 
   const openReview = async (requestedDraft: TradeDraft) => {
     if (!market || !draftState.draft || !gate?.enabled) {
@@ -503,7 +638,13 @@ export default function TradeScreen(): JSX.Element {
         "Market or account context changed before review opened.",
       );
     }
-    actionRuntime.openReview(review);
+    const result = await actionRuntime.reviewAndSubmit(review);
+    if (result.phase === "failed_before_submission") {
+      throw new Error(
+        result.message ??
+          "The order could not be reviewed with current market and account details.",
+      );
+    }
   };
 
   return (
@@ -578,7 +719,7 @@ export default function TradeScreen(): JSX.Element {
           </Text>
         ) : null}
 
-        {market ? (
+        {market && catalogMarket ? (
           <>
             <MarketSummary
               market={market}
@@ -592,10 +733,8 @@ export default function TradeScreen(): JSX.Element {
                 ) : undefined
               }
             />
-            {marketDataHasCachedContent &&
-            (marketDataUnavailable ||
-              presentation.freshness === "offline" ||
-              presentation.freshness === "stale") ? (
+            {presentation.freshness === "offline" ||
+            presentation.freshness === "stale" ? (
               <Text
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-warning"
@@ -603,18 +742,15 @@ export default function TradeScreen(): JSX.Element {
                 Some market data may be out of date. Pull to refresh.
               </Text>
             ) : null}
-            <MarketCandlestickChart
-              candles={marketData.candles.data}
-              interval={candleInterval}
-              loading={marketData.candles.isPending}
+            <LiveTradeChart
+              account={authority.account}
+              context={current}
+              draft={draftState.draft}
+              network={current.network}
               market={market}
+              interval={candleInterval}
               onIntervalChange={setCandleInterval}
-              compact
-              realtime
-              unavailable={
-                marketData.candles.isError &&
-                marketData.candles.data === undefined
-              }
+              target={accountTarget}
             />
             <View
               className={
@@ -644,19 +780,11 @@ export default function TradeScreen(): JSX.Element {
                   <TradeLoading />
                 </View>
               )}
-              <MarketActivity
-                book={marketData.book.data}
-                bookLoading={marketData.book.isPending}
-                bookUnavailable={
-                  marketData.book.isError || marketData.book.isRefetchError
-                }
+              <LiveTradeActivity
                 compact={splitWorkspace}
-                style={splitWorkspace ? { flex: 1 } : undefined}
-                trades={marketData.trades.data}
-                tradesLoading={marketData.trades.isPending}
-                tradesUnavailable={
-                  marketData.trades.isError || marketData.trades.isRefetchError
-                }
+                market={catalogMarket}
+                network={current.network}
+                onSelectPrice={selectOrderBookPrice}
               />
             </View>
             {gate?.code === "read_only" || gate?.code === "expired_agent" ? (

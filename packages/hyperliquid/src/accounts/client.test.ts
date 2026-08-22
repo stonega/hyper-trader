@@ -88,6 +88,7 @@ describe("account data client", () => {
       activeAsset,
       spot,
       orders,
+      frontendOrders,
       historical,
       fills,
       funding,
@@ -98,6 +99,7 @@ describe("account data client", () => {
       client.getActiveAssetData(target, "alpha:DUP"),
       client.getSpotClearinghouseState(target),
       client.getOpenOrders(target, "alpha"),
+      client.getFrontendOpenOrders(target, "alpha"),
       client.getHistoricalOrders(target),
       client.getFills(target),
       client.getFunding(target, { startTime: 1_720_000_000_000 }),
@@ -125,6 +127,18 @@ describe("account data client", () => {
       target,
       sourceDex: "alpha",
       data: [{ coin: "alpha:DUP", limitPrice: "1.0000000000000001" }],
+    });
+    expect(frontendOrders).toMatchObject({
+      target,
+      sourceDex: "alpha",
+      data: [
+        {
+          isPositionTpsl: true,
+          isTrigger: true,
+          orderType: "Take Profit Market",
+          triggerPrice: "11.0000000000000001",
+        },
+      ],
     });
     expect(historical.data[0]?.status).toBe("filled");
     expect(fills.data[0]?.price).toBe("1.0000000000000001");
@@ -173,6 +187,26 @@ describe("account data client", () => {
         "alpha:DUP",
       ),
     ).rejects.toThrow("activeAssetData.availableToTrade");
+  });
+
+  test("rejects malformed frontend trigger-order metadata", async () => {
+    const client = createAccountDataClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json([
+          {
+            ...ACCOUNT_RESPONSES.frontendOpenOrders[0],
+            isTrigger: "true",
+          },
+        ]),
+    });
+
+    await expect(
+      client.getFrontendOpenOrders(
+        { kind: "master", address: SUBACCOUNT_ADDRESS },
+        "alpha",
+      ),
+    ).rejects.toThrow("frontendOpenOrders[0].isTrigger");
   });
 
   test("handles an empty master account and uses the vault address", async () => {

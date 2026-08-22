@@ -6,10 +6,10 @@ if (containerEngine !== "docker" && containerEngine !== "podman") {
   throw new Error("CONTAINER_ENGINE must be docker or podman");
 }
 const integrationTests = [
-  "apps/notifications/src/db/migrations-postgres.integration.test.ts",
-  "apps/notifications/src/catalog/market-catalog-store-postgres.integration.test.ts",
-  "apps/notifications/src/db/postgres.integration.test.ts",
-  "apps/notifications/src/db/worker-postgres.integration.test.ts",
+  "apps/api/src/db/migrations-postgres.integration.test.ts",
+  "apps/api/src/catalog/market-catalog-store-postgres.integration.test.ts",
+  "apps/api/src/db/postgres.integration.test.ts",
+  "apps/api/src/db/worker-postgres.integration.test.ts",
 ] as const;
 const suppliedDatabaseUrl = process.env.NOTIFICATION_TEST_DATABASE_URL;
 

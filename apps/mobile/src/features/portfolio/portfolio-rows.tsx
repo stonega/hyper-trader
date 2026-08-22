@@ -5,6 +5,7 @@ import { Input } from "heroui-native/input";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
+import { useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
@@ -17,6 +18,11 @@ import {
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
 } from "./portfolio-model";
+import {
+  boundedPortfolioRowLimit,
+  nextPortfolioRowLimit,
+  PORTFOLIO_ROW_BATCH_SIZE,
+} from "./portfolio-row-window";
 
 export type PortfolioEditor = {
   readonly kind: "margin";
@@ -293,6 +299,34 @@ function OrderCard({
   );
 }
 
+function RowWindowFooter({
+  total,
+  visible,
+  onShowMore,
+}: {
+  readonly total: number;
+  readonly visible: number;
+  readonly onShowMore: () => void;
+}): JSX.Element | null {
+  const reducedMotion = useReducedMotion();
+  const remaining = Math.max(0, total - visible);
+  if (remaining === 0) return null;
+  const nextCount = Math.min(PORTFOLIO_ROW_BATCH_SIZE, remaining);
+  return (
+    <Button
+      accessibilityHint={`${remaining} portfolio rows remain hidden.`}
+      animation={reducedMotion ? "disable-all" : undefined}
+      className="min-h-12 w-full"
+      onPress={onShowMore}
+      variant="tertiary"
+    >
+      <Button.Label>
+        Show {nextCount} more · {remaining} remaining
+      </Button.Label>
+    </Button>
+  );
+}
+
 export function PortfolioRows({
   portfolio,
   filter,
@@ -321,12 +355,32 @@ export function PortfolioRows({
     marginMode: "cross" | "isolated",
   ) => void;
 }): JSX.Element {
+  const rowScope = `${portfolio.ownerKey}:${filter}`;
+  const [rowWindow, setRowWindow] = useState({
+    scope: rowScope,
+    limit: PORTFOLIO_ROW_BATCH_SIZE,
+  });
+  const requestedLimit =
+    rowWindow.scope === rowScope ? rowWindow.limit : PORTFOLIO_ROW_BATCH_SIZE;
+  const showMore = (total: number) => {
+    setRowWindow((current) => ({
+      scope: rowScope,
+      limit: nextPortfolioRowLimit(
+        current.scope === rowScope ? current.limit : PORTFOLIO_ROW_BATCH_SIZE,
+        total,
+      ),
+    }));
+  };
   if (filter === "positions") {
+    const visible = boundedPortfolioRowLimit(
+      requestedLimit,
+      portfolio.positions.length,
+    );
     return portfolio.positions.length === 0 ? (
       <EmptyFilter label="positions" />
     ) : (
       <View className="gap-3">
-        {portfolio.positions.map((position) => (
+        {portfolio.positions.slice(0, visible).map((position) => (
           <PositionCard
             actionAccess={actionAccess}
             editor={editor}
@@ -338,15 +392,24 @@ export function PortfolioRows({
             setEditor={setEditor}
           />
         ))}
+        <RowWindowFooter
+          onShowMore={() => showMore(portfolio.positions.length)}
+          total={portfolio.positions.length}
+          visible={visible}
+        />
       </View>
     );
   }
   if (filter === "open_orders") {
+    const visible = boundedPortfolioRowLimit(
+      requestedLimit,
+      portfolio.openOrders.length,
+    );
     return portfolio.openOrders.length === 0 ? (
       <EmptyFilter label="open orders" />
     ) : (
       <View className="gap-3">
-        {portfolio.openOrders.map((order) => (
+        {portfolio.openOrders.slice(0, visible).map((order) => (
           <OrderCard
             actionAccess={actionAccess}
             key={order.id}
@@ -354,15 +417,24 @@ export function PortfolioRows({
             order={order}
           />
         ))}
+        <RowWindowFooter
+          onShowMore={() => showMore(portfolio.openOrders.length)}
+          total={portfolio.openOrders.length}
+          visible={visible}
+        />
       </View>
     );
   }
   if (filter === "spot_balances") {
+    const visible = boundedPortfolioRowLimit(
+      requestedLimit,
+      portfolio.spotBalances.length,
+    );
     return portfolio.spotBalances.length === 0 ? (
       <EmptyFilter label="spot balances" />
     ) : (
       <View className="gap-3">
-        {portfolio.spotBalances.map((balance) => (
+        {portfolio.spotBalances.slice(0, visible).map((balance) => (
           <Card key={balance.token} variant="default">
             <Card.Body className="gap-3">
               <Card.Title>{balance.coin}</Card.Title>
@@ -374,25 +446,37 @@ export function PortfolioRows({
             </Card.Body>
           </Card>
         ))}
+        <RowWindowFooter
+          onShowMore={() => showMore(portfolio.spotBalances.length)}
+          total={portfolio.spotBalances.length}
+          visible={visible}
+        />
       </View>
     );
   }
+  const sourceLength =
+    filter === "fills"
+      ? portfolio.fills.length
+      : filter === "funding"
+        ? portfolio.funding.length
+        : portfolio.activity.length;
+  const visible = boundedPortfolioRowLimit(requestedLimit, sourceLength);
   const rows =
     filter === "fills"
-      ? portfolio.fills.map((fill) => ({
+      ? portfolio.fills.slice(0, visible).map((fill) => ({
           id: `fill:${fill.hash}:${fill.oid}`,
           title: `${fill.coin} · ${fill.side}`,
           detail: `${fill.size} at ${fill.price} · fee ${fill.fee} ${fill.feeToken}`,
           amount: `Closed PnL ${fill.closedPnl}`,
         }))
       : filter === "funding"
-        ? portfolio.funding.map((funding) => ({
+        ? portfolio.funding.slice(0, visible).map((funding) => ({
             id: `funding:${funding.hash}:${funding.coin}`,
             title: `${funding.coin} · funding`,
             detail: `Rate ${funding.fundingRate} · size ${funding.size}`,
             amount: `${funding.usdc} USDC`,
           }))
-        : portfolio.activity.map((activity) => ({
+        : portfolio.activity.slice(0, visible).map((activity) => ({
             id: activity.id,
             title: `${activity.coin} · ${activity.kind}`,
             detail: activity.detail,
@@ -413,6 +497,11 @@ export function PortfolioRows({
           </Card.Body>
         </Card>
       ))}
+      <RowWindowFooter
+        onShowMore={() => showMore(sourceLength)}
+        total={sourceLength}
+        visible={visible}
+      />
     </View>
   );
 }

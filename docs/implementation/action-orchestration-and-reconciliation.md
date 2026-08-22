@@ -20,17 +20,21 @@ The progressive Trade drafting and review handoff is documented in
 
 ## Confirmation sequence
 
-Opening review validates and owns a deep-frozen snapshot. It does not read the
-vault, unlock, reserve, sign, or call transport. Only **Confirm testnet action**
-starts this sequence:
+Opening a Portfolio review validates and owns a deep-frozen snapshot. It does
+not read the vault, unlock, reserve, sign, or call transport. Trade uses its
+side-specific **Buy / Long** or **Sell / Short** control as the explicit order
+confirmation: the control first shows `Reviewing…` without opening a sheet.
+That explicit confirmation starts this sequence:
 
 1. Deny mainnet locally.
-2. Verify context and unlock the exact target-bound signer if needed.
-3. Refresh authoritative market, account, order, and clock evidence.
-4. Revalidate decimals, discriminators, precision, notional, leverage, margin,
+2. Verify context, then refresh authoritative market, account, order, and clock
+   evidence while Trade keeps progress on the pressed order button.
+3. Revalidate decimals, discriminators, precision, notional, leverage, margin,
    reduce-only, time-in-force, trigger, slippage, tradability, market metadata,
    account version, and current context.
-5. Atomically reserve the nonce and secret-free journal record.
+4. Request exact target-bound device authentication only after review succeeds.
+5. After authentication, open the sending/status sheet and atomically reserve
+   the nonce and secret-free journal record.
 6. Build the codec-owned action and sign exact typed data in memory.
 7. Persist `submission_started` and obtain the one-shot permit.
 8. POST once to the compiled testnet `/exchange` origin with redirects rejected
@@ -68,9 +72,10 @@ markets remain browse-only. Missing constraints are never guessed.
 ## Visible phases and Back behavior
 
 One root-owned HeroUI Native bottom sheet remains mounted from immutable review
-through authentication, one-shot submission, and reconciliation. Its fixed,
-scrollable surface keeps the review details visible while the title, description,
-and Review/Submit/Status progress rail reflect the current phase. Inner content
+through authentication, one-shot submission, and reconciliation. Its compact
+ticket layout sizes the sheet to its content and retains scroll behavior when
+the content reaches the available height. The title, description, and
+Review/Submit/Status progress rail reflect the current phase. Inner content
 fades for at most 160 ms; system Reduced Motion disables staged animation.
 Actions are at least 48 points.
 
@@ -122,21 +127,30 @@ the SQLite nonce scope, and supplies the signer-session manager to the existing
 five-minute lifecycle controller.
 
 Confirmation performs a fresh fixed-origin testnet catalog lookup and account
-query. Response `Date` headers provide the bounded server-time sample required
-by nonce allocation. The refreshed market fingerprint, price, relevant account
-fields, context epoch, and exact intent must still match the immutable review
-before the journal can reserve a nonce. The exchange client then consumes the
-write-once transport permit created by `submission_started`.
+query before signer-session unlock. Response `Date` headers provide the bounded
+server-time sample required by nonce allocation. The refreshed market
+fingerprint, price, relevant account fields, context epoch, and exact intent
+must still match the immutable review before device authentication is requested.
+Trade keeps this phase inline on the pressed order button; only successful
+authentication reveals the sending/status sheet. The exchange client then
+consumes the write-once transport permit created by `submission_started`.
 
 The authenticated SecureStore prompt may transiently move the native app to
 `inactive` or Android `blur` while the signer is still unlocking. That exact
 pre-session transition no longer cancels its own protected read; backgrounding
-still cancels. When the read completes before the native active event, a bounded
-activity gate waits up to 1.5 seconds for active focus before signer construction.
-Failure, timeout, background, or a stale context disposes the protected material.
+still cancels. The same bounded activity gate settles a transient focus handoff
+before opening SecureStore, so a blur cannot suppress the biometric prompt, and
+again when the read completes before the native active event. Each wait permits
+up to 1.5 seconds for active focus before continuing. Failure, timeout,
+background, or a stale context disposes the protected material.
 Pre-submission presentation maps only allowlisted recovery
 classes—authentication interrupted, credential invalidated, or context
 changed—and never exposes native error text.
+
+The development provider's native-activity listener cleanup interrupts pending
+waiters but does not permanently dispose its ref-backed gate. Effect
+re-subscription, including Fast Refresh, resynchronizes the gate from current
+native activity before a later confirmation can attempt SecureStore access.
 
 Distributed and release builds receive neither manager nor orchestrator, so
 submission remains unavailable while the release gate is conditional. The

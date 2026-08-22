@@ -35,6 +35,8 @@ describe("Trade account snapshot adapters", () => {
       leverage: 5,
       marginMode: "cross",
       positionSize: "2.5",
+      entryPrice: "10",
+      liquidationPrice: "4",
       version: 1_720_000_030_000,
       observedAtMs: OBSERVED_AT,
     });
@@ -56,6 +58,8 @@ describe("Trade account snapshot adapters", () => {
       leverage: 5,
       marginMode: "cross",
       positionSize: "0",
+      entryPrice: null,
+      liquidationPrice: null,
       version: 1_720_000_030_000,
       observedAtMs: OBSERVED_AT,
     });

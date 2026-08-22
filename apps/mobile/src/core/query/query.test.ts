@@ -6,6 +6,7 @@ import {
   createPublicCacheDehydrateOptions,
   isAllowlistedPublicQuery,
   PUBLIC_CACHE_MAX_AGE_MS,
+  shouldPersistPublicCacheEvent,
 } from "./persistence";
 import { removeIncompatiblePrivateQueries } from "./private-cache";
 
@@ -74,7 +75,7 @@ describe("query ownership and public persistence", () => {
     ).toEqual(["private", "testnet", "0xaaa", "0xbbb", "accountSnapshot"]);
   });
 
-  test("warm restore includes only allowlisted successful public families", async () => {
+  test("warm restore includes only the stable market catalog", async () => {
     const source = new QueryClient();
     source.setQueryData(queryKeys.public.marketCatalog("mainnet"), {
       markets: 4,
@@ -104,7 +105,7 @@ describe("query ownership and public persistence", () => {
       restored.getQueryData<{ BTC: string }>(
         queryKeys.public.midPrices("mainnet"),
       ),
-    ).toEqual({ BTC: "90000" });
+    ).toBeUndefined();
     expect(
       restored.getQueryData(
         queryKeys.private.accountSnapshot({
@@ -115,6 +116,32 @@ describe("query ownership and public persistence", () => {
       ),
     ).toBeUndefined();
     expect(PUBLIC_CACHE_MAX_AGE_MS).toBeGreaterThan(0);
+  });
+
+  test("only catalog changes schedule a public-device cache write", () => {
+    const source = new QueryClient();
+    source.setQueryData(queryKeys.public.marketCatalog("mainnet"), {
+      markets: 4,
+    });
+    source.setQueryData(queryKeys.public.marketContext("mainnet", "perp:0:0"), {
+      markPx: "90000",
+    });
+    const catalog = source.getQueryCache().find({
+      queryKey: queryKeys.public.marketCatalog("mainnet"),
+    });
+    const context = source.getQueryCache().find({
+      queryKey: queryKeys.public.marketContext("mainnet", "perp:0:0"),
+    });
+
+    expect(
+      shouldPersistPublicCacheEvent({ type: "updated", query: catalog }),
+    ).toBe(true);
+    expect(
+      shouldPersistPublicCacheEvent({ type: "updated", query: context }),
+    ).toBe(false);
+    expect(
+      shouldPersistPublicCacheEvent({ type: "observerAdded", query: catalog }),
+    ).toBe(false);
   });
 
   test("cold storage and unknown public families restore nothing", () => {

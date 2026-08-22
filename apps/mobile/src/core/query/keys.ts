@@ -14,6 +14,7 @@ export type PublicQueryFamily =
   | "midPrices"
   | "marketContext"
   | "candles"
+  | "candleHistory"
   | "l2Book"
   | "recentTrades";
 
@@ -62,6 +63,11 @@ export const queryKeys = {
       canonicalId: string,
       interval: CandleInterval,
     ) => publicKey(network, "candles", canonicalId, interval),
+    candleHistory: (
+      network: HyperliquidNetwork,
+      canonicalId: string,
+      interval: CandleInterval,
+    ) => publicKey(network, "candleHistory", canonicalId, interval),
     l2Book: (network: HyperliquidNetwork, canonicalId: string) =>
       publicKey(network, "l2Book", canonicalId),
     recentTrades: (network: HyperliquidNetwork, canonicalId: string) =>

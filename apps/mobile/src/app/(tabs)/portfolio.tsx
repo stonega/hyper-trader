@@ -25,6 +25,7 @@ import { useSignerSession } from "../../core/session/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
+import { portfolioEvidenceAllowsReview } from "../../features/portfolio/portfolio-freshness";
 import type {
   CloseDraft,
   PortfolioFilter,
@@ -146,8 +147,12 @@ export default function PortfolioScreen(): JSX.Element {
     if (presentation.freshness !== "fresh") {
       return "Current market metadata is not fresh. Cached rows remain visible, but actions stay closed.";
     }
-    if (freshness !== "fresh" || !accountCurrent || portfolio === null) {
-      return "Current account evidence is stale, offline, or refreshing. Cached rows remain browse-only.";
+    if (
+      !portfolioEvidenceAllowsReview(freshness) ||
+      !accountCurrent ||
+      portfolio === null
+    ) {
+      return "Current account evidence is stale or offline. Cached rows remain browse-only.";
     }
     if (current.signer === null) {
       return "No exact API-wallet binding is active for this account and target.";
@@ -175,7 +180,6 @@ export default function PortfolioScreen(): JSX.Element {
     current.signer?.agentAddress ?? null,
     current.signer?.generation ?? null,
     signerSession.reason,
-    freshness,
     presentation.freshness,
     actionRuntime.available,
   ]);
@@ -507,7 +511,16 @@ export default function PortfolioScreen(): JSX.Element {
           </Card>
         ) : portfolio !== null ? (
           <>
-            {freshness !== "fresh" || presentation.freshness !== "fresh" ? (
+            {freshness === "refreshing" &&
+            presentation.freshness === "fresh" ? (
+              <Text
+                accessibilityLiveRegion="polite"
+                className="text-sm leading-5 text-muted"
+              >
+                Syncing latest account changes… You can keep reviewing current
+                data.
+              </Text>
+            ) : freshness !== "fresh" || presentation.freshness !== "fresh" ? (
               <Text
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-warning"

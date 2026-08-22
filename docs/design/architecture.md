@@ -36,7 +36,7 @@ apps/mobile
               │
               ▼
 backend API + PostgreSQL
-  generation-pinned market catalog + notification state
+  generation-pinned market catalog + Portfolio aggregation + notification state
               │
               ├── Hyperliquid public metadata APIs
               └── platform push-notification providers
@@ -48,11 +48,13 @@ packages/hyperliquid
 Hyperliquid POST /info and /exchange APIs
 ```
 
-The backend owns market-catalog discovery and reliable alerts while the app is
-closed. Live public prices, candles, books, and trades may still be read directly
-from Hyperliquid after the backend has supplied the validated canonical market
-identity. Signed exchange actions remain device-to-Hyperliquid and never pass
-through the backend.
+The backend owns market-catalog discovery, expensive Portfolio fan-out, and
+reliable alerts while the app is closed. Focused live prices, candles, books,
+trades, and account-change signals use Hyperliquid WebSockets after the backend
+has supplied the validated canonical market identity. REST establishes a
+validated baseline and handles explicit reconciliation; it is not used as a
+continuous polling transport. Signed exchange actions remain
+device-to-Hyperliquid and never pass through the backend.
 
 ## Responsibilities
 
@@ -80,6 +82,8 @@ from future services or tooling.
 
 - Synchronize and publish the validated market catalog through a public,
   generation-pinned API
+- Aggregate bounded live and historical Portfolio snapshots across the
+  published catalog's perpetual DEXes
 - Register device push tokens and network-scoped alert preferences
 - Monitor public account and market data while the mobile app is closed
 - Evaluate fill, rejection, margin-risk, liquidation-risk, price, and funding
@@ -96,6 +100,8 @@ must be documented before production deployment.
 
 Screen behavior and cross-screen state are defined in
 [`mobile-screen-system.md`](mobile-screen-system.md).
+Data-source ownership, freshness, persistence, and stream consistency are
+defined in [`data-access-and-caching.md`](data-access-and-caching.md).
 
 ## Trading trust boundary
 
@@ -110,7 +116,8 @@ The intended authorization and submission path is:
 master wallet connection → generate API wallet → master approves API wallet
                          → store scoped signer securely
 
-order draft → local validation → human confirmation → API-wallet signature
+order draft → human confirmation → authoritative market/account review
+            → device authentication → API-wallet signature
             → testnet exchange submission → verified response and reconciliation
 ```
 

@@ -30,6 +30,17 @@ export interface StreamRuntime {
   close(): void;
 }
 
+function exclusiveAccountChannel(wire: DeclarativeStreamWire): {
+  readonly type: "userEvents" | "orderUpdates";
+  readonly user: string;
+} | null {
+  const subscription = wire.subscription;
+  return subscription.type === "userEvents" ||
+    subscription.type === "orderUpdates"
+    ? { type: subscription.type, user: subscription.user }
+    : null;
+}
+
 export function createStreamRuntime(
   options: {
     readonly initialNetwork?: HyperliquidNetwork;
@@ -42,7 +53,13 @@ export function createStreamRuntime(
     readonly clearTimeout?: (handle: unknown) => void;
   } = {},
 ): StreamRuntime {
-  const declarations = new Map<string, StreamDeclaration>();
+  const declarations = new Map<
+    string,
+    {
+      readonly wire: DeclarativeStreamWire;
+      readonly listeners: Set<StreamDeclaration>;
+    }
+  >();
   let network = options.initialNetwork ?? DEFAULT_HYPERLIQUID_NETWORK;
   let foreground = false;
   let online = false;
@@ -50,39 +67,82 @@ export function createStreamRuntime(
   const manager = createForegroundStreamManager({
     connect: ({ signal }) => openConnection({ network, signal }),
     loadBaseline: ({ key }, request) => {
-      const declaration = declarations.get(key);
+      const entry = declarations.get(key);
+      const declaration = entry?.listeners.values().next().value;
       if (!declaration) {
         throw new Error(`Stream declaration ${key} is no longer active.`);
       }
       return declaration.loadBaseline(request);
     },
-    applyBaseline: (key, baseline) =>
-      declarations.get(key)?.applyBaseline(baseline),
-    applyDelta: (key, message) => declarations.get(key)?.applyDelta(message),
+    applyBaseline: (key, baseline) => {
+      for (const declaration of declarations.get(key)?.listeners ?? []) {
+        declaration.applyBaseline(baseline);
+      }
+    },
+    applyDelta: (key, message) => {
+      for (const declaration of declarations.get(key)?.listeners ?? []) {
+        declaration.applyDelta(message);
+      }
+    },
     onError: options.onError,
     setTimeout: options.setTimeout,
     clearTimeout: options.clearTimeout,
   });
 
+  let synchronizationScheduled = false;
   const synchronize = () => {
-    manager.setSubscriptions(
-      [...declarations.values()].map(({ wire }) => ({
-        key: wire.key,
-        wire,
-      })),
-    );
+    if (synchronizationScheduled) return;
+    synchronizationScheduled = true;
+    queueMicrotask(() => {
+      synchronizationScheduled = false;
+      manager.setSubscriptions(
+        [...declarations.values()].map(({ wire }) => ({
+          key: wire.key,
+          wire,
+        })),
+      );
+    });
   };
 
   return {
     declare(declaration) {
       const key = declaration.wire.key;
-      if (declarations.has(key)) {
-        throw new Error(`Stream declaration ${key} already exists.`);
+      const existing = declarations.get(key);
+      if (existing) {
+        if (
+          JSON.stringify(existing.wire.subscription) !==
+          JSON.stringify(declaration.wire.subscription)
+        ) {
+          throw new Error(
+            `Stream declaration ${key} conflicts with its active subscription.`,
+          );
+        }
+        existing.listeners.add(declaration);
+      } else {
+        const exclusive = exclusiveAccountChannel(declaration.wire);
+        if (
+          exclusive &&
+          [...declarations.values()].some((entry) => {
+            const active = exclusiveAccountChannel(entry.wire);
+            return (
+              active?.type === exclusive.type && active.user !== exclusive.user
+            );
+          })
+        ) {
+          throw new Error(
+            `Stream channel ${exclusive.type} cannot multiplex different accounts.`,
+          );
+        }
+        declarations.set(key, {
+          wire: declaration.wire,
+          listeners: new Set([declaration]),
+        });
+        synchronize();
       }
-      declarations.set(key, declaration);
-      synchronize();
       return () => {
-        if (declarations.get(key) === declaration) {
+        const current = declarations.get(key);
+        if (!current?.listeners.delete(declaration)) return;
+        if (current.listeners.size === 0) {
           declarations.delete(key);
           synchronize();
         }

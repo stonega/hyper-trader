@@ -56,6 +56,7 @@ export function DevelopmentSignerSessionProvider({
   const [manager, setManager] = useState<SignerSessionManager | null>(null);
 
   useEffect(() => {
+    activityGate.setActiveAndFocused(AppState.currentState === "active");
     const change = AppState.addEventListener("change", (state) => {
       if (state === "background") {
         activityGate.interrupt();
@@ -73,7 +74,7 @@ export function DevelopmentSignerSessionProvider({
       change.remove();
       focus.remove();
       blur.remove();
-      activityGate.dispose();
+      activityGate.interrupt();
     };
   }, [activityGate]);
 

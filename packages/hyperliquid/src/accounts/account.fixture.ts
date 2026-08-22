@@ -54,6 +54,23 @@ export const ACCOUNT_RESPONSES = {
       timestamp: 1_720_000_000_001,
     },
   ],
+  frontendOpenOrders: [
+    {
+      coin: "alpha:DUP",
+      isPositionTpsl: true,
+      isTrigger: true,
+      limitPx: "9.0000000000000001",
+      oid: 9,
+      orderType: "Take Profit Market",
+      origSz: "2.0000000000000001",
+      reduceOnly: true,
+      side: "A",
+      sz: "2.0000000000000001",
+      timestamp: 1_720_000_000_002,
+      triggerCondition: "Price above 11.0000000000000001",
+      triggerPx: "11.0000000000000001",
+    },
+  ],
   historicalOrders: [
     {
       order: {

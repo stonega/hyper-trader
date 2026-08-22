@@ -261,7 +261,7 @@ Hyper Trader needs a native mobile experience that feels fast while remaining sa
 
 ### Key Technical Decisions
 
-- KTD1. **Preserve three trust domains.** Mobile routes and native adapters stay in `apps/mobile`; transport-independent Hyperliquid parsing, validation, action construction, and protocol messages stay in `packages/hyperliquid`; the notification runtime lives in `apps/notifications`. The shared package exports `@hyper-trader/hyperliquid/public` as a dedicated `/info` and public-stream surface with no signer, action, `/exchange`, or authenticated-account capability. The notification service may import only that entry point. This enforces R16 and R45 as a module boundary rather than an import convention.
+- KTD1. **Preserve three trust domains.** Mobile routes and native adapters stay in `apps/mobile`; transport-independent Hyperliquid parsing, validation, action construction, and protocol messages stay in `packages/hyperliquid`; the backend API and notification runtime live in `apps/api`. The shared package exports `@hyper-trader/hyperliquid/public` as a dedicated `/info` and public-stream surface with no signer, action, `/exchange`, or authenticated-account capability. The notification service may import only that entry point. This enforces R16 and R45 as a module boundary rather than an import convention.
 - KTD2. **Use stable Expo Router JavaScript tabs.** `apps/mobile/src/app/(tabs)/_layout.tsx` uses `Tabs` from `expo-router`. Root modals own review and result surfaces. `GestureHandlerRootView` remains outermost and `HeroUINativeProvider` remains directly beneath it. The alpha native-tabs API is excluded.
 - KTD3. **Use one canonical context identity and immutable signer binding.** All private state keys include network, master address, target account or vault address, and signer identity when signing state is involved. Each API wallet binds immutably to one network, master, target, agent address, and verified registration; target changes require a separate authorization under R54. The process-wide nonce coordinator remains keyed by network and agent address. Market identity uses venue plus canonical Hyperliquid asset ID, never display symbol alone.
 - KTD4. **Build the market catalog from complete metadata.** Enumerate `perpDexs`; fetch `meta` and `metaAndAssetCtxs` for each DEX; fetch `spotMeta` and `spotMetaAndAssetCtxs`; preserve returned indexes and the spot order-asset rule. Invalid records enter a viewable quarantine state and never receive guessed constraints.
@@ -487,8 +487,8 @@ U2 may start while U1 is under review because it is read-only and transport-safe
 | U8 | Complete Trade screen | `apps/mobile/src/features/trade/` | U4, U7 |
 | U9 | Unified Portfolio screen and quick actions | `apps/mobile/src/features/portfolio/` | U7 |
 | U10 | Settings, accounts, security, and preferences | `apps/mobile/src/features/settings/` | U5, U7 |
-| U11 | Notification contracts, authorization, and storage | `apps/notifications/`, `packages/notifications/` | U2 |
-| U14 | Notification monitoring and delivery workers | `apps/notifications/src/monitor/`, `apps/notifications/src/push/` | U11 |
+| U11 | Notification contracts, authorization, and storage | `apps/api/`, `packages/notifications/` | U2 |
+| U14 | Notification monitoring and delivery workers | `apps/api/src/monitor/`, `apps/api/src/push/` | U11 |
 | U12 | Mobile notification rules and safe entry | `apps/mobile/src/features/notifications/` | U10, U11, U14 |
 | U13 | Production hardening and release evidence | Cross-cutting docs, tests, and examples | U4, U8-U12, U14 |
 
@@ -660,7 +660,7 @@ U2 may start while U1 is under review because it is read-only and transport-safe
 - **Goal:** Establish the public-only notification API, verified account links, bounded admission, database integrity, retention, and deletion semantics before monitoring or push workers activate.
 - **Requirements:** R42-R46, R51, R56, R58.
 - **Dependencies:** U2.
-- **Files:** `apps/notifications/package.json`, `apps/notifications/src/server.ts`, `apps/notifications/src/config.ts`, `apps/notifications/src/auth/`, `apps/notifications/src/db/`, `apps/notifications/src/limits/`, `apps/notifications/migrations/`, `packages/notifications/src/`, service tests and fixtures, `docs/implementation/notification-service.md`.
+- **Files:** `apps/api/package.json`, `apps/api/src/server.ts`, `apps/api/src/config.ts`, `apps/api/src/auth/`, `apps/api/src/db/`, `apps/api/src/limits/`, `apps/api/migrations/`, `packages/notifications/src/`, service tests and fixtures, `docs/implementation/notification-service.md`.
 - **Approach:**
   - Add bounded request and response contracts with runtime validation, forbidden-field guards, and the KTD14 quotas.
   - Generate a device installation credential on mobile and store only its hash. Restrict it to token and rule operations on links already proven under KTD18.
@@ -676,7 +676,7 @@ U2 may start while U1 is under review because it is read-only and transport-safe
 - **Goal:** Activate public Hyperliquid monitoring, rule evaluation, transactional outbox creation, Expo Push delivery, and receipt recovery on the reviewed U11 storage contract.
 - **Requirements:** R42-R45, R51, R56, R58.
 - **Dependencies:** U11.
-- **Files:** `apps/notifications/src/monitor/`, `apps/notifications/src/rules/`, `apps/notifications/src/outbox/`, `apps/notifications/src/push/`, `apps/notifications/src/metrics/`, worker tests and fixtures, `docs/implementation/notification-operations.md`.
+- **Files:** `apps/api/src/monitor/`, `apps/api/src/rules/`, `apps/api/src/outbox/`, `apps/api/src/push/`, `apps/api/src/metrics/`, worker tests and fixtures, `docs/implementation/notification-operations.md`.
 - **Approach:**
   - Import only the public Hyperliquid entry point. Share monitors by network and account or market, shard within documented WebSocket limits, and reserve upstream capacity under KTD14.
   - Reconcile stream gaps with `/info` snapshots before evaluating fill, cancel, rejection, margin risk, liquidation risk, price target, and funding rules.

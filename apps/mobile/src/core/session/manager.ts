@@ -284,6 +284,7 @@ export function createSignerSessionManager(options: {
         let candidate: DestroyableAgentSigner | null = null;
         try {
           await options.deviceAuth.assertAvailable();
+          await settleActiveFocus(unlockEpoch, input);
           assertUnlockCurrent(unlockEpoch, input);
           secret = await options.vault.read(binding);
           assertSignerBinding(binding, secret.binding);

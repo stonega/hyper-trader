@@ -91,6 +91,16 @@ export interface OpenOrder {
   readonly timestamp: number;
 }
 
+export interface FrontendOpenOrder extends OpenOrder {
+  readonly originalSize: DecimalString;
+  readonly triggerCondition: string;
+  readonly isTrigger: boolean;
+  readonly triggerPrice: DecimalString;
+  readonly isPositionTpsl: boolean;
+  readonly reduceOnly: boolean;
+  readonly orderType: string;
+}
+
 export interface HistoricalOrder {
   readonly order: OpenOrder & {
     readonly originalSize?: DecimalString;

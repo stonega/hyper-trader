@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { deriveCatalogPresentationState } from "./catalog-state";
+import {
+  deriveCatalogPresentationState,
+  selectUsableMarketCatalog,
+} from "./catalog-state";
+import { NATIVE_DUPLICATE } from "./fixture";
 
 const base = {
   hasData: false,
@@ -16,6 +20,31 @@ const base = {
 };
 
 describe("catalog presentation state", () => {
+  test("rejects empty primary data without hiding a usable bootstrap", () => {
+    const empty = { markets: [], quarantined: [], sourceErrors: [] };
+    const bootstrap = {
+      markets: [NATIVE_DUPLICATE],
+      quarantined: [],
+      sourceErrors: [],
+    };
+
+    expect(selectUsableMarketCatalog(empty, bootstrap)).toEqual({
+      catalog: bootstrap,
+      usingBootstrap: true,
+      rejectedEmptyCatalog: true,
+    });
+    expect(selectUsableMarketCatalog(empty, undefined)).toEqual({
+      catalog: undefined,
+      usingBootstrap: false,
+      rejectedEmptyCatalog: true,
+    });
+    expect(selectUsableMarketCatalog(bootstrap, empty)).toEqual({
+      catalog: bootstrap,
+      usingBootstrap: false,
+      rejectedEmptyCatalog: false,
+    });
+  });
+
   test("distinguishes initial loading, empty, and unavailable", () => {
     expect(
       deriveCatalogPresentationState({ ...base, isPending: true }).content,

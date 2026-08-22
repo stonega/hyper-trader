@@ -45,25 +45,49 @@ Portfolio does not guess. The query function itself accepts any explicit
 `AccountTarget`, so the account-management integration can provide those target
 types without changing normalization.
 
-For an exact target, the live account query requests clearinghouse state and
-open orders for every validated perpetual DEX plus spot balances. A separate
-history query requests fills, recent funding, and portfolio periods only after
-live account data is available. Slow history therefore cannot delay current
+For an exact target, mobile requests one backend live aggregate containing
+clearinghouse state and open orders for the bounded set of validated perpetual
+DEXes associated with the account's recent orders, fills, or funding, plus the
+native DEX and spot balances. A separate backend history aggregate contains
+fills, recent funding, and portfolio periods and loads only after live account
+data is available. Slow history therefore cannot delay current
 positions, orders, balances, or action evidence. Partial endpoint failures
 produce source-gap records. Aborted context work rejects rather than returning
-an empty snapshot. Normalization runs at the query composition boundary, so
-malformed source values fail before rendering. An uncached catalog failure is
-also visible and retryable. Cached data remains on screen during a same-owner
-refresh, offline, stale, or error state, while action review is disabled.
+an empty snapshot. Live account normalization and history normalization run as
+independent memoized stages at the query composition boundary. A live account
+event therefore does not re-sort fills, funding, activity, or performance
+history. Malformed source values still fail before rendering. An uncached
+catalog failure is also visible and retryable. Cached data remains on screen
+during a same-owner refresh, offline, stale, or error state. Review stays
+available through a background refresh only while that displayed snapshot is
+still current; stale and offline evidence remains browse-only.
 
-All independent endpoints inside each query start together. A normal pull
+The backend intersects the published DEX list with bounded global order, fill,
+and funding activity before issuing DEX-scoped account reads. Reaching an
+upstream history window or the 128-DEX response ceiling produces an explicit
+source gap rather than an unbounded fan-out or silent claim of completeness.
+The portable Bun runtime batches up to eight DEXes; the Cloudflare adapter uses
+three DEXes so its two requests per DEX remain within the six-connection
+platform limit, and caps one live request at 16 active DEXes with a source gap
+when more are present. Both apply short bounded memory caches: five seconds for
+live state and sixty seconds for history. Versioned envelopes are validated against
+the requested network and lowercase public address. The mobile POST client
+requires an exact HTTPS origin, `application/json`, `Cache-Control: no-store`,
+a bounded body, no redirects, and a twelve-second deadline. The address never
+appears in the route URL. Configured and release builds fail closed; only an
+unconfigured development build may use the direct loader.
+
+A normal pull
 refresh reuses a healthy catalog and waits only for the live account query;
 fills, funding, and performance refresh immediately afterward in the
 background. An existing account or catalog fetch is reused instead of canceled
 and restarted. Catalog recovery joins the gesture only when metadata is
 missing, stale, or failed and no catalog refresh is already running. The pull
-indicator represents that bounded manual work alone; background polling does
-not hold it open.
+indicator represents that bounded manual work alone. Continuous Portfolio
+polling is removed. While focused, account WebSocket events invalidate the live
+aggregate; fill and funding events also invalidate history. Event bursts use a
+fixed 250-millisecond coalescing window and never cancel an equivalent refresh
+already in flight. Event payloads are never copied into private query data.
 
 ## Performance and source gaps
 
@@ -79,6 +103,11 @@ text sparkline and never hides the corresponding values from assistive
 technology. Missing periods,
 unmatched markets, unavailable endpoints, and cadence gaps are disclosed; the
 screen does not interpolate account history.
+
+Every Portfolio filter renders at most 24 rows initially. A deliberate
+`Show more` action exposes one additional bounded batch, so a large fill or
+activity response cannot synchronously mount an unbounded native card tree.
+Changing account or filter restores the first bounded window.
 
 ## Quick actions and review ownership
 
@@ -120,14 +149,18 @@ create an alternative trigger path.
 ## Action gates, phase, and Back behavior
 
 Actions require testnet, an exact target and API-wallet binding, current market
-metadata, current account evidence, and a valid credential state. Locked
+metadata, current account evidence, and a valid credential state. A background
+refresh does not revoke review access to an otherwise current snapshot; it is
+shown as a quiet syncing state, and confirmation still owns the authoritative
+account refresh and immutable-review comparison. Locked
 sessions may reach review because confirmation owns the exact device-unlock and
 refresh sequence. An unavailable root confirmation runtime leaves review usable
-but omits confirmation and submission. Mainnet, stale, offline, refreshing,
-invalidated, and unmatched states remain explicitly browse-only.
+but omits confirmation and submission. Mainnet, stale, offline, invalidated,
+and unmatched states remain explicitly browse-only.
 
 Portfolio stays one mounted vertical `ScrollView`; range and filter controls are
-horizontal text chip rows. Close and margin editors expand inline rather than
+horizontal text chip rows, and each filter's rows use the bounded incremental
+window described above. Close and margin editors expand inline rather than
 creating a new signing phase. Android Back dismisses the keyboard first, then
 closes the inline editor, then falls through to normal navigation. Root review
 owns all subsequent Back consumption. HeroUI feedback and loading animation

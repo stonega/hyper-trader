@@ -103,6 +103,8 @@ export function tradePerpAccountSnapshot(input: {
     leverage: input.activeAsset.leverage.value,
     marginMode: input.activeAsset.leverage.type,
     positionSize: position?.size ?? ("0" as DecimalString),
+    entryPrice: position?.entryPrice ?? null,
+    liquidationPrice: position?.liquidationPrice ?? null,
     version: input.state.time,
     observedAtMs: input.observedAtMs,
   });

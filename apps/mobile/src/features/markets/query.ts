@@ -7,16 +7,17 @@ import Constants from "expo-constants";
 import { useIsFocused } from "expo-router";
 import { useMemo, useSyncExternalStore } from "react";
 
+import { mobileDataPolicies } from "../../core/query/data-policies";
 import { queryKeys } from "../../core/query/keys";
 import {
   createDevelopmentTestnetMarketCatalogClient,
   createMarketCatalogBackendClient,
   loadMarketCatalog,
 } from "./catalog-client";
-import { deriveCatalogPresentationState } from "./catalog-state";
-
-const MARKET_CATALOG_REFRESH_INTERVAL_MS = 60_000;
-const MARKET_CATALOG_STALE_TIME_MS = 2 * MARKET_CATALOG_REFRESH_INTERVAL_MS;
+import {
+  deriveCatalogPresentationState,
+  selectUsableMarketCatalog,
+} from "./catalog-state";
 
 function useMarketCatalog(network: HyperliquidNetwork) {
   const isFocused = useIsFocused();
@@ -53,9 +54,9 @@ function useMarketCatalog(network: HyperliquidNetwork) {
         ...source,
         signal,
       }),
-    refetchInterval: MARKET_CATALOG_REFRESH_INTERVAL_MS,
+    refetchInterval: mobileDataPolicies.marketCatalog.reconcileIntervalMs,
     subscribed: isFocused,
-    staleTime: MARKET_CATALOG_STALE_TIME_MS,
+    staleTime: mobileDataPolicies.marketCatalog.staleTimeMs,
   });
   const bootstrapQuery = useQuery<MarketCatalog>({
     queryKey: queryKeys.public.marketCatalogBootstrap(network),
@@ -67,7 +68,7 @@ function useMarketCatalog(network: HyperliquidNetwork) {
     },
     enabled: source.development !== null && catalogQuery.data === undefined,
     subscribed: isFocused,
-    staleTime: MARKET_CATALOG_STALE_TIME_MS,
+    staleTime: mobileDataPolicies.marketCatalog.staleTimeMs,
   });
   return { bootstrapQuery, catalogQuery };
 }
@@ -83,9 +84,8 @@ function useOnlineStatus(): boolean {
 export function useMarketCatalogPresentation(network: HyperliquidNetwork) {
   const { bootstrapQuery, catalogQuery } = useMarketCatalog(network);
   const isOnline = useOnlineStatus();
-  const catalog = catalogQuery.data ?? bootstrapQuery.data;
-  const usingBootstrap =
-    catalogQuery.data === undefined && bootstrapQuery.data !== undefined;
+  const { catalog, rejectedEmptyCatalog, usingBootstrap } =
+    selectUsableMarketCatalog(catalogQuery.data, bootstrapQuery.data);
   const presentation = deriveCatalogPresentationState({
     hasData: catalog !== undefined,
     marketCount: catalog?.markets.length ?? 0,
@@ -95,7 +95,8 @@ export function useMarketCatalogPresentation(network: HyperliquidNetwork) {
     hasError:
       catalogQuery.isError ||
       catalogQuery.isRefetchError ||
-      (bootstrapQuery.isError && catalog === undefined),
+      (bootstrapQuery.isError && catalog === undefined) ||
+      rejectedEmptyCatalog,
     isStale: usingBootstrap ? bootstrapQuery.isStale : catalogQuery.isStale,
     isOnline,
     sourceErrorCount: catalog?.sourceErrors.length ?? 0,

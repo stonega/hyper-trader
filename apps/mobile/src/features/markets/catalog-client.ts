@@ -27,6 +27,13 @@ export interface DevelopmentMarketCatalogClient {
   ): Promise<MarketCatalog>;
 }
 
+function requireMarkets(catalog: MarketCatalog, source: string): MarketCatalog {
+  if (catalog.markets.length === 0) {
+    throw new Error(`${source} returned no validated markets`);
+  }
+  return catalog;
+}
+
 export function createDevelopmentTestnetMarketCatalogClient(
   options: {
     readonly client?: Pick<PublicHyperliquidClient, "getMarketCatalog">;
@@ -39,10 +46,13 @@ export function createDevelopmentTestnetMarketCatalogClient(
       if (network !== "testnet") {
         throw new Error("development market catalog bootstrap is testnet-only");
       }
-      const catalog = await client.getMarketCatalog({
-        scope: "native",
-        signal,
-      });
+      const catalog = requireMarkets(
+        await client.getMarketCatalog({
+          scope: "native",
+          signal,
+        }),
+        "development market catalog bootstrap",
+      );
       return {
         ...catalog,
         sourceErrors: [
@@ -59,10 +69,13 @@ export function createDevelopmentTestnetMarketCatalogClient(
       if (network !== "testnet") {
         throw new Error("development market catalog bootstrap is testnet-only");
       }
-      const catalog = await client.getMarketCatalog({
-        scope: "core",
-        signal,
-      });
+      const catalog = requireMarkets(
+        await client.getMarketCatalog({
+          scope: "core",
+          signal,
+        }),
+        "development market catalog",
+      );
       return {
         ...catalog,
         sourceErrors: [
@@ -141,8 +154,12 @@ export function createMarketCatalogBackendClient(options: {
       if (response.headers.get("etag") !== expectedEtag) {
         throw new Error("market catalog backend response has an invalid etag");
       }
-      cache.set(network, { etag: expectedEtag, catalog: snapshot.catalog });
-      return snapshot.catalog;
+      const catalog = requireMarkets(
+        snapshot.catalog,
+        "market catalog backend",
+      );
+      cache.set(network, { etag: expectedEtag, catalog });
+      return catalog;
     },
   };
 }
@@ -188,10 +205,16 @@ export async function loadMarketCatalog(options: {
   readonly signal?: AbortSignal;
 }): Promise<MarketCatalog> {
   if (options.backend) {
-    return options.backend.read(options.network, options.signal);
+    return requireMarkets(
+      await options.backend.read(options.network, options.signal),
+      "market catalog",
+    );
   }
   if (options.development) {
-    return options.development.read(options.network, options.signal);
+    return requireMarkets(
+      await options.development.read(options.network, options.signal),
+      "development market catalog",
+    );
   }
   throw new Error("market catalog backend is not configured");
 }

@@ -3,7 +3,7 @@ import { BottomSheet } from "heroui-native/bottom-sheet";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, BackHandler, View } from "react-native";
 import Animated, {
   FadeIn,
@@ -14,9 +14,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/app-text";
 import { useReducedMotion } from "../../components/use-reduced-motion";
+import type {
+  ActionReviewPresentation,
+  ActionReviewSnapshot,
+} from "./orchestrator";
 import { confirmationFailurePresentation } from "./presentation";
 import { useActionRuntime } from "./runtime-provider";
-import { type ActionFlowPhase, actionFlowConsumesBack } from "./state-machine";
+import {
+  type ActionFlowPhase,
+  type ActionFlowState,
+  actionFlowConsumesBack,
+} from "./state-machine";
 
 const STATUS_COPY: Readonly<
   Record<
@@ -86,11 +94,115 @@ const RESULT_PHASES: ReadonlySet<ActionFlowPhase> = new Set([
   "expired",
   "ambiguous",
 ]);
-const ACTION_SHEET_SNAP_POINTS = ["88%"];
 const ACCEPTED_CLOSE_DELAY_MS = 900;
+const NOT_APPLICABLE = "Not applicable";
 
 function accountLabel(address: string): string {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+type ReviewActionType = ActionReviewSnapshot["validated"]["intent"]["type"];
+
+function isOrderReview(actionType: ReviewActionType): boolean {
+  return (
+    actionType === "market_order" ||
+    actionType === "limit_order" ||
+    actionType === "reduce_only_close"
+  );
+}
+
+function reviewTitle(actionType: ReviewActionType): string {
+  if (isOrderReview(actionType)) return "Confirm order";
+  if (actionType === "cancel") return "Confirm cancellation";
+  if (actionType === "update_leverage") return "Confirm leverage";
+  return "Review action";
+}
+
+function confirmationLabel(
+  actionType: ReviewActionType,
+  presentation: ActionReviewPresentation,
+): string {
+  if (actionType === "market_order" || actionType === "limit_order") {
+    const side = presentation.side.toLowerCase();
+    return side === NOT_APPLICABLE.toLowerCase()
+      ? "Place order"
+      : `Place ${side} order`;
+  }
+  if (actionType === "reduce_only_close") return "Close position";
+  if (actionType === "cancel") return "Cancel order";
+  if (actionType === "update_leverage") return "Update leverage";
+  return "Confirm action";
+}
+
+function reviewDetails(
+  actionType: ReviewActionType,
+  presentation: ActionReviewPresentation,
+): readonly (readonly [label: string, value: string])[] {
+  if (!isOrderReview(actionType)) {
+    return actionType === "update_leverage"
+      ? [["Leverage / margin", presentation.leverageAndMargin]]
+      : [];
+  }
+  const details: readonly (readonly [string, string])[] = [
+    ["Price", presentation.price],
+    ["Leverage / margin", presentation.leverageAndMargin],
+    ["Reduce only", presentation.reduceOnly],
+    ["Estimated fee", presentation.estimatedFee],
+    ["Max slippage", presentation.slippage],
+  ];
+  return details.filter((detail) => detail[1] !== NOT_APPLICABLE);
+}
+
+function ReviewTicket({
+  review,
+}: {
+  readonly review: ActionReviewSnapshot;
+}): JSX.Element {
+  const { presentation } = review;
+  const actionType = review.validated.intent.type;
+  const showSide = presentation.side !== NOT_APPLICABLE;
+  const showSize = presentation.size !== NOT_APPLICABLE;
+  return (
+    <View className="gap-3">
+      <View className="gap-1">
+        {showSide ? (
+          <Text className="text-xs font-semibold uppercase tracking-wide text-accent">
+            {presentation.side}
+          </Text>
+        ) : null}
+        <View className="flex-row items-baseline justify-between gap-4">
+          <Text className="min-w-0 flex-1 text-lg font-semibold text-foreground">
+            {presentation.market}
+          </Text>
+          {showSize ? (
+            <Text className="text-right text-lg font-semibold text-foreground">
+              {presentation.size}
+            </Text>
+          ) : null}
+        </View>
+        <Text className="text-sm text-muted">{presentation.action}</Text>
+      </View>
+
+      <View className="h-px bg-divider" />
+
+      <View className="gap-2.5">
+        {reviewDetails(actionType, presentation).map(([label, value]) => (
+          <View className="flex-row justify-between gap-4" key={label}>
+            <Text className="flex-1 text-sm text-muted">{label}</Text>
+            <Text className="flex-1 text-right text-sm font-medium text-foreground">
+              {value}
+            </Text>
+          </View>
+        ))}
+        <View className="flex-row justify-between gap-4">
+          <Text className="flex-1 text-sm text-muted">Account</Text>
+          <Text className="flex-1 text-right text-sm font-medium text-foreground">
+            {accountLabel(presentation.account)}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
 }
 
 function ActionStage({
@@ -139,18 +251,50 @@ export function ActionFlowSheet(): JSX.Element {
   const reducedMotion = useReducedMotion();
   const runtime = useActionRuntime();
   const [failure, setFailure] = useState<string | null>(null);
-  const { flow, review } = runtime;
-  const isOpen = review !== null;
+  const [closingSnapshot, setClosingSnapshot] = useState<{
+    readonly flow: ActionFlowState;
+    readonly review: ActionReviewSnapshot;
+    readonly failure: string | null;
+  } | null>(null);
+  const reviewClearedAfterDismiss = useRef(false);
+  const runtimeReview = runtime.review;
+  const flow = closingSnapshot?.flow ?? runtime.flow;
+  const review = closingSnapshot?.review ?? runtimeReview;
+  const visibleFailure = closingSnapshot?.failure ?? failure;
+  const isOpen = runtimeReview !== null && closingSnapshot === null;
   const consumesBack = actionFlowConsumesBack(flow.phase);
-  const copy = STATUS_COPY[flow.phase];
+  const phaseCopy = STATUS_COPY[flow.phase];
+  const copy =
+    flow.phase === "review" && review !== null
+      ? { ...phaseCopy, title: reviewTitle(review.validated.intent.type) }
+      : phaseCopy;
   const duration = reducedMotion ? 0 : 160;
 
   const dismiss = useCallback(() => {
-    if (runtime.review === null) return;
-    if (actionFlowConsumesBack(runtime.readFlow().phase)) return;
+    const activeReview = runtime.review;
+    const activeFlow = runtime.readFlow();
+    if (activeReview === null || closingSnapshot !== null) return;
+    if (actionFlowConsumesBack(activeFlow.phase)) return;
+    reviewClearedAfterDismiss.current = false;
+    setClosingSnapshot({
+      flow: activeFlow,
+      review: activeReview,
+      failure,
+    });
     setFailure(null);
     runtime.clear();
-  }, [runtime]);
+  }, [closingSnapshot, failure, runtime]);
+
+  useEffect(() => {
+    if (closingSnapshot === null) return;
+    if (runtimeReview === null) {
+      reviewClearedAfterDismiss.current = true;
+      return;
+    }
+    if (!reviewClearedAfterDismiss.current) return;
+    reviewClearedAfterDismiss.current = false;
+    setClosingSnapshot(null);
+  }, [closingSnapshot, runtimeReview]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -202,26 +346,29 @@ export function ActionFlowSheet(): JSX.Element {
           isCloseOnPress={!consumesBack}
         />
         <BottomSheet.Content
+          accessibilityLabel={
+            flow.phase === "review"
+              ? "Order action review"
+              : "Order submission status"
+          }
           animation={reducedMotion ? false : undefined}
-          contentContainerClassName="h-full"
-          enableDynamicSizing={false}
+          enableDynamicSizing
           enableOverDrag={false}
           enablePanDownToClose={!consumesBack}
-          snapPoints={ACTION_SHEET_SNAP_POINTS}
         >
           <BottomSheetScrollView
             contentContainerStyle={{
-              paddingBottom: Math.max(insets.bottom, 20),
+              paddingBottom: Math.max(insets.bottom, 20) + 16,
               paddingHorizontal: 20,
             }}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <View className="gap-5 pb-2">
+            <View className="gap-4 pb-2">
               <ActionStage phase={flow.phase} />
               <View className="gap-1">
                 <Text className="text-xs font-medium uppercase tracking-wide text-accent">
-                  Testnet action
+                  {review?.presentation.network ?? "Testnet action"}
                 </Text>
                 <BottomSheet.Title>{copy.title}</BottomSheet.Title>
                 <BottomSheet.Description>
@@ -229,10 +376,10 @@ export function ActionFlowSheet(): JSX.Element {
                 </BottomSheet.Description>
               </View>
 
-              <Card className="gap-4" variant="secondary">
-                <Card.Body className="gap-4">
+              <Card className="gap-3" variant="secondary">
+                <Card.Body className="gap-3">
                   <Animated.View
-                    className="gap-4"
+                    className="gap-3"
                     entering={FadeIn.duration(duration).reduceMotion(
                       ReduceMotion.System,
                     )}
@@ -241,41 +388,7 @@ export function ActionFlowSheet(): JSX.Element {
                     ).reduceMotion(ReduceMotion.System)}
                     key={flow.phase}
                   >
-                    {review === null ? null : (
-                      <View className="gap-3">
-                        {[
-                          ["Network", review.presentation.network],
-                          [
-                            "Account",
-                            accountLabel(review.presentation.account),
-                          ],
-                          ["Market", review.presentation.market],
-                          ["Action", review.presentation.action],
-                          ["Side", review.presentation.side],
-                          ["Price", review.presentation.price],
-                          ["Size", review.presentation.size],
-                          [
-                            "Leverage / margin",
-                            review.presentation.leverageAndMargin,
-                          ],
-                          ["Reduce only", review.presentation.reduceOnly],
-                          ["Estimated fee", review.presentation.estimatedFee],
-                          ["Slippage", review.presentation.slippage],
-                        ].map(([label, value]) => (
-                          <View
-                            className="flex-row justify-between gap-4"
-                            key={label}
-                          >
-                            <Text className="flex-1 text-sm text-muted">
-                              {label}
-                            </Text>
-                            <Text className="flex-1 text-right text-sm font-medium text-foreground">
-                              {value}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
+                    {review === null ? null : <ReviewTicket review={review} />}
                     {flow.message !== null ? (
                       <Text
                         accessibilityRole="alert"
@@ -284,12 +397,12 @@ export function ActionFlowSheet(): JSX.Element {
                         {flow.message}
                       </Text>
                     ) : null}
-                    {failure !== null ? (
+                    {visibleFailure !== null ? (
                       <Text
                         accessibilityRole="alert"
                         className="text-sm leading-5 text-danger"
                       >
-                        {failure}
+                        {visibleFailure}
                       </Text>
                     ) : null}
                     {flow.phase === "review" && !runtime.available ? (
@@ -308,6 +421,7 @@ export function ActionFlowSheet(): JSX.Element {
               <View className="gap-3">
                 {flow.phase === "review" && runtime.available ? (
                   <Button
+                    accessibilityHint="Signs and submits this action to Hyperliquid testnet."
                     animation={reducedMotion ? "disable-all" : undefined}
                     className="min-h-12 w-full"
                     isDisabled={review === null}
@@ -316,7 +430,10 @@ export function ActionFlowSheet(): JSX.Element {
                   >
                     {review === null
                       ? "Confirm action"
-                      : `Confirm ${review.presentation.action.toLowerCase()}`}
+                      : confirmationLabel(
+                          review.validated.intent.type,
+                          review.presentation,
+                        )}
                   </Button>
                 ) : null}
                 {flow.phase === "failed_before_submission" ? (
@@ -333,14 +450,15 @@ export function ActionFlowSheet(): JSX.Element {
                 flow.phase !== "accepted" &&
                 flow.phase !== "failed_before_submission" ? (
                   <Button
+                    accessibilityLabel={
+                      flow.phase === "review" ? "Cancel review" : undefined
+                    }
                     animation={reducedMotion ? "disable-all" : undefined}
                     className="min-h-12 w-full"
                     onPress={dismiss}
                     variant="tertiary"
                   >
-                    {RESULT_PHASES.has(flow.phase)
-                      ? "Done"
-                      : "Back without signing"}
+                    {RESULT_PHASES.has(flow.phase) ? "Done" : "Cancel"}
                   </Button>
                 ) : null}
               </View>

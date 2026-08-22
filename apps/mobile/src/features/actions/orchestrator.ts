@@ -73,7 +73,12 @@ export interface ActionIdSource {
 export interface ActionOrchestrator {
   read(): ActionFlowState;
   subscribe(listener: (state: ActionFlowState) => void): () => void;
-  confirm(review: ActionReviewSnapshot): Promise<ActionFlowState>;
+  confirm(
+    review: ActionReviewSnapshot,
+    lifecycle?: {
+      readonly onAuthenticated?: () => void;
+    },
+  ): Promise<ActionFlowState>;
   reset(): void;
 }
 
@@ -453,7 +458,12 @@ export function createActionOrchestrator(options: {
     generation: number,
     phase: Extract<
       ActionFlowPhase,
-      "refreshing" | "reserving" | "signing" | "submission_start" | "submitting"
+      | "unlocking"
+      | "refreshing"
+      | "reserving"
+      | "signing"
+      | "submission_start"
+      | "submitting"
     >,
     journalId?: string,
   ) => dispatch({ type: "ADVANCE", generation, phase, journalId });
@@ -558,7 +568,7 @@ export function createActionOrchestrator(options: {
     reset() {
       dispatch({ type: "RESET" });
     },
-    async confirm(review) {
+    async confirm(review, lifecycle) {
       assertTestnetSigningCapability(review.binding.network);
       assertTestnetSigningCapability(review.validation.context.network);
       if (
@@ -572,14 +582,6 @@ export function createActionOrchestrator(options: {
       let journalId: string | null = null;
       try {
         requireCurrent(review);
-        await options.session.unlock({
-          binding: review.binding,
-          capturedContextEpoch: review.validation.context.capturedContextEpoch,
-          isContextCurrent: () => options.isContextCurrent(review),
-        });
-        requireCurrent(review);
-
-        advance(generation, "refreshing");
         const refreshedInput = await options.refresh(review);
         requireCurrent(review);
         const refreshed = validateTradingAction(refreshedInput);
@@ -604,7 +606,20 @@ export function createActionOrchestrator(options: {
           );
         }
 
+        advance(generation, "unlocking");
+        await options.session.unlock({
+          binding: review.binding,
+          capturedContextEpoch: review.validation.context.capturedContextEpoch,
+          isContextCurrent: () => options.isContextCurrent(review),
+        });
+        requireCurrent(review);
+
         advance(generation, "reserving");
+        try {
+          lifecycle?.onAuthenticated?.();
+        } catch {
+          // Presentation observers never own action correctness.
+        }
         const normalizedIntent = storedIntent(refreshed, refreshedInput);
         const identity = identityFields(refreshed.intent);
         const prepared = options.repository.reservePreparedAction({

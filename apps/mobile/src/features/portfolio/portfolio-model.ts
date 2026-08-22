@@ -136,6 +136,35 @@ export interface NormalizedPortfolio {
   readonly gaps: readonly string[];
 }
 
+export type PortfolioLiveSourceSnapshot = Omit<
+  PortfolioSourceSnapshot,
+  "fills" | "funding" | "periods"
+>;
+
+export interface PortfolioHistorySourceSnapshot {
+  readonly fills: PortfolioSourceSnapshot["fills"];
+  readonly funding: PortfolioSourceSnapshot["funding"];
+  readonly periods: PortfolioSourceSnapshot["periods"];
+  readonly sourceGaps?: readonly string[];
+}
+
+export type NormalizedPortfolioLive = Pick<
+  NormalizedPortfolio,
+  | "owner"
+  | "ownerKey"
+  | "observedAtMs"
+  | "version"
+  | "positions"
+  | "openOrders"
+  | "spotBalances"
+  | "gaps"
+>;
+
+export type NormalizedPortfolioHistory = Pick<
+  NormalizedPortfolio,
+  "ranges" | "fills" | "funding" | "activity" | "gaps"
+>;
+
 export interface CloseDraft {
   readonly positionId: string;
   readonly behavior: "market" | "limit";
@@ -338,9 +367,9 @@ function performanceRanges(
   return ranges;
 }
 
-export function normalizePortfolioSnapshot(
-  source: PortfolioSourceSnapshot,
-): NormalizedPortfolio {
+export function normalizePortfolioLiveSnapshot(
+  source: PortfolioLiveSourceSnapshot,
+): NormalizedPortfolioLive {
   if (!Number.isSafeInteger(source.observedAtMs) || source.observedAtMs < 0) {
     throw new Error("Portfolio observation time is invalid.");
   }
@@ -431,6 +460,24 @@ export function normalizePortfolioSnapshot(
     }
   }
   openOrders.sort((left, right) => right.timestamp - left.timestamp);
+  return Object.freeze({
+    owner,
+    ownerKey: portfolioOwnerKey(owner),
+    observedAtMs: source.observedAtMs,
+    version,
+    positions: Object.freeze(positions),
+    openOrders: Object.freeze(openOrders),
+    spotBalances: [...source.spotState.balances].sort((left, right) =>
+      left.coin.localeCompare(right.coin),
+    ),
+    gaps: [...new Set(gaps)],
+  });
+}
+
+export function normalizePortfolioHistorySnapshot(
+  source: PortfolioHistorySourceSnapshot,
+): NormalizedPortfolioHistory {
+  const gaps: string[] = [...(source.sourceGaps ?? [])];
   const activity: PortfolioActivityRow[] = [
     ...source.fills.map((fill) => ({
       id: `fill:${fill.hash}:${fill.oid}`,
@@ -450,21 +497,35 @@ export function normalizePortfolioSnapshot(
     })),
   ].sort((left, right) => right.time - left.time);
   return Object.freeze({
-    owner,
-    ownerKey: portfolioOwnerKey(owner),
-    observedAtMs: source.observedAtMs,
-    version,
     ranges: performanceRanges(source.periods, gaps),
-    positions: Object.freeze(positions),
-    openOrders: Object.freeze(openOrders),
-    spotBalances: [...source.spotState.balances].sort((left, right) =>
-      left.coin.localeCompare(right.coin),
-    ),
     fills: [...source.fills].sort((left, right) => right.time - left.time),
     funding: [...source.funding].sort((left, right) => right.time - left.time),
     activity,
     gaps: [...new Set(gaps)],
   });
+}
+
+export function combineNormalizedPortfolio(
+  live: NormalizedPortfolioLive,
+  history: NormalizedPortfolioHistory | null,
+): NormalizedPortfolio {
+  return Object.freeze({
+    ...live,
+    ranges: history?.ranges ?? {},
+    fills: history?.fills ?? [],
+    funding: history?.funding ?? [],
+    activity: history?.activity ?? [],
+    gaps: [...new Set([...live.gaps, ...(history?.gaps ?? [])])],
+  });
+}
+
+export function normalizePortfolioSnapshot(
+  source: PortfolioSourceSnapshot,
+): NormalizedPortfolio {
+  return combineNormalizedPortfolio(
+    normalizePortfolioLiveSnapshot(source),
+    normalizePortfolioHistorySnapshot(source),
+  );
 }
 
 export function createCloseDraft(position: PortfolioPositionRow): CloseDraft {

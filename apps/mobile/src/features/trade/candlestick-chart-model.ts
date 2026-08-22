@@ -3,12 +3,27 @@ import { type Candle, isDecimalString } from "@hyper-trader/hyperliquid/public";
 const BLOCKS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"] as const;
 
 export interface CandlestickDatum {
-  readonly [key: string]: number;
+  readonly [key: string]: number | null;
   readonly timestamp: number;
   readonly open: number;
   readonly high: number;
   readonly low: number;
   readonly close: number;
+  readonly volume: number | null;
+  readonly positiveVolume: number | null;
+  readonly negativeVolume: number | null;
+  readonly neutralVolume: number | null;
+}
+
+export interface CandleInspectionDatum {
+  readonly timestamp: number;
+  readonly open: string;
+  readonly high: string;
+  readonly low: string;
+  readonly close: string;
+  readonly volume: string;
+  readonly tradeCount: number;
+  readonly direction: "up" | "down" | "flat";
 }
 
 export interface CandleChartSummary {
@@ -22,9 +37,11 @@ export interface CandleChartSummary {
 
 export interface CandlestickChartModel {
   readonly data: CandlestickDatum[];
+  readonly inspection: CandleInspectionDatum[];
   readonly summary: CandleChartSummary;
   readonly firstTimestamp: number;
   readonly lastTimestamp: number;
+  readonly maximumVolume: number | null;
 }
 
 interface ParsedDecimal {
@@ -143,6 +160,8 @@ export function buildCandlestickChartModel(
 
   let previousTimestamp = -1;
   const data: CandlestickDatum[] = [];
+  const inspection: CandleInspectionDatum[] = [];
+  let maximumVolume: number | null = null;
   for (const candle of candles) {
     const sourceValues = [candle.open, candle.high, candle.low, candle.close];
     const exactValues = sourceValues.map(decimalParts);
@@ -174,7 +193,45 @@ export function buildCandlestickChartModel(
     ) {
       return null;
     }
-    data.push({ timestamp: candle.openTime, open, high, low, close });
+    const parsedVolume = decimalParts(candle.volume);
+    const numericVolume = Number(candle.volume);
+    const volume =
+      parsedVolume !== null &&
+      parsedVolume.coefficient >= 0n &&
+      Number.isFinite(numericVolume) &&
+      numericVolume >= 0
+        ? numericVolume
+        : null;
+    const direction =
+      compareDecimal(exactClose, exactOpen) > 0
+        ? "up"
+        : compareDecimal(exactClose, exactOpen) < 0
+          ? "down"
+          : "flat";
+    data.push({
+      timestamp: candle.openTime,
+      open,
+      high,
+      low,
+      close,
+      volume,
+      positiveVolume: direction === "up" ? volume : null,
+      negativeVolume: direction === "down" ? volume : null,
+      neutralVolume: direction === "flat" ? volume : null,
+    });
+    inspection.push({
+      timestamp: candle.openTime,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      tradeCount: candle.tradeCount,
+      direction,
+    });
+    if (volume !== null) {
+      maximumVolume = Math.max(maximumVolume ?? 0, volume);
+    }
     previousTimestamp = candle.openTime;
   }
 
@@ -183,8 +240,35 @@ export function buildCandlestickChartModel(
   if (!first || !last) return null;
   return {
     data,
+    inspection,
     summary,
     firstTimestamp: first.timestamp,
     lastTimestamp: last.timestamp,
+    maximumVolume,
   };
+}
+
+export function nearestCandleIndex(
+  data: readonly CandleInspectionDatum[],
+  timestamp: number,
+): number | null {
+  if (data.length === 0 || !Number.isFinite(timestamp)) return null;
+  let low = 0;
+  let high = data.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = data[middle];
+    if (!candidate) return null;
+    if (candidate.timestamp === timestamp) return middle;
+    if (candidate.timestamp < timestamp) low = middle + 1;
+    else high = middle - 1;
+  }
+  if (low <= 0) return 0;
+  if (low >= data.length) return data.length - 1;
+  const before = data[low - 1];
+  const after = data[low];
+  if (!before || !after) return null;
+  return timestamp - before.timestamp <= after.timestamp - timestamp
+    ? low - 1
+    : low;
 }

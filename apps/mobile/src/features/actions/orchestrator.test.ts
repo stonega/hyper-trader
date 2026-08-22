@@ -69,6 +69,14 @@ function validation(
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function harness(
   providerResponse: unknown,
   reviewValidation: TradingActionValidationInput = validation(),
@@ -82,6 +90,8 @@ function harness(
   let raceTerminalTransition = false;
   let throwDuringTransport = false;
   let unlockFailure: unknown = null;
+  let unlockGate: Promise<unknown> | null = null;
+  let refreshGate: Promise<unknown> | null = null;
   const repository: Parameters<
     typeof createActionOrchestrator
   >[0]["repository"] = {
@@ -167,6 +177,7 @@ function harness(
       async unlock() {
         calls.push("unlock");
         if (unlockFailure !== null) throw unlockFailure;
+        if (unlockGate !== null) await unlockGate;
         return { status: "unlocked" as const };
       },
       async signTypedData() {
@@ -193,6 +204,7 @@ function harness(
     }),
     refresh: async () => {
       calls.push("refresh");
+      if (refreshGate !== null) await refreshGate;
       return refreshedValidation;
     },
     isContextCurrent: () => contextCurrent,
@@ -235,11 +247,17 @@ function harness(
     failUnlock: (error: unknown) => {
       unlockFailure = error;
     },
+    pauseUnlockUntil: (gate: Promise<unknown>) => {
+      unlockGate = gate;
+    },
+    pauseRefreshUntil: (gate: Promise<unknown>) => {
+      refreshGate = gate;
+    },
   };
 }
 
 describe("shared action orchestrator", () => {
-  test("runs unlock, authoritative refresh, reserve, sign, marker, and one submit in order", async () => {
+  test("reviews, authenticates, reserves, signs, and submits once in order", async () => {
     const h = harness({
       status: "ok",
       response: {
@@ -247,17 +265,45 @@ describe("shared action orchestrator", () => {
         data: { statuses: [{ resting: { oid: 42 } }] },
       },
     });
-    const result = await h.orchestrator.confirm(h.review);
+    const result = await h.orchestrator.confirm(h.review, {
+      onAuthenticated: () => h.calls.push("authenticated"),
+    });
     expect(result.phase).toBe("accepted");
     expect(h.calls).toEqual([
-      "unlock",
       "refresh",
+      "unlock",
+      "authenticated",
       "reserve",
       "sign",
       "submission_start",
       "submit",
       "transition:accepted",
     ]);
+  });
+
+  test("does not request authentication until authoritative review succeeds", async () => {
+    const h = harness({ status: "ok", response: { type: "default" } });
+    const refresh = deferred<void>();
+    const unlock = deferred<void>();
+    h.pauseRefreshUntil(refresh.promise);
+    h.pauseUnlockUntil(unlock.promise);
+
+    const confirmation = h.orchestrator.confirm(h.review);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(h.calls).toEqual(["refresh"]);
+    expect(h.orchestrator.read().phase).toBe("refreshing");
+
+    refresh.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(h.calls).toEqual(["refresh", "unlock"]);
+    expect(h.orchestrator.read().phase).toBe("unlocking");
+
+    unlock.resolve();
+    expect((await confirmation).phase).toBe("accepted");
+    expect(h.calls.filter((call) => call === "submit")).toHaveLength(1);
   });
 
   test("runs every U7 action family through the same write-once pipeline", async () => {
@@ -414,7 +460,7 @@ describe("shared action orchestrator", () => {
         journalId: null,
         message,
       });
-      expect(h.calls).toEqual(["unlock"]);
+      expect(h.calls).toEqual(["refresh", "unlock"]);
     },
   );
 

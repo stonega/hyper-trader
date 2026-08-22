@@ -7,6 +7,7 @@ import {
 import type {
   ActiveAssetData,
   ClearinghouseState,
+  FrontendOpenOrder,
   HistoricalOrder,
   MarginSummary,
   NamedApiWalletRegistration,
@@ -51,6 +52,13 @@ function integer(value: unknown, path: string): number {
     );
   }
   return value as number;
+}
+
+function boolean(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new HyperliquidValidationError(path, "expected a boolean");
+  }
+  return value;
 }
 
 function number(value: unknown, path: string): number {
@@ -338,6 +346,26 @@ export function parseOpenOrders(payload: unknown): OpenOrder[] {
   return list(payload, "openOrders").map((value, index) =>
     parseOpenOrder(value, `openOrders[${index}]`),
   );
+}
+
+export function parseFrontendOpenOrders(payload: unknown): FrontendOpenOrder[] {
+  return list(payload, "frontendOpenOrders").map((value, index) => {
+    const path = `frontendOpenOrders[${index}]`;
+    const order = object(value, path);
+    return {
+      ...parseOpenOrder(value, path),
+      originalSize: nonNegativeDecimal(order.origSz, `${path}.origSz`),
+      triggerCondition: text(
+        order.triggerCondition,
+        `${path}.triggerCondition`,
+      ),
+      isTrigger: boolean(order.isTrigger, `${path}.isTrigger`),
+      triggerPrice: nonNegativeDecimal(order.triggerPx, `${path}.triggerPx`),
+      isPositionTpsl: boolean(order.isPositionTpsl, `${path}.isPositionTpsl`),
+      reduceOnly: boolean(order.reduceOnly, `${path}.reduceOnly`),
+      orderType: text(order.orderType, `${path}.orderType`),
+    };
+  });
 }
 
 export function parseHistoricalOrders(payload: unknown): HistoricalOrder[] {

@@ -1,62 +1,82 @@
 import { BarlowSemiCondensed_400Regular } from "@expo-google-fonts/barlow-semi-condensed/400Regular";
-import type { Candle, Market } from "@hyper-trader/hyperliquid/public";
-import { useFont } from "@shopify/react-native-skia";
+import type { Candle } from "@hyper-trader/hyperliquid/public";
+import { Line as SkiaLine, useFont } from "@shopify/react-native-skia";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
-import { useMemo, useRef, useState } from "react";
-import { processColor, StyleSheet, View } from "react-native";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
+import {
+  Platform,
+  processColor,
+  StyleSheet,
+  Vibration,
+  View,
+} from "react-native";
 import { Gesture } from "react-native-gesture-handler";
-import { CartesianChart, type ChartBounds } from "victory-native";
+import { runOnJS, useSharedValue } from "react-native-reanimated";
+import { Bar, CartesianChart, type ChartBounds } from "victory-native";
 
 import { AppText as Text } from "../../components/app-text";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { useReducedMotion } from "../../components/use-reduced-motion";
-import { formatMarketPrice } from "../markets/format";
-import { buildCandlestickChartModel } from "./candlestick-chart-model";
+import {
+  buildCandlestickChartModel,
+  nearestCandleIndex,
+} from "./candlestick-chart-model";
 import {
   buildCandlestickChartDomains,
+  buildCandlestickPriceDomain,
   type CandlestickChartInteraction,
-  FULL_CANDLE_WINDOW,
   horizontalFocalRatio,
-  minimumCandleWindowSpan,
+  minimumCandleRangeSpan,
   type NumericRange,
+  panCandleRange,
   pricePanOffset,
   resolveCandlestickChartViewport,
-  zoomCandleWindow,
+  zoomCandleRange,
 } from "./candlestick-chart-viewport";
 import {
+  formatTradeChartAxisPrice,
   TRADE_CANDLE_Y_KEYS,
   TRADE_CHART_INTERVALS,
+  TRADE_VOLUME_Y_KEYS,
   type TradeChartInterval,
   tradeChartSpec,
 } from "./market-chart-config";
 import { SkiaCandlestickSeries } from "./skia-candlestick-series";
+import { SkiaTradeChartOverlays } from "./skia-trade-chart-overlays";
+import type { TradeChartOverlay } from "./trade-chart-overlays";
 
-const CHART_THEME_COLORS = ["success", "danger", "muted", "separator"] as const;
+const CHART_THEME_COLORS = [
+  "success",
+  "danger",
+  "muted",
+  "separator",
+  "accent",
+  "warning",
+] as const;
 
 const FALLBACK_COLORS = {
   positive: "#22c988",
   negative: "#ef5b67",
   neutral: "#87908e",
   grid: "#36413e",
+  accent: "#4ea7ff",
+  warning: "#f1b84b",
 } as const;
-
-const COMPACT_AXIS_FORMATTER = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 2,
-  notation: "compact",
-});
-const SMALL_AXIS_FORMATTER = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 6,
-});
 
 const MINIMUM_VISIBLE_CANDLES = 12;
 const VERTICAL_DRAG_ACTIVATION_OFFSET = 6;
 const VERTICAL_DRAG_HORIZONTAL_TOLERANCE = 14;
+const HORIZONTAL_DRAG_ACTIVATION_OFFSET = 6;
+const HORIZONTAL_DRAG_VERTICAL_TOLERANCE = 14;
+const CHART_INTERACTION_PUBLISH_INTERVAL_MS = 32;
+const CANDLE_INSPECTION_LONG_PRESS_MS = 260;
 
 interface ChartInteractionState extends CandlestickChartInteraction {
   readonly key: string;
+  readonly followLive: boolean;
 }
 
 interface VerticalDragStart {
@@ -66,9 +86,14 @@ interface VerticalDragStart {
 
 interface PinchStart {
   readonly key: string;
-  readonly xWindow: NumericRange;
+  readonly xRange: NumericRange;
   readonly focalRatio: number;
   readonly minimumSpan: number;
+}
+
+interface HorizontalDragStart {
+  readonly key: string;
+  readonly xRange: NumericRange;
 }
 
 function chartColor(value: string, fallback: string): string {
@@ -94,10 +119,10 @@ function formatTimestamp(timestamp: number, interval: TradeChartInterval) {
   );
 }
 
-function formatAxisPrice(value: number): string {
-  return Math.abs(value) >= 1
-    ? COMPACT_AXIS_FORMATTER.format(value)
-    : SMALL_AXIS_FORMATTER.format(value);
+function selectionHaptic(): void {
+  // React Native's iOS Vibration API emits a long system vibration rather than
+  // a selection tick. Keep this deliberately subtle on supported Android hosts.
+  if (Platform.OS === "android") Vibration.vibrate(5);
 }
 
 function Metric({
@@ -123,72 +148,281 @@ function Metric({
   );
 }
 
-export function MarketCandlestickChart({
-  market,
+function MarketCandlestickChartComponent({
+  canonicalMarketId,
   candles,
   interval,
   onIntervalChange,
   loading,
   unavailable,
+  liveRange,
+  overlays = [],
+  onLoadOlder,
+  canLoadOlder = false,
+  loadingOlder = false,
+  historyError = false,
   compact = false,
   realtime = false,
 }: {
-  readonly market: Market;
+  readonly canonicalMarketId: string;
   readonly candles: readonly Candle[] | undefined;
   readonly interval: TradeChartInterval;
   readonly onIntervalChange: (interval: TradeChartInterval) => void;
   readonly loading: boolean;
   readonly unavailable: boolean;
+  readonly liveRange: NumericRange | null;
+  readonly overlays?: readonly TradeChartOverlay[];
+  readonly onLoadOlder?: () => Promise<void>;
+  readonly canLoadOlder?: boolean;
+  readonly loadingOlder?: boolean;
+  readonly historyError?: boolean;
   readonly compact?: boolean;
   readonly realtime?: boolean;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const axisFont = useFont(BarlowSemiCondensed_400Regular, 10);
-  const [success, danger, muted, separator] = useThemeColor(CHART_THEME_COLORS);
+  const [success, danger, muted, separator, accent, warning] =
+    useThemeColor(CHART_THEME_COLORS);
   const spec = tradeChartSpec(interval);
+  const modelWindowLabel =
+    liveRange && candles?.[0] && candles[0].openTime < liveRange[0]
+      ? "Loaded history"
+      : spec.windowLabel;
   const model = useMemo(
     () =>
-      candles ? buildCandlestickChartModel(candles, spec.windowLabel) : null,
-    [candles, spec.windowLabel],
+      candles ? buildCandlestickChartModel(candles, modelWindowLabel) : null,
+    [candles, modelWindowLabel],
   );
   const chartDomains = useMemo(
     () => (model ? buildCandlestickChartDomains(model.data) : null),
     [model],
   );
-  const interactionKey = `${market.canonicalId}:${interval}`;
+  const interactionKey = `${canonicalMarketId}:${interval}`;
+  const currentLiveRange =
+    liveRange ?? chartDomains?.x ?? ([0, 1] as const satisfies NumericRange);
   const defaultInteraction = useMemo<ChartInteractionState>(
     () => ({
       key: interactionKey,
-      xWindow: FULL_CANDLE_WINDOW,
+      xRange: currentLiveRange,
       yOffset: 0,
+      followLive: true,
     }),
-    [interactionKey],
+    [currentLiveRange, interactionKey],
   );
   const [storedInteraction, setStoredInteraction] =
     useState<ChartInteractionState>(defaultInteraction);
   const interaction =
-    storedInteraction.key === interactionKey
-      ? storedInteraction
-      : defaultInteraction;
-  const chartViewport = useMemo(
-    () =>
-      chartDomains
-        ? resolveCandlestickChartViewport(chartDomains, interaction)
-        : null,
-    [chartDomains, interaction],
-  );
+    storedInteraction.key !== interactionKey
+      ? defaultInteraction
+      : storedInteraction.followLive
+        ? { ...storedInteraction, xRange: currentLiveRange }
+        : storedInteraction;
+  const chartViewport = useMemo(() => {
+    if (!chartDomains || !model) return null;
+    const horizontal = resolveCandlestickChartViewport(
+      chartDomains,
+      interaction,
+    );
+    const visiblePrices = buildCandlestickPriceDomain(model.data, horizontal.x);
+    return resolveCandlestickChartViewport(
+      visiblePrices ? { ...chartDomains, y: visiblePrices } : chartDomains,
+      interaction,
+    );
+  }, [chartDomains, interaction, model]);
+  const visibleMaximumVolume = useMemo(() => {
+    if (!model || !chartViewport) return null;
+    let maximum: number | null = null;
+    for (const candle of model.data) {
+      if (
+        candle.timestamp < chartViewport.x[0] ||
+        candle.timestamp > chartViewport.x[1] ||
+        candle.volume === null
+      ) {
+        continue;
+      }
+      maximum = Math.max(maximum ?? 0, candle.volume);
+    }
+    return maximum;
+  }, [chartViewport, model]);
   const chartBoundsRef = useRef<ChartBounds | null>(null);
   const interactionRef = useRef(interaction);
   const minimumWindowSpanRef = useRef(
-    minimumCandleWindowSpan(model?.data.length ?? 0, MINIMUM_VISIBLE_CANDLES),
+    minimumCandleRangeSpan(model?.data ?? [], MINIMUM_VISIBLE_CANDLES),
   );
   const verticalDragStartRef = useRef<VerticalDragStart | null>(null);
   const pinchStartRef = useRef<PinchStart | null>(null);
+  const horizontalDragStartRef = useRef<HorizontalDragStart | null>(null);
+  const chartDomainsRef = useRef(chartDomains);
+  const chartViewportRef = useRef(chartViewport);
+  const inspectionRef = useRef(model?.inspection ?? []);
+  const selectedTimestampRef = useRef<number | null>(null);
+  const [selectedTimestamp, setSelectedTimestamp] = useState<number | null>(
+    null,
+  );
   interactionRef.current = interaction;
-  minimumWindowSpanRef.current = minimumCandleWindowSpan(
-    model?.data.length ?? 0,
+  chartDomainsRef.current = chartDomains;
+  chartViewportRef.current = chartViewport;
+  inspectionRef.current = model?.inspection ?? [];
+  selectedTimestampRef.current = selectedTimestamp;
+  minimumWindowSpanRef.current = minimumCandleRangeSpan(
+    model?.data ?? [],
     MINIMUM_VISIBLE_CANDLES,
   );
+
+  const startVerticalDrag = useCallback(() => {
+    const current = interactionRef.current;
+    verticalDragStartRef.current = {
+      key: current.key,
+      yOffset: current.yOffset,
+    };
+  }, []);
+  const updateVerticalDrag = useCallback((translationY: number) => {
+    const start = verticalDragStartRef.current;
+    const bounds = chartBoundsRef.current;
+    if (!start || !bounds) return;
+    const current = interactionRef.current;
+    const next: ChartInteractionState = {
+      key: start.key,
+      xRange:
+        current.key === start.key
+          ? current.xRange
+          : (chartDomainsRef.current?.x ?? ([0, 1] as const)),
+      yOffset: pricePanOffset({
+        startOffset: start.yOffset,
+        translationY,
+        plotHeight: bounds.bottom - bounds.top,
+      }),
+      followLive: current.key === start.key ? current.followLive : true,
+    };
+    interactionRef.current = next;
+    setStoredInteraction(next);
+  }, []);
+  const finishVerticalDrag = useCallback(
+    (translationY: number) => {
+      updateVerticalDrag(translationY);
+      verticalDragStartRef.current = null;
+    },
+    [updateVerticalDrag],
+  );
+  const startPinch = useCallback((focalX: number) => {
+    const bounds = chartBoundsRef.current;
+    if (!bounds) return;
+    const current = interactionRef.current;
+    pinchStartRef.current = {
+      key: current.key,
+      xRange: current.xRange,
+      focalRatio: horizontalFocalRatio(focalX, bounds),
+      minimumSpan: minimumWindowSpanRef.current,
+    };
+  }, []);
+  const updatePinch = useCallback((focalX: number, scale: number) => {
+    const start = pinchStartRef.current;
+    const bounds = chartBoundsRef.current;
+    const domains = chartDomainsRef.current;
+    if (!start || !bounds || !domains) return;
+    const current = interactionRef.current;
+    const next: ChartInteractionState = {
+      key: start.key,
+      xRange: zoomCandleRange({
+        startRange: start.xRange,
+        bounds: domains.x,
+        scale,
+        startFocalRatio: start.focalRatio,
+        currentFocalRatio: horizontalFocalRatio(focalX, bounds),
+        minimumSpan: start.minimumSpan,
+      }),
+      yOffset: current.key === start.key ? current.yOffset : 0,
+      followLive: false,
+    };
+    interactionRef.current = next;
+    setStoredInteraction(next);
+  }, []);
+  const finishPinch = useCallback(
+    (focalX: number, scale: number) => {
+      updatePinch(focalX, scale);
+      pinchStartRef.current = null;
+    },
+    [updatePinch],
+  );
+  const startHorizontalDrag = useCallback(() => {
+    const current = interactionRef.current;
+    horizontalDragStartRef.current = {
+      key: current.key,
+      xRange: current.xRange,
+    };
+  }, []);
+  const horizontalInteraction = useCallback(
+    (translationX: number): ChartInteractionState | null => {
+      const start = horizontalDragStartRef.current;
+      const bounds = chartBoundsRef.current;
+      const domains = chartDomainsRef.current;
+      if (!start || !bounds || !domains) return null;
+      const current = interactionRef.current;
+      return {
+        key: start.key,
+        xRange: panCandleRange({
+          startRange: start.xRange,
+          bounds: domains.x,
+          translationX,
+          plotWidth: bounds.right - bounds.left,
+        }),
+        yOffset: current.key === start.key ? current.yOffset : 0,
+        followLive: false,
+      };
+    },
+    [],
+  );
+  const updateHorizontalDrag = useCallback(
+    (translationX: number) => {
+      const next = horizontalInteraction(translationX);
+      if (!next) return;
+      interactionRef.current = next;
+      setStoredInteraction(next);
+    },
+    [horizontalInteraction],
+  );
+  const finishHorizontalDrag = useCallback(
+    (translationX: number) => {
+      const next = horizontalInteraction(translationX);
+      if (next) {
+        interactionRef.current = next;
+        setStoredInteraction(next);
+        const domains = chartDomainsRef.current;
+        if (
+          domains &&
+          next.xRange[0] <= domains.x[0] + 1 &&
+          canLoadOlder &&
+          !loadingOlder &&
+          onLoadOlder
+        ) {
+          void onLoadOlder();
+        }
+      }
+      horizontalDragStartRef.current = null;
+    },
+    [canLoadOlder, horizontalInteraction, loadingOlder, onLoadOlder],
+  );
+  const selectCandleAtX = useCallback((x: number) => {
+    const bounds = chartBoundsRef.current;
+    const viewport = chartViewportRef.current;
+    const inspection = inspectionRef.current;
+    if (!bounds || !viewport || inspection.length === 0) return;
+    const ratio = horizontalFocalRatio(x, bounds);
+    const timestamp = viewport.x[0] + ratio * (viewport.x[1] - viewport.x[0]);
+    const index = nearestCandleIndex(inspection, timestamp);
+    const selected = index === null ? null : inspection[index]?.timestamp;
+    if (selected === undefined || selected === null) return;
+    if (selectedTimestampRef.current !== selected) {
+      selectionHaptic();
+      selectedTimestampRef.current = selected;
+      setSelectedTimestamp(selected);
+    }
+  }, []);
+  const lastVerticalPublishAt = useSharedValue(0);
+  const lastHorizontalPublishAt = useSharedValue(0);
+  const lastPinchPublishAt = useSharedValue(0);
+  const lastInspectionPublishAt = useSharedValue(0);
+  const inspectionActive = useSharedValue(false);
 
   const chartGesture = useMemo(() => {
     const verticalDrag = Gesture.Pan()
@@ -202,86 +436,179 @@ export function MarketCandlestickChart({
         -VERTICAL_DRAG_HORIZONTAL_TOLERANCE,
         VERTICAL_DRAG_HORIZONTAL_TOLERANCE,
       ])
-      .runOnJS(true)
       .onStart(() => {
-        const current = interactionRef.current;
-        verticalDragStartRef.current = {
-          key: current.key,
-          yOffset: current.yOffset,
-        };
+        lastVerticalPublishAt.value = 0;
+        runOnJS(startVerticalDrag)();
       })
       .onUpdate(({ translationY }) => {
-        const start = verticalDragStartRef.current;
-        const bounds = chartBoundsRef.current;
-        if (!start || !bounds) return;
+        const now = Date.now();
+        if (
+          now - lastVerticalPublishAt.value <
+          CHART_INTERACTION_PUBLISH_INTERVAL_MS
+        ) {
+          return;
+        }
+        lastVerticalPublishAt.value = now;
+        runOnJS(updateVerticalDrag)(translationY);
+      })
+      .onFinalize(({ translationY }) => {
+        runOnJS(finishVerticalDrag)(translationY);
+      });
 
-        const current = interactionRef.current;
-        const next: ChartInteractionState = {
-          key: start.key,
-          xWindow:
-            current.key === start.key ? current.xWindow : FULL_CANDLE_WINDOW,
-          yOffset: pricePanOffset({
-            startOffset: start.yOffset,
-            translationY,
-            plotHeight: bounds.bottom - bounds.top,
-          }),
-        };
-        interactionRef.current = next;
-        setStoredInteraction(next);
+    const horizontalDrag = Gesture.Pan()
+      .minPointers(1)
+      .maxPointers(1)
+      .activeOffsetX([
+        -HORIZONTAL_DRAG_ACTIVATION_OFFSET,
+        HORIZONTAL_DRAG_ACTIVATION_OFFSET,
+      ])
+      .failOffsetY([
+        -HORIZONTAL_DRAG_VERTICAL_TOLERANCE,
+        HORIZONTAL_DRAG_VERTICAL_TOLERANCE,
+      ])
+      .onStart(() => {
+        lastHorizontalPublishAt.value = 0;
+        runOnJS(startHorizontalDrag)();
+      })
+      .onUpdate(({ translationX }) => {
+        const now = Date.now();
+        if (
+          now - lastHorizontalPublishAt.value <
+          CHART_INTERACTION_PUBLISH_INTERVAL_MS
+        ) {
+          return;
+        }
+        lastHorizontalPublishAt.value = now;
+        runOnJS(updateHorizontalDrag)(translationX);
+      })
+      .onFinalize(({ translationX }) => {
+        runOnJS(finishHorizontalDrag)(translationX);
+      });
+
+    const candleInspection = Gesture.LongPress()
+      .minDuration(CANDLE_INSPECTION_LONG_PRESS_MS)
+      .maxDistance(12)
+      .numberOfPointers(1)
+      .onStart(({ x }) => {
+        inspectionActive.value = true;
+        lastInspectionPublishAt.value = 0;
+        runOnJS(selectCandleAtX)(x);
+      })
+      .onTouchesMove(({ allTouches }) => {
+        if (!inspectionActive.value) return;
+        const touch = allTouches[0];
+        if (!touch) return;
+        const now = Date.now();
+        if (
+          now - lastInspectionPublishAt.value <
+          CHART_INTERACTION_PUBLISH_INTERVAL_MS
+        ) {
+          return;
+        }
+        lastInspectionPublishAt.value = now;
+        runOnJS(selectCandleAtX)(touch.x);
       })
       .onFinalize(() => {
-        verticalDragStartRef.current = null;
+        inspectionActive.value = false;
       });
 
     const candleDensityPinch = Gesture.Pinch()
-      .runOnJS(true)
       .onStart(({ focalX }) => {
-        const bounds = chartBoundsRef.current;
-        if (!bounds) return;
-
-        const current = interactionRef.current;
-        pinchStartRef.current = {
-          key: current.key,
-          xWindow: current.xWindow,
-          focalRatio: horizontalFocalRatio(focalX, bounds),
-          minimumSpan: minimumWindowSpanRef.current,
-        };
+        lastPinchPublishAt.value = 0;
+        runOnJS(startPinch)(focalX);
       })
       .onUpdate(({ focalX, scale }) => {
-        const start = pinchStartRef.current;
-        const bounds = chartBoundsRef.current;
-        if (!start || !bounds) return;
-
-        const current = interactionRef.current;
-        const next: ChartInteractionState = {
-          key: start.key,
-          xWindow: zoomCandleWindow({
-            startWindow: start.xWindow,
-            scale,
-            startFocalRatio: start.focalRatio,
-            currentFocalRatio: horizontalFocalRatio(focalX, bounds),
-            minimumSpan: start.minimumSpan,
-          }),
-          yOffset: current.key === start.key ? current.yOffset : 0,
-        };
-        interactionRef.current = next;
-        setStoredInteraction(next);
+        const now = Date.now();
+        if (
+          now - lastPinchPublishAt.value <
+          CHART_INTERACTION_PUBLISH_INTERVAL_MS
+        ) {
+          return;
+        }
+        lastPinchPublishAt.value = now;
+        runOnJS(updatePinch)(focalX, scale);
       })
-      .onFinalize(() => {
-        pinchStartRef.current = null;
+      .onFinalize(({ focalX, scale }) => {
+        runOnJS(finishPinch)(focalX, scale);
       });
 
-    return Gesture.Simultaneous(verticalDrag, candleDensityPinch);
-  }, []);
+    const directionalDrag = Gesture.Exclusive(horizontalDrag, verticalDrag);
+    return Gesture.Simultaneous(
+      Gesture.Race(candleInspection, directionalDrag),
+      candleDensityPinch,
+    );
+  }, [
+    finishHorizontalDrag,
+    finishPinch,
+    finishVerticalDrag,
+    inspectionActive,
+    lastHorizontalPublishAt,
+    lastInspectionPublishAt,
+    lastPinchPublishAt,
+    lastVerticalPublishAt,
+    selectCandleAtX,
+    startHorizontalDrag,
+    startPinch,
+    startVerticalDrag,
+    updateHorizontalDrag,
+    updatePinch,
+    updateVerticalDrag,
+  ]);
   const colors = useMemo(
     () => ({
       positive: chartColor(success, FALLBACK_COLORS.positive),
       negative: chartColor(danger, FALLBACK_COLORS.negative),
       neutral: chartColor(muted, FALLBACK_COLORS.neutral),
       grid: chartColor(separator, FALLBACK_COLORS.grid),
+      accent: chartColor(accent, FALLBACK_COLORS.accent),
+      warning: chartColor(warning, FALLBACK_COLORS.warning),
     }),
-    [danger, muted, separator, success],
+    [accent, danger, muted, separator, success, warning],
   );
+  const selectedIndex =
+    model && selectedTimestamp !== null
+      ? nearestCandleIndex(model.inspection, selectedTimestamp)
+      : null;
+  const selectedCandle =
+    selectedIndex === null ? null : (model?.inspection[selectedIndex] ?? null);
+  const selectedPoint =
+    selectedIndex === null || !model
+      ? null
+      : {
+          timestamp: model.data[selectedIndex]?.timestamp ?? 0,
+          close: model.data[selectedIndex]?.close ?? 0,
+        };
+  const inspectLatest = useCallback(() => {
+    const latest = model?.inspection.at(-1)?.timestamp ?? null;
+    selectedTimestampRef.current = latest;
+    setSelectedTimestamp(latest);
+  }, [model]);
+  const moveSelection = useCallback(
+    (offset: -1 | 1) => {
+      if (!model || selectedIndex === null) return;
+      const next = model.inspection[selectedIndex + offset];
+      if (!next) return;
+      selectionHaptic();
+      selectedTimestampRef.current = next.timestamp;
+      setSelectedTimestamp(next.timestamp);
+    },
+    [model, selectedIndex],
+  );
+  const returnToLive = useCallback(() => {
+    const next: ChartInteractionState = {
+      ...interactionRef.current,
+      key: interactionKey,
+      xRange: currentLiveRange,
+      followLive: true,
+    };
+    interactionRef.current = next;
+    setStoredInteraction(next);
+  }, [currentLiveRange, interactionKey]);
+  const resetView = useCallback(() => {
+    interactionRef.current = defaultInteraction;
+    setStoredInteraction(defaultInteraction);
+  }, [defaultInteraction]);
+  const displayedOverlays = overlays.slice(0, 8);
 
   return (
     <Card variant="default" className={compact ? "gap-2" : "gap-3"}>
@@ -289,8 +616,7 @@ export function MarketCandlestickChart({
         <View className="min-w-40 flex-1 gap-1">
           <Card.Title>Price chart</Card.Title>
           <Card.Description>
-            {spec.windowLabel} · {spec.label} candles ·{" "}
-            {realtime ? "WebSocket + REST sync" : "REST snapshot"}
+            {spec.windowLabel} · {spec.label} · {realtime ? "Live" : "Snapshot"}
           </Card.Description>
         </View>
         <View
@@ -331,6 +657,71 @@ export function MarketCandlestickChart({
           })}
         </View>
 
+        {model ? (
+          <View className="flex-row flex-wrap gap-2">
+            <Button
+              accessibilityHint="Shows exact values for individual candles."
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="h-10 min-h-10 px-3"
+              onPress={
+                selectedCandle
+                  ? () => {
+                      selectedTimestampRef.current = null;
+                      setSelectedTimestamp(null);
+                    }
+                  : inspectLatest
+              }
+              size="sm"
+              variant="tertiary"
+            >
+              {selectedCandle ? "Done" : "Inspect"}
+            </Button>
+            {canLoadOlder && onLoadOlder ? (
+              <Button
+                accessibilityHint="Loads the preceding candle window."
+                animation={reducedMotion ? "disable-all" : undefined}
+                className="h-10 min-h-10 px-3"
+                isDisabled={loadingOlder}
+                onPress={() => void onLoadOlder()}
+                size="sm"
+                variant="tertiary"
+              >
+                {loadingOlder ? "Loading…" : "Older"}
+              </Button>
+            ) : null}
+            {!interaction.followLive ? (
+              <Button
+                accessibilityHint="Returns the time window to the newest candles."
+                animation={reducedMotion ? "disable-all" : undefined}
+                className="h-10 min-h-10 px-3"
+                onPress={returnToLive}
+                size="sm"
+                variant="tertiary"
+              >
+                Live
+              </Button>
+            ) : null}
+            {interaction.yOffset !== 0 ? (
+              <Button
+                accessibilityHint="Restores the live time and automatic price ranges."
+                animation={reducedMotion ? "disable-all" : undefined}
+                className="h-10 min-h-10 px-3"
+                onPress={resetView}
+                size="sm"
+                variant="tertiary"
+              >
+                Reset
+              </Button>
+            ) : null}
+          </View>
+        ) : null}
+        {historyError ? (
+          <Text accessibilityRole="alert" className="text-sm text-warning">
+            Older candles could not be loaded. The current chart remains
+            available.
+          </Text>
+        ) : null}
+
         {model && chartViewport ? (
           <>
             <View
@@ -338,60 +729,165 @@ export function MarketCandlestickChart({
               importantForAccessibility="no-hide-descendants"
               style={compact ? styles.compactChart : styles.chart}
             >
-              <CartesianChart
-                customGestures={chartGesture}
-                domain={{ y: chartViewport.y }}
-                frame={{
-                  lineColor: colors.grid,
-                  lineWidth: {
-                    top: 0,
-                    right: 0,
-                    bottom: StyleSheet.hairlineWidth,
-                    left: 0,
-                  },
-                }}
-                data={model.data}
-                domainPadding={{ left: 4, right: 4, top: 12, bottom: 12 }}
-                onChartBoundsChange={(bounds) => {
-                  chartBoundsRef.current = bounds;
-                }}
-                padding={{ left: 2, right: 48, top: 4, bottom: 4 }}
-                viewport={{ x: chartViewport.x }}
-                xKey="timestamp"
-                yKeys={[...TRADE_CANDLE_Y_KEYS]}
-                yAxis={[
-                  {
-                    axisSide: "right",
-                    font: axisFont,
-                    formatYLabel: formatAxisPrice,
-                    labelColor: colors.neutral,
-                    labelOffset: 5,
-                    labelPosition: "outset",
-                    lineColor: colors.grid,
-                    lineWidth: StyleSheet.hairlineWidth,
-                    tickCount: 4,
-                    yKeys: [...TRADE_CANDLE_Y_KEYS],
-                  },
-                ]}
+              <View
+                style={compact ? styles.compactPriceChart : styles.priceChart}
               >
-                {({ points, chartBounds }) => (
-                  <SkiaCandlestickSeries
-                    colors={{
-                      positive: colors.positive,
-                      negative: colors.negative,
-                      neutral: colors.neutral,
+                <CartesianChart
+                  customGestures={chartGesture}
+                  domain={{ y: chartViewport.y }}
+                  frame={{
+                    lineColor: colors.grid,
+                    lineWidth: {
+                      top: 0,
+                      right: 0,
+                      bottom: StyleSheet.hairlineWidth,
+                      left: 0,
+                    },
+                  }}
+                  data={model.data}
+                  domainPadding={{ left: 4, right: 4, top: 12, bottom: 12 }}
+                  onChartBoundsChange={(bounds) => {
+                    chartBoundsRef.current = bounds;
+                  }}
+                  padding={{
+                    left: 2,
+                    right: 0,
+                    top: 4,
+                    bottom: 4,
+                  }}
+                  viewport={{ x: chartViewport.x }}
+                  xKey="timestamp"
+                  yKeys={[...TRADE_CANDLE_Y_KEYS]}
+                  yAxis={[
+                    {
+                      axisSide: "right",
+                      font: axisFont,
+                      formatYLabel: formatTradeChartAxisPrice,
+                      labelColor: colors.neutral,
+                      labelOffset: 5,
+                      labelPosition: "inset",
+                      lineColor: colors.grid,
+                      lineWidth: StyleSheet.hairlineWidth,
+                      tickCount: 4,
+                      yKeys: [...TRADE_CANDLE_Y_KEYS],
+                    },
+                  ]}
+                >
+                  {({ points, chartBounds, xScale, yScale }) => (
+                    <>
+                      <SkiaCandlestickSeries
+                        colors={{
+                          positive: colors.positive,
+                          negative: colors.negative,
+                          neutral: colors.neutral,
+                        }}
+                        candleRatio={0.68}
+                        chartBounds={chartBounds}
+                        closePoints={points.close}
+                        highPoints={points.high}
+                        lowPoints={points.low}
+                        minBodyHeight={1.5}
+                        openPoints={points.open}
+                        wickStrokeWidth={1}
+                      />
+                      <SkiaTradeChartOverlays
+                        chartBounds={chartBounds}
+                        colors={{
+                          accent: colors.accent,
+                          crosshair: colors.accent,
+                          danger: colors.negative,
+                          muted: colors.neutral,
+                          success: colors.positive,
+                          warning: colors.warning,
+                        }}
+                        font={axisFont}
+                        overlays={overlays}
+                        selected={selectedPoint}
+                        xScale={xScale}
+                        yScale={yScale}
+                      />
+                    </>
+                  )}
+                </CartesianChart>
+              </View>
+              {visibleMaximumVolume !== null ? (
+                <View
+                  style={
+                    compact ? styles.compactVolumeChart : styles.volumeChart
+                  }
+                >
+                  <CartesianChart
+                    data={model.data}
+                    domain={{
+                      y: [
+                        0,
+                        visibleMaximumVolume > 0
+                          ? visibleMaximumVolume * 1.08
+                          : 1,
+                      ],
                     }}
-                    candleRatio={0.68}
-                    chartBounds={chartBounds}
-                    closePoints={points.close}
-                    highPoints={points.high}
-                    lowPoints={points.low}
-                    minBodyHeight={1.5}
-                    openPoints={points.open}
-                    wickStrokeWidth={1}
-                  />
-                )}
-              </CartesianChart>
+                    domainPadding={{ left: 4, right: 4, top: 1, bottom: 0 }}
+                    padding={{
+                      left: 2,
+                      right: 0,
+                      top: 1,
+                      bottom: 1,
+                    }}
+                    viewport={{ x: chartViewport.x }}
+                    xKey="timestamp"
+                    yKeys={[...TRADE_VOLUME_Y_KEYS]}
+                  >
+                    {({ points, chartBounds, xScale }) => (
+                      <>
+                        <Bar
+                          chartBounds={chartBounds}
+                          color={colors.positive}
+                          innerPadding={0.32}
+                          opacity={0.58}
+                          points={points.positiveVolume}
+                        />
+                        <Bar
+                          chartBounds={chartBounds}
+                          color={colors.negative}
+                          innerPadding={0.32}
+                          opacity={0.58}
+                          points={points.negativeVolume}
+                        />
+                        <Bar
+                          chartBounds={chartBounds}
+                          color={colors.neutral}
+                          innerPadding={0.32}
+                          opacity={0.48}
+                          points={points.neutralVolume}
+                        />
+                        {selectedPoint ? (
+                          <SkiaLine
+                            color={colors.accent}
+                            opacity={0.72}
+                            p1={{
+                              x: xScale(selectedPoint.timestamp),
+                              y: chartBounds.top,
+                            }}
+                            p2={{
+                              x: xScale(selectedPoint.timestamp),
+                              y: chartBounds.bottom,
+                            }}
+                            strokeWidth={1}
+                          />
+                        ) : null}
+                      </>
+                    )}
+                  </CartesianChart>
+                </View>
+              ) : (
+                <View
+                  style={
+                    compact ? styles.compactVolumeChart : styles.volumeChart
+                  }
+                >
+                  <Text className="text-xs text-muted">Volume unavailable</Text>
+                </View>
+              )}
             </View>
             <View className="flex-row justify-between gap-3">
               <Text className="text-xs tabular-nums text-muted">
@@ -401,7 +897,60 @@ export function MarketCandlestickChart({
                 {formatTimestamp(chartViewport.x[1], interval)}
               </Text>
             </View>
-            {compact ? (
+            {selectedCandle && selectedIndex !== null ? (
+              <>
+                <View
+                  accessible
+                  accessibilityLabel={`${formatTimestamp(selectedCandle.timestamp, interval)} candle. Open ${selectedCandle.open}. High ${selectedCandle.high}. Low ${selectedCandle.low}. Close ${selectedCandle.close}. Volume ${selectedCandle.volume}. ${selectedCandle.tradeCount} trades.`}
+                  className="flex-row flex-wrap gap-x-3 gap-y-1"
+                >
+                  <Text className="w-full text-xs font-medium text-foreground">
+                    {formatTimestamp(selectedCandle.timestamp, interval)}
+                  </Text>
+                  {(
+                    [
+                      ["O", selectedCandle.open],
+                      ["H", selectedCandle.high],
+                      ["L", selectedCandle.low],
+                      ["C", selectedCandle.close],
+                      ["V", selectedCandle.volume],
+                      ["Trades", String(selectedCandle.tradeCount)],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <Text
+                      className="text-xs tabular-nums text-muted"
+                      key={label}
+                    >
+                      {label} <Text className="text-foreground">{value}</Text>
+                    </Text>
+                  ))}
+                </View>
+                <View className="flex-row gap-2">
+                  <Button
+                    accessibilityLabel="Previous candle"
+                    animation={reducedMotion ? "disable-all" : undefined}
+                    className="h-10 min-h-10 flex-1"
+                    isDisabled={selectedIndex <= 0}
+                    onPress={() => moveSelection(-1)}
+                    size="sm"
+                    variant="tertiary"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    accessibilityLabel="Next candle"
+                    animation={reducedMotion ? "disable-all" : undefined}
+                    className="h-10 min-h-10 flex-1"
+                    isDisabled={selectedIndex >= model.inspection.length - 1}
+                    onPress={() => moveSelection(1)}
+                    size="sm"
+                    variant="tertiary"
+                  >
+                    Next
+                  </Button>
+                </View>
+              </>
+            ) : compact ? (
               <View
                 accessible
                 accessibilityLabel={model.summary.accessibilityLabel}
@@ -435,12 +984,33 @@ export function MarketCandlestickChart({
                 <Metric label="Close" value={model.summary.close} />
               </View>
             )}
+            {displayedOverlays.length > 0 ? (
+              <View
+                accessible
+                accessibilityLabel={displayedOverlays
+                  .map(({ accessibilityLabel }) => accessibilityLabel)
+                  .join(". ")}
+                className="flex-row flex-wrap gap-x-3 gap-y-1"
+              >
+                {displayedOverlays.map((item) => (
+                  <Text
+                    className="text-xs tabular-nums text-muted"
+                    key={item.id}
+                  >
+                    {item.label}{" "}
+                    <Text className="text-foreground">{item.price}</Text>
+                  </Text>
+                ))}
+                {overlays.length > displayedOverlays.length ? (
+                  <Text className="text-xs text-muted">
+                    +{overlays.length - displayedOverlays.length} more
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
           </>
         ) : (
           <View className="gap-2 py-5">
-            <Text className="text-sm text-foreground">
-              Current price · {formatMarketPrice(market)}
-            </Text>
             <Text
               accessibilityRole={unavailable ? "alert" : undefined}
               className="text-sm leading-5 text-muted"
@@ -458,13 +1028,35 @@ export function MarketCandlestickChart({
   );
 }
 
+export const MarketCandlestickChart = memo(MarketCandlestickChartComponent);
+
 const styles = StyleSheet.create({
   compactChart: {
+    gap: 4,
     height: 210,
     width: "100%",
   },
   chart: {
+    gap: 4,
     height: 260,
+    width: "100%",
+  },
+  compactPriceChart: {
+    height: 164,
+    width: "100%",
+  },
+  priceChart: {
+    height: 204,
+    width: "100%",
+  },
+  compactVolumeChart: {
+    height: 42,
+    justifyContent: "center",
+    width: "100%",
+  },
+  volumeChart: {
+    height: 52,
+    justifyContent: "center",
     width: "100%",
   },
 });

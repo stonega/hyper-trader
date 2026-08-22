@@ -1,13 +1,14 @@
 {
-  "name": "@hyper-trader/notification-service",
+  "name": "@hyper-trader/api",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Portable Bun and PostgreSQL notification service for Hyper Trader.",
+  "description": "Backend API and notification service for Hyper Trader.",
   "scripts": {
+    "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc",
     "start:catalog": "bun src/catalog/catalog-service-main.ts",
     "test:postgres": "bun test/run-postgres.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.cloudflare.json"
   },
   "dependencies": {
     "@hyper-trader/hyperliquid": "workspace:*",
@@ -15,7 +16,9 @@
     "viem": "^2.55.11"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "5.20260821.1",
     "@types/bun": "^1.3.14",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "wrangler": "4.125.0"
   }
 }

@@ -27,6 +27,25 @@ function Container({ children, testID }: CommonProps): ReactNode {
   return <View testID={testID}>{children}</View>;
 }
 
+function BottomSheetContent({
+  accessibilityLabel,
+  children,
+  enableDynamicSizing,
+  snapPoints,
+  testID,
+}: CommonProps & {
+  readonly enableDynamicSizing?: boolean;
+  readonly snapPoints?: readonly (number | string)[];
+}): ReactNode {
+  const props = {
+    accessibilityLabel,
+    enableDynamicSizing,
+    snapPoints,
+    testID,
+  } as unknown as ComponentProps<typeof View>;
+  return <View {...props}>{children}</View>;
+}
+
 function Copy({
   accessibilityHint,
   accessibilityLabel,
@@ -139,7 +158,7 @@ export const BottomSheet = Object.assign(DialogRoot, {
   Trigger: Container,
   Portal: DialogPortal,
   Overlay: Container,
-  Content: Container,
+  Content: BottomSheetContent,
   Close: DialogClose,
   Title: Copy,
   Description: Copy,

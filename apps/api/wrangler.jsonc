@@ -1,0 +1,25 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hyper-trader-backend",
+  "main": "src/cloudflare/worker.ts",
+  "compatibility_date": "2026-08-21",
+  "workers_dev": true,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "BACKEND_ORIGIN": "https://hyper-trader-backend.stoneflare.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "BACKEND_DB",
+      "database_name": "hyper-trader-backend",
+      "database_id": "3832ec30-e281-4eb3-8686-863992da0736",
+      "migrations_dir": "cloudflare/migrations"
+    }
+  ]
+}

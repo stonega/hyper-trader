@@ -1,9 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import type { Candle } from "@hyper-trader/hyperliquid/public";
 
-import { buildCandlestickChartModel } from "./candlestick-chart-model";
 import {
+  buildCandlestickChartModel,
+  nearestCandleIndex,
+} from "./candlestick-chart-model";
+import {
+  formatTradeChartAxisPrice,
   TRADE_CANDLE_Y_KEYS,
+  TRADE_VOLUME_Y_KEYS,
   tradeCandleRange,
   tradeChartCandleCapacity,
   tradeChartSpec,
@@ -35,9 +40,37 @@ describe("Trade candlestick chart model", () => {
     );
 
     expect(model?.data).toEqual([
-      { timestamp: 1, open: 10, high: 11, low: 9, close: 10 },
-      { timestamp: 2, open: 10, high: 13, low: 10, close: 12 },
+      {
+        timestamp: 1,
+        open: 10,
+        high: 11,
+        low: 9,
+        close: 10,
+        volume: 1,
+        positiveVolume: null,
+        negativeVolume: null,
+        neutralVolume: 1,
+      },
+      {
+        timestamp: 2,
+        open: 10,
+        high: 13,
+        low: 10,
+        close: 12,
+        volume: 1,
+        positiveVolume: 1,
+        negativeVolume: null,
+        neutralVolume: null,
+      },
     ]);
+    expect(model?.inspection[1]).toMatchObject({
+      timestamp: 2,
+      close: "12",
+      volume: "1",
+      tradeCount: 1,
+      direction: "up",
+    });
+    expect(model?.maximumVolume).toBe(1);
     expect(model?.summary).toMatchObject({
       sparkline: "▁█",
       open: "10",
@@ -96,8 +129,41 @@ describe("Trade candlestick chart model", () => {
     expect(model?.summary.close).toBe("9007199254740993.00000002");
   });
 
+  test("keeps valid price geometry when volume cannot be rendered", () => {
+    const model = buildCandlestickChartModel(
+      [{ ...candle(1, "10", "11", "9"), volume: "-1" }],
+      "24 hours",
+    );
+    expect(model?.data[0]?.volume).toBeNull();
+    expect(model?.inspection[0]?.volume).toBe("-1");
+    expect(model?.maximumVolume).toBeNull();
+  });
+
+  test("finds the nearest exact candle without scanning the series", () => {
+    const model = buildCandlestickChartModel(
+      [
+        candle(10, "10"),
+        candle(20, "11", "11", "10"),
+        candle(30, "12", "12", "10"),
+      ],
+      "24 hours",
+    );
+    expect(nearestCandleIndex(model?.inspection ?? [], 4)).toBe(0);
+    expect(nearestCandleIndex(model?.inspection ?? [], 16)).toBe(1);
+    expect(nearestCandleIndex(model?.inspection ?? [], 29)).toBe(2);
+    expect(nearestCandleIndex([], 10)).toBeNull();
+  });
+
   test("maps each interval to a bounded fixed candle window", () => {
     const endTime = 100 * 24 * 60 * 60 * 1_000;
+    expect(tradeChartSpec("1m")).toMatchObject({
+      label: "1m",
+      windowLabel: "90 minutes",
+    });
+    expect(tradeCandleRange("1m", endTime)).toEqual({
+      startTime: endTime - 90 * 60 * 1_000,
+      endTime,
+    });
     expect(tradeChartSpec("15m").windowLabel).toBe("24 hours");
     expect(tradeCandleRange("15m", endTime)).toEqual({
       startTime: endTime - 24 * 60 * 60 * 1_000,
@@ -106,6 +172,7 @@ describe("Trade candlestick chart model", () => {
     expect(tradeCandleRange("1d", endTime).startTime).toBe(
       endTime - 90 * 24 * 60 * 60 * 1_000,
     );
+    expect(tradeChartCandleCapacity("1m")).toBe(91);
     expect(tradeChartCandleCapacity("15m")).toBe(97);
     expect(tradeChartCandleCapacity("1d")).toBe(91);
     expect(() => tradeCandleRange("1h", Number.NaN)).toThrow(
@@ -115,5 +182,17 @@ describe("Trade candlestick chart model", () => {
 
   test("assigns every OHLC series to the Victory candlestick axis", () => {
     expect(TRADE_CANDLE_Y_KEYS).toEqual(["open", "high", "low", "close"]);
+    expect(TRADE_VOLUME_Y_KEYS).toEqual([
+      "positiveVolume",
+      "negativeVolume",
+      "neutralVolume",
+    ]);
+  });
+
+  test("formats right-axis prices without compact abbreviations", () => {
+    expect(formatTradeChartAxisPrice(10_000)).toBe("10,000");
+    expect(formatTradeChartAxisPrice(1_250_000.125)).toBe("1,250,000.125");
+    expect(formatTradeChartAxisPrice(0.00001234)).toBe("0.00001234");
+    expect(formatTradeChartAxisPrice(Number.NaN)).toBe("—");
   });
 });

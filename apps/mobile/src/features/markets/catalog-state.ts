@@ -1,3 +1,5 @@
+import type { MarketCatalog } from "@hyper-trader/hyperliquid/public";
+
 export interface CatalogStateInput {
   readonly hasData: boolean;
   readonly marketCount: number;
@@ -9,6 +11,32 @@ export interface CatalogStateInput {
   readonly isOnline: boolean;
   readonly sourceErrorCount: number;
   readonly quarantinedCount: number;
+}
+
+export interface UsableCatalogSelection {
+  readonly catalog: MarketCatalog | undefined;
+  readonly usingBootstrap: boolean;
+  readonly rejectedEmptyCatalog: boolean;
+}
+
+export function selectUsableMarketCatalog(
+  primary: MarketCatalog | undefined,
+  bootstrap: MarketCatalog | undefined,
+): UsableCatalogSelection {
+  const primaryCatalog =
+    primary && primary.markets.length > 0 ? primary : undefined;
+  const bootstrapCatalog =
+    bootstrap && bootstrap.markets.length > 0 ? bootstrap : undefined;
+  return {
+    catalog: primaryCatalog ?? bootstrapCatalog,
+    usingBootstrap:
+      primaryCatalog === undefined && bootstrapCatalog !== undefined,
+    rejectedEmptyCatalog:
+      (primary !== undefined && primary.markets.length === 0) ||
+      (primaryCatalog === undefined &&
+        bootstrap !== undefined &&
+        bootstrap.markets.length === 0),
+  };
 }
 
 export interface CatalogPresentationState {
