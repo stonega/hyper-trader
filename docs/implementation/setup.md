@@ -72,6 +72,13 @@ Android backdrop sampling. Navigation still emits the standard `tabPress` and
 `tabLongPress` events, preserves the existing route names and test identifiers,
 hides with the keyboard, and exposes selected state to assistive technology.
 
+All routed input surfaces use the shared keyboard-aware container. It applies
+padding avoidance on iOS and height avoidance on Android, while each owning
+ScrollView or FlatList remains responsible for scrolling the focused field and
+dismissing the keyboard on drag. The full-screen market switcher owns the same
+container inside its native modal because modal layout is separate from the
+route beneath it.
+
 ## Hyperliquid client
 
 The shared package exposes `createHyperliquidClient`. It accepts a network and an

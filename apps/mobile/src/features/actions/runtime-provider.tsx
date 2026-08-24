@@ -91,7 +91,8 @@ export function ActionRuntimeProvider({
       const current = orchestrator.read();
       if (
         current.phase !== "review" &&
-        current.phase !== "failed_before_submission"
+        current.phase !== "failed_before_submission" &&
+        current.phase !== "rejected"
       ) {
         throw new Error("Another action is already in progress.");
       }
@@ -101,9 +102,9 @@ export function ActionRuntimeProvider({
         setReview(null);
         let authenticated = false;
         const result = await orchestrator.confirm(next, {
-          onAuthenticated() {
+          onAuthenticated(refreshedReview) {
             authenticated = true;
-            setReview(next);
+            setReview(refreshedReview);
           },
         });
         if (!authenticated) setReview(null);

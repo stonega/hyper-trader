@@ -12,12 +12,14 @@ interface UnderlineTabOption<Value extends string> {
 export function UnderlineTabs<Value extends string>({
   accessibilityLabel,
   compact = false,
+  isDisabled = false,
   onValueChange,
   options,
   value,
 }: {
   readonly accessibilityLabel: string;
   readonly compact?: boolean;
+  readonly isDisabled?: boolean;
   readonly onValueChange: (value: Value) => void;
   readonly options: readonly UnderlineTabOption<Value>[];
   readonly value: Value;
@@ -48,6 +50,7 @@ export function UnderlineTabs<Value extends string>({
                 : "min-h-12 min-w-0 flex-1 px-3 py-0"
             }
             hitSlop={compact ? COMPACT_SEGMENT_HIT_SLOP : undefined}
+            isDisabled={isDisabled}
             key={option.value}
             value={option.value}
           >

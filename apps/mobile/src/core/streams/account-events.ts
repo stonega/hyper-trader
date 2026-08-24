@@ -60,6 +60,46 @@ export function accountEventStreamKey(
   return JSON.stringify(["account-events", network, user, channel]);
 }
 
+export function activeAssetDataStreamKey(
+  network: HyperliquidNetwork,
+  user: string,
+  coin: string,
+): string {
+  return JSON.stringify(["active-asset-data", network, user, coin]);
+}
+
+export function spotStateStreamKey(
+  network: HyperliquidNetwork,
+  user: string,
+  isPortfolioMargin: boolean,
+): string {
+  return JSON.stringify(["spot-state", network, user, isPortfolioMargin]);
+}
+
+function exactAccountAddress(user: string): string {
+  const normalizedUser = user.trim().toLowerCase();
+  if (!ADDRESS.test(normalizedUser)) {
+    throw new TypeError("An account stream requires a lowercase address.");
+  }
+  return normalizedUser;
+}
+
+function invalidationDelta(input: {
+  readonly key: string;
+  readonly channel: string;
+  readonly data: unknown;
+  readonly isSnapshot: boolean;
+}) {
+  return [
+    {
+      key: input.key,
+      stableId: boundedIdentity(input.channel, input.data),
+      data: null,
+      isSnapshot: input.isSnapshot,
+    },
+  ] as const;
+}
+
 /**
  * Account events are deliberately only invalidation signals. Their untrusted
  * payload never enters a query cache; the active query reloads a fully parsed
@@ -70,10 +110,7 @@ export function createAccountEventWire(
   user: string,
   channel: AccountEventChannel,
 ): DeclarativeStreamWire {
-  const normalizedUser = user.trim().toLowerCase();
-  if (!ADDRESS.test(normalizedUser)) {
-    throw new TypeError("An account stream requires a lowercase address.");
-  }
+  const normalizedUser = exactAccountAddress(user);
   return {
     key,
     subscription: subscriptionFor(channel, normalizedUser),
@@ -85,14 +122,69 @@ export function createAccountEventWire(
       } else if (channel === "orderUpdates" && !Array.isArray(envelope.data)) {
         throw new TypeError("Order updates must be an array.");
       }
-      return [
-        {
-          key,
-          stableId: boundedIdentity(envelope.channel, envelope.data),
-          data: null,
-          isSnapshot: data?.isSnapshot === true,
-        },
-      ];
+      return invalidationDelta({
+        key,
+        channel: envelope.channel,
+        data: envelope.data,
+        isSnapshot: data?.isSnapshot === true,
+      });
+    },
+  };
+}
+
+export function createActiveAssetDataWire(
+  key: string,
+  user: string,
+  coin: string,
+): DeclarativeStreamWire {
+  const normalizedUser = exactAccountAddress(user);
+  if (coin.trim() === "" || coin.trim() !== coin) {
+    throw new TypeError("An active asset stream requires an exact coin.");
+  }
+  return {
+    key,
+    subscription: {
+      type: "activeAssetData",
+      user: normalizedUser,
+      coin,
+    },
+    decode(envelope: PublicWebSocketEnvelope) {
+      if (envelope.channel !== "activeAssetData") return [];
+      const data = record(envelope.data);
+      if (data?.user !== normalizedUser || data.coin !== coin) return [];
+      return invalidationDelta({
+        key,
+        channel: envelope.channel,
+        data: envelope.data,
+        isSnapshot: data.isSnapshot === true,
+      });
+    },
+  };
+}
+
+export function createSpotStateWire(
+  key: string,
+  user: string,
+  isPortfolioMargin: boolean,
+): DeclarativeStreamWire {
+  const normalizedUser = exactAccountAddress(user);
+  return {
+    key,
+    subscription: {
+      type: "spotState",
+      user: normalizedUser,
+      isPortfolioMargin,
+    },
+    decode(envelope: PublicWebSocketEnvelope) {
+      if (envelope.channel !== "spotState") return [];
+      const data = record(envelope.data);
+      if (data?.user !== normalizedUser) return [];
+      return invalidationDelta({
+        key,
+        channel: envelope.channel,
+        data: envelope.data,
+        isSnapshot: data.isSnapshot === true,
+      });
     },
   };
 }

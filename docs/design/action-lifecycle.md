@@ -154,6 +154,10 @@ or a report that no order was found. Network libraries have automatic retries
 disabled for `/exchange`.
 
 Classify a complete authoritative response as accepted, rejected, or expired.
+The exact documented minimum-notional rejection is the only provider error
+allowlisted for presentation and maps to
+`Order must have minimum value of $10.`. Other provider error strings are
+discarded after classification and remain a generic rejection to the user.
 Timeout, connection loss, malformed response, app termination, or any uncertainty
 after `submission_started` yields `unresolved`; it is never converted to
 rejected merely because the client did not receive a response.
@@ -184,13 +188,14 @@ a query storm.
 
 ### New market/limit order
 
-Query order status by `cloid`, then open orders and fills for the exact target and
-asset. An observed live/final order or matching fill is accepted. A definitive
-protocol rejection is rejected. After `expiresAfter`, obtain a fresh
-authoritative snapshot whose server time is later than expiry; only when order
-status, open orders, and fills all prove absence may the record become expired.
-Contradictory evidence becomes `reconciled_ambiguous` and requires user-visible
-manual review, never an automatic duplicate.
+Query the documented `orderStatus` endpoint by exact `cloid`. An observed
+live/final order is accepted and a definitive protocol rejection is rejected.
+The documented open-order and fill response shapes do not expose `cloid`, so
+they are supplementary evidence only and must never be heuristically matched to
+a create action. A strict `unknownOid` response may become expired only from a
+fresh server-time sample later than `expiresAfter`. Contradictory exact evidence
+becomes `reconciled_ambiguous` and requires user-visible manual review, never an
+automatic duplicate.
 
 ### Reduce-only close
 

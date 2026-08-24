@@ -17,7 +17,11 @@ import {
 import { queryKeys } from "../../core/query/keys";
 import {
   accountEventStreamKey,
+  activeAssetDataStreamKey,
   createAccountEventWire,
+  createActiveAssetDataWire,
+  createSpotStateWire,
+  spotStateStreamKey,
 } from "../../core/streams/account-events";
 import { useStreamRuntime } from "../../core/streams/provider";
 import {
@@ -103,6 +107,8 @@ export function useTradeAccountSnapshot(
       : market?.family === "spot"
         ? ("userEvents" as const)
         : null;
+  const eventCoin = market?.family === "perp" ? market.coin : null;
+  const eventIsSpot = market?.family === "spot";
   const orderDex = market?.family === "perp" ? market.dexName : "";
   const openOrdersQueryPrefix = useMemo(
     () => queryKeys.private.openOrders(context, orderDex),
@@ -134,6 +140,13 @@ export function useTradeAccountSnapshot(
       });
     },
     refetchOnMount: "always",
+    refetchOnReconnect: "always",
+    refetchOnWindowFocus: "always",
+    refetchInterval:
+      enabled && isFocused
+        ? mobileDataPolicies.tradeAccount.reconcileIntervalMs
+        : false,
+    refetchIntervalInBackground: false,
     staleTime: mobileDataPolicies.tradeAccount.staleTimeMs,
     subscribed: isFocused,
   });
@@ -162,21 +175,39 @@ export function useTradeAccountSnapshot(
         ),
       ]);
     }, ACCOUNT_EVENT_COALESCE_MS);
-    const cleanup = streams.declare({
-      wire: createAccountEventWire(key, eventUser, eventChannel),
-      loadBaseline: async () => ({ data: null }),
-      applyBaseline: () => undefined,
-      applyDelta: invalidation.schedule,
-    });
+    const wires = [createAccountEventWire(key, eventUser, eventChannel)];
+    if (eventCoin !== null) {
+      const activeAssetKey = activeAssetDataStreamKey(
+        context.network,
+        eventUser,
+        eventCoin,
+      );
+      wires.push(
+        createActiveAssetDataWire(activeAssetKey, eventUser, eventCoin),
+      );
+    } else if (eventIsSpot) {
+      const spotKey = spotStateStreamKey(context.network, eventUser, false);
+      wires.push(createSpotStateWire(spotKey, eventUser, false));
+    }
+    const cleanups = wires.map((wire) =>
+      streams.declare({
+        wire,
+        loadBaseline: async () => ({ data: null }),
+        applyBaseline: () => undefined,
+        applyDelta: invalidation.schedule,
+      }),
+    );
     return () => {
       active = false;
       invalidation.cancel();
-      cleanup();
+      for (const cleanup of cleanups) cleanup();
     };
   }, [
     context.network,
     enabled,
     eventChannel,
+    eventCoin,
+    eventIsSpot,
     eventUser,
     isFocused,
     openOrdersQueryPrefix,

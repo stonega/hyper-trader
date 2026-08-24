@@ -16,7 +16,7 @@ import type {
   PerpMarket,
 } from "@hyper-trader/hyperliquid/public";
 import { isDecimalString } from "@hyper-trader/hyperliquid/public";
-
+import { aggressiveOrderPrice } from "../actions/aggressive-order-price";
 import {
   type PerformanceSummary,
   percentageOf,
@@ -115,8 +115,15 @@ export interface PortfolioActivityRow {
   readonly kind: "fill" | "funding";
   readonly time: number;
   readonly coin: string;
+  readonly side: string | null;
   readonly amount: DecimalString;
   readonly detail: string;
+}
+
+export function portfolioFundingId(
+  funding: Pick<UserFundingRecord, "coin" | "hash" | "time">,
+): string {
+  return `funding:${funding.hash}:${funding.coin}:${funding.time}`;
 }
 
 export interface NormalizedPortfolio {
@@ -467,9 +474,9 @@ export function normalizePortfolioLiveSnapshot(
     version,
     positions: Object.freeze(positions),
     openOrders: Object.freeze(openOrders),
-    spotBalances: [...source.spotState.balances].sort((left, right) =>
-      left.coin.localeCompare(right.coin),
-    ),
+    spotBalances: source.spotState.balances
+      .filter((balance) => !zero(balance.total))
+      .sort((left, right) => left.coin.localeCompare(right.coin)),
     gaps: [...new Set(gaps)],
   });
 }
@@ -484,16 +491,18 @@ export function normalizePortfolioHistorySnapshot(
       kind: "fill" as const,
       time: fill.time,
       coin: fill.coin,
+      side: fill.side,
       amount: fill.closedPnl,
-      detail: `${fill.side} ${fill.size} at ${fill.price}`,
+      detail: `Size ${fill.size} · Price ${fill.price}`,
     })),
     ...source.funding.map((funding) => ({
-      id: `funding:${funding.hash}:${funding.coin}`,
+      id: portfolioFundingId(funding),
       kind: "funding" as const,
       time: funding.time,
       coin: funding.coin,
+      side: null,
       amount: funding.usdc,
-      detail: `Funding rate ${funding.fundingRate} on size ${funding.size}`,
+      detail: `Rate ${funding.fundingRate} · Position size ${funding.size}`,
     })),
   ].sort((left, right) => right.time - left.time);
   return Object.freeze({
@@ -617,31 +626,6 @@ export function buildCloseIntent(
   };
 }
 
-function powerOfTen(scale: number): bigint {
-  return 10n ** BigInt(scale);
-}
-
-function parsedUnsignedDecimal(value: string, label: string) {
-  parsedPositive(value, label);
-  const [whole = "0", fraction = ""] = value.split(".");
-  return {
-    coefficient: BigInt(`${whole}${fraction}`),
-    scale: fraction.length,
-  };
-}
-
-function formatCoefficient(coefficient: bigint, scale: number): DecimalString {
-  if (scale === 0) return coefficient.toString() as DecimalString;
-  const digits = coefficient.toString().padStart(scale + 1, "0");
-  const split = digits.length - scale;
-  const fraction = digits.slice(split).replace(/0+$/, "");
-  return (
-    fraction === ""
-      ? digits.slice(0, split)
-      : `${digits.slice(0, split)}.${fraction}`
-  ) as DecimalString;
-}
-
 export function portfolioMarketClosePrice(input: {
   readonly market: PerpMarket;
   readonly side: "buy" | "sell";
@@ -659,31 +643,12 @@ export function portfolioMarketClosePrice(input: {
   if (referencePrice == null || precision == null) {
     throw new Error("A current market price and precision are required.");
   }
-  const reference = parsedUnsignedDecimal(referencePrice, "Reference price");
-  const wholeDigits = Math.max(
-    1,
-    reference.coefficient.toString().length - reference.scale,
-  );
-  const targetScale = Math.max(
-    0,
-    Math.min(
-      precision.maxDecimalPlaces,
-      precision.maxSignificantFigures - wholeDigits,
-    ),
-  );
-  const factor = BigInt(
-    input.side === "buy" ? 10_000 + slippageBps : 10_000 - slippageBps,
-  );
-  const numerator = reference.coefficient * factor * powerOfTen(targetScale);
-  const denominator = powerOfTen(reference.scale) * 10_000n;
-  let coefficient = numerator / denominator;
-  if (input.side === "sell" && numerator % denominator !== 0n) {
-    coefficient += 1n;
-  }
-  if (coefficient <= 0n) {
-    throw new Error("The slippage price bound is not positive.");
-  }
-  return formatCoefficient(coefficient, targetScale);
+  return aggressiveOrderPrice({
+    referencePrice,
+    side: input.side,
+    slippageBps,
+    precision,
+  });
 }
 
 export function buildCancelIntent(

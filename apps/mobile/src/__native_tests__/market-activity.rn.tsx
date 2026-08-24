@@ -16,6 +16,34 @@ const book: L2Book = {
 };
 
 describe("market activity order-book selection", () => {
+  test("keeps tabs and column headers visible while rows load", () => {
+    render(
+      <MarketActivity
+        book={undefined}
+        bookLoading
+        bookUnavailable={false}
+        compact
+        trades={undefined}
+        tradesLoading
+        tradesUnavailable={false}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: "Book" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Trades" })).toBeTruthy();
+    expect(screen.getByText("Side")).toBeTruthy();
+    expect(screen.getByText("Price")).toBeTruthy();
+    expect(screen.getByText("Size")).toBeTruthy();
+    expect(screen.queryByText(/Loading order-book levels/)).toBeNull();
+
+    fireEvent.press(screen.getByRole("tab", { name: "Trades" }));
+
+    expect(screen.getByText("Side")).toBeTruthy();
+    expect(screen.getByText("Price")).toBeTruthy();
+    expect(screen.getByText("Size")).toBeTruthy();
+    expect(screen.queryByText(/Loading recent trades/)).toBeNull();
+  });
+
   test("passes an exact selected price to order entry", () => {
     const onSelectPrice = jest.fn<(price: string) => void>();
     render(

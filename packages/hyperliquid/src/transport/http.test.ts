@@ -6,6 +6,7 @@ import {
   UnknownInfoRequestWeightError,
 } from "../errors";
 import { HYPERLIQUID_NETWORK_ORIGINS } from "../network";
+import type { InfoRequestTiming } from "./http";
 import { createInfoHttpTransport, getInfoRequestBudget } from "./http";
 
 type PromiseOutcome<T> =
@@ -122,6 +123,41 @@ describe("info HTTP transport", () => {
 
     controller.abort();
     expect(requestSignal?.aborted).toBe(false);
+  });
+
+  test("reports response and body-decode timing without changing the request", async () => {
+    const timings: InfoRequestTiming[] = [];
+    const transport = createInfoHttpTransport({
+      fetch: async () => Response.json({ BTC: "100000" }),
+    });
+
+    await expect(
+      transport.request(
+        { type: "allMids" },
+        { onRequestTiming: (timing) => timings.push(timing) },
+      ),
+    ).resolves.toEqual({ BTC: "100000" });
+
+    expect(timings).toHaveLength(1);
+    expect(timings[0]).toMatchObject({
+      requestType: "allMids",
+      outcome: "success",
+      status: 200,
+    });
+    expect(timings[0]?.responseMs).toBeGreaterThanOrEqual(0);
+    expect(timings[0]?.bodyDecodeMs).toBeGreaterThanOrEqual(0);
+    expect(timings[0]?.totalMs).toBeGreaterThanOrEqual(0);
+
+    await expect(
+      transport.request(
+        { type: "allMids" },
+        {
+          onRequestTiming: () => {
+            throw new Error("observer failure");
+          },
+        },
+      ),
+    ).resolves.toEqual({ BTC: "100000" });
   });
 
   test("validates the configured info request timeout", () => {

@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-query-persist-client";
 import type { JSX, PropsWithChildren } from "react";
 import { useEffect, useState } from "react";
-
+import { createMarketLoadTrace } from "../performance/market-load-timing";
 import { warmResumeMarkers } from "../performance/warm-resume";
 import { createSafePublicCachePersister } from "../storage/public-cache";
 import { createMobileQueryClient } from "./client";
@@ -37,13 +37,20 @@ export function MobileQueryProvider({
 
   useEffect(() => {
     let active = true;
+    const timing = createMarketLoadTrace({ source: "public-cache" });
+    const restoreSpan = timing.startStep("cache:restore");
     void persistQueryClientRestore(persistOptions)
       .then(() => {
         warmResumeMarkers.markPublicCacheReady();
+        restoreSpan.finish({
+          outcome: "success",
+          restoredQueryCount: mobileQueryClient.getQueryCache().getAll().length,
+        });
       })
       .catch(async () => {
         await publicCachePersister.removeClient();
         warmResumeMarkers.markPublicCacheReady();
+        restoreSpan.finish({ outcome: "error" });
       })
       .finally(() => {
         if (active) setIsRestoring(false);

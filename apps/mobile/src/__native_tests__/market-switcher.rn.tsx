@@ -54,7 +54,7 @@ test("renders compact, left-aligned market rows without repeated trading copy", 
   ).toContain("bg-background");
   expect(screen.UNSAFE_getByType(Modal).props.backdropColor).toBeTruthy();
   expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe(
-    Platform.OS === "ios" ? "padding" : undefined,
+    Platform.OS === "ios" ? "padding" : "height",
   );
   const selected = screen.getByRole("button", {
     name: "Selected, DUP-USDC, 20x max leverage, Trading",

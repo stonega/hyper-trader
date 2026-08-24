@@ -20,15 +20,15 @@ The progressive Trade drafting and review handoff is documented in
 
 ## Confirmation sequence
 
-Opening a Portfolio review validates and owns a deep-frozen snapshot. It does
-not read the vault, unlock, reserve, sign, or call transport. Trade uses its
-side-specific **Buy / Long** or **Sell / Short** control as the explicit order
-confirmation: the control first shows `Reviewing…` without opening a sheet.
-That explicit confirmation starts this sequence:
+Trade uses its side-specific **Buy / Long** or **Sell / Short** control as the
+explicit order confirmation. Portfolio uses **Market**, **Review limit close**,
+and **Cancel** as its explicit confirmations. The pressed control first shows
+`Reviewing…` without opening a sheet. That explicit confirmation starts this
+sequence:
 
 1. Deny mainnet locally.
 2. Verify context, then refresh authoritative market, account, order, and clock
-   evidence while Trade keeps progress on the pressed order button.
+   evidence while the originating screen keeps progress on the pressed button.
 3. Revalidate decimals, discriminators, precision, notional, leverage, margin,
    reduce-only, time-in-force, trigger, slippage, tradability, market metadata,
    account version, and current context.
@@ -39,7 +39,10 @@ That explicit confirmation starts this sequence:
 7. Persist `submission_started` and obtain the one-shot permit.
 8. POST once to the compiled testnet `/exchange` origin with redirects rejected
    and no retry loop.
-9. Persist accepted, rejected, expired, or unresolved. Uncertainty after the
+9. Persist accepted, rejected, expired, or unresolved. The exact documented
+   minimum-notional rejection is mapped to the bounded user message
+   `Order must have minimum value of $10.`; arbitrary provider error text is
+   never retained or displayed. Uncertainty after the
    marker enters signer-free reconciliation and can never submit again.
 
 Observer callbacks are isolated from correctness. If a journal update races
@@ -71,13 +74,21 @@ markets remain browse-only. Missing constraints are never guessed.
 
 ## Visible phases and Back behavior
 
-One root-owned HeroUI Native bottom sheet remains mounted from immutable review
-through authentication, one-shot submission, and reconciliation. Its compact
-ticket layout sizes the sheet to its content and retains scroll behavior when
-the content reaches the available height. The title, description, and
-Review/Submit/Status progress rail reflect the current phase. Inner content
-fades for at most 160 ms; system Reduced Motion disables staged animation.
-Actions are at least 48 points.
+One root-owned HeroUI Native bottom sheet owns each visible action flow. An
+explicit Portfolio review mounts it before authentication; progressive Trade
+and Close confirmations keep it hidden through review and authentication, then
+reveal it for one-shot submission and reconciliation. Its compact ticket layout
+sizes the sheet to its content and retains scroll behavior when the content
+reaches the available height. Explicit review retains its testnet label, title,
+and confirmation copy. After confirmation, the sheet removes the
+redundant Review/Submit/Status rail and uses one compact HeroUI Native spinner
+and status label while work is pending. The immutable ticket uses the readable
+market pair (for example, `BTC-USDC`) and keeps only execution and risk details
+that remain useful after submission; unavailable fee, negative reduce-only,
+and account rows stay out of the status ticket. Terminal outcomes replace the
+spinner with explicit result text. Inner content fades for at most 160 ms;
+system Reduced Motion disables staged and spinner animation. Actions are at
+least 48 points.
 
 | Phase | Hardware/UI Back |
 |---|---|
@@ -90,7 +101,8 @@ Actions are at least 48 points.
 | One-shot submission | Consume Back. |
 | Reconciling | Dismiss; scoped signer-free work continues. |
 | Accepted | Announce acceptance, then close the sheet automatically. |
-| Rejected, expired, or ambiguous | Keep the result in the sheet until dismissed to the underlying Trade or Portfolio context. |
+| Rejected | Show the bounded reason when available and provide **Edit order**. Dismissing or starting a fresh review clears only the terminal presentation state; the rejected journal record remains immutable. |
+| Expired or ambiguous | Keep the result in the sheet until dismissed to the underlying Trade or Portfolio context. |
 | Failed before submission | Return to the order for a fresh review; a prepared nonce is abandoned and never reused. |
 
 States use explicit text and accessibility announcements rather than color.
@@ -106,16 +118,18 @@ transport permit.
 
 | Action | Identity and evidence | Terminal behavior |
 |---|---|---|
-| Market or limit create | Exact 128-bit `cloid`; order status, open orders, fills | Exact order/fill proves accepted. Documented rejection proves rejected. Complete fresh absence after expiry proves expired. |
+| Market or limit create | Exact 128-bit `cloid`; documented `orderStatus` lookup | Exact order proves accepted. Documented rejection proves rejected. Strict `unknownOid` after server-time expiry proves expired. |
 | Full reduce-only close | Exact `cloid`, plus current position | Exact order/fill proves accepted. A position effect without causal order/fill evidence is ambiguous. |
 | Cancel | Asset plus exact `oid` or `cloid`, and prior target observation | Canceled/filled/terminal evidence proves accepted. Still-open fresh evidence after expiry proves expired. Unattributed absence is ambiguous. |
 | Leverage | Asset, margin mode, target leverage, newer account state | Exact causal state proves accepted. Indistinguishable external change is ambiguous. |
 
 The order-status parser recognizes only documented vocabulary. Unknown or
-malformed strings remain unresolved. `unknownOid` alone never proves expiry;
-post-expiry server time plus complete open-order/fill evidence is required.
-Journal work may continue after context switch, but active cache writes occur
-only for the exact active context.
+malformed strings remain unresolved. A strict `unknownOid` response alone never
+proves expiry before the action's server-time deadline; after that deadline it
+is the authoritative absence result for the exact immutable `cloid`. The
+documented open-order and fill shapes omit `cloid`, so they remain supplementary
+and are never matched heuristically. Journal work may continue after context
+switch, but active cache writes occur only for the exact active context.
 
 ## Source-development testnet runtime
 
@@ -126,11 +140,18 @@ native active/focus state, registers the exact authoritative setup binding in
 the SQLite nonce scope, and supplies the signer-session manager to the existing
 five-minute lifecycle controller.
 
-Confirmation performs a fresh fixed-origin testnet catalog lookup and account
-query before signer-session unlock. Response `Date` headers provide the bounded
+Confirmation performs a fresh fixed-origin testnet family-scoped catalog lookup
+and account query before signer-session unlock. Perpetual reviews load only the
+native perpetual catalog and spot reviews load only spot metadata, avoiding the
+unrelated outcome-market payload. Response `Date` headers provide the bounded
 server-time sample required by nonce allocation. The refreshed market
-fingerprint, price, relevant account fields, context epoch, and exact intent
-must still match the immutable review before device authentication is requested.
+fingerprint, relevant account fields, context epoch, user-selected controls,
+and all non-derived intent fields must still match the immutable review before
+device authentication is requested. For market execution, the IOC limit is
+derived again from that authoritative reference price, the immutable slippage
+control, and current precision. No other refreshed price is accepted. The
+post-authentication ticket receives this refreshed, deep-frozen review so its
+displayed price limit is the one that is signed and submitted.
 Trade keeps this phase inline on the pressed order button; only successful
 authentication reveals the sending/status sheet. The exchange client then
 consumes the write-once transport permit created by `submission_started`.
@@ -154,10 +175,17 @@ native activity before a later confirmation can attempt SecureStore access.
 
 Distributed and release builds receive neither manager nor orchestrator, so
 submission remains unavailable while the release gate is conditional. The
-development runtime currently exposes market and limit orders only. An
-uncertain response remains durably unresolved and cannot be submitted again;
-the authoritative restart reconciler is tracked as P6 in the closure plan and
-must be completed before response-loss drills are routine.
+development runtime currently exposes market orders, limit orders, full
+reduce-only closes, and exact `oid` cancellation. Cancellation refreshes the
+reviewed market and its DEX-scoped open orders, then proceeds only when exactly
+one current order matches the reviewed canonical asset and `oid`. An order that
+filled or disappeared during confirmation stops before authentication with
+refresh guidance instead of sending a stale cancel. An uncertain response
+immediately enters signer-free
+reconciliation through `orderStatus` using its exact `cloid`. Unresolved work,
+attempt count, and bounded backoff are durable; startup recovers interrupted
+submission markers and resumes eligible reconciliation without reconstructing a
+signed action or transport permit.
 
 The action sheet is mounted beside the root Expo Router stack inside the shared
 action runtime. Opening a confirmed action therefore does not navigate or depend

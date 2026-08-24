@@ -12,6 +12,7 @@ import {
 const defaultOptions = {
   query: "",
   families: [],
+  includeHip3: true,
   availability: "all",
   lifecycle: "all",
   favoritesOnly: false,
@@ -65,6 +66,15 @@ describe("market discovery", () => {
         query: "DUP",
       }).map(({ canonicalId }) => canonicalId),
     ).toEqual(["perp:3:9", "spot:7", "perp:0:4"]);
+  });
+
+  test("strict discovery removes only HIP-3 perpetuals", () => {
+    expect(
+      discoverMarkets(MARKET_FIXTURE, {
+        ...defaultOptions,
+        includeHip3: false,
+      }),
+    ).toEqual([SPOT_DUPLICATE, NATIVE_DUPLICATE, OUTCOME_MARKET]);
   });
 
   test("filters native and HIP-3 perps together and keeps other families distinct", () => {

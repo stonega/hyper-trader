@@ -1,8 +1,14 @@
 import type { Market } from "@hyper-trader/hyperliquid/public";
 
-import { compareMarkets } from "./discovery";
+import { compareMarkets, marketPairLabel } from "./discovery";
 
-export type MarketSelectionSource = "route" | "last_used" | "volume_fallback";
+export const DEFAULT_TRADE_MARKET_LABEL = "BTC-USDC";
+
+export type MarketSelectionSource =
+  | "route"
+  | "last_used"
+  | "default_market"
+  | "volume_fallback";
 
 export interface ResolvedMarketSelection {
   readonly market: Market;
@@ -32,6 +38,26 @@ function findValidMarket(
   );
 }
 
+function findDefaultMarket(markets: readonly Market[]): Market | null {
+  const activeMarkets = markets.filter(
+    (market) => market.lifecycle === "active",
+  );
+  const nativePerpetual = activeMarkets.find(
+    (market) =>
+      market.family === "perp" &&
+      (market.dexIndex === 0 || market.dexName === "") &&
+      marketPairLabel(market).toUpperCase() === DEFAULT_TRADE_MARKET_LABEL,
+  );
+  return (
+    nativePerpetual ??
+    activeMarkets.find(
+      (market) =>
+        marketPairLabel(market).toUpperCase() === DEFAULT_TRADE_MARKET_LABEL,
+    ) ??
+    null
+  );
+}
+
 export function resolveMarketSelection(
   markets: readonly Market[],
   requestedCanonicalId: string | null,
@@ -50,6 +76,11 @@ export function resolveMarketSelection(
 
   if (options.allowVolumeFallback === false) {
     return null;
+  }
+
+  const defaultMarket = findDefaultMarket(markets);
+  if (defaultMarket) {
+    return { market: defaultMarket, source: "default_market" };
   }
 
   const fallback = markets.reduce<Market | null>((current, market) => {

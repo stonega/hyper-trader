@@ -28,6 +28,12 @@ eight source requests concurrently, and waits at least 65 seconds between
 builder pages. A lease lasts 120 seconds so one bounded page can finish across
 the upstream request deadline and scheduling margin.
 
+The Cloudflare adapter stores sync metadata separately from catalog content.
+Each market, quarantined record, and bounded source error occupies its own
+generation-scoped D1 row, so lease claims and state transitions never carry a
+growing catalog document. Publication swaps the generation pointer in the same
+D1 batch that finishes the building records, then retires superseded rows.
+
 One failed source is retained as a typed source error. The worker retries a
 stage three times with bounded exponential or upstream `Retry-After` delay. If a
 published generation exists, persistent failure retains that source's previous
@@ -56,16 +62,31 @@ reader that already selected the former generation to finish safely.
 
 ## Public API and mobile behavior
 
+`GET /v1/market-summaries/:network` is the Markets browse path. It accepts
+bounded search, family, availability, lifecycle, sort, canonical-ID, limit, and
+generation-bound cursor parameters. The default and mobile page size is 24 and
+the hard maximum is 50. Its response contains only row presentation fields,
+price-display precision, perpetual maximum leverage, counts, publication
+metadata, and the next cursor; order-asset IDs, remaining trading constraints,
+quarantine records, and source-error details are excluded. A cursor from an older publication returns
+`409 generation_changed`, causing mobile pagination to restart from page one.
+
+Markets uses this endpoint with infinite pagination and requests the next page
+only near the end of the loaded list. Search and filters run at the backend, so
+the device never downloads the complete catalog merely to find a row. Only the
+default first page is persisted for immediate reopening.
+
 `GET /v1/market-catalog/:network` accepts only `testnet` or `mainnet`, needs no
 bearer, and returns schema version, network, generation, publication time,
 validated markets, quarantined records, and bounded source errors. Before the
 first publication it returns `503 not_ready` with `Retry-After: 30`.
 
 A success response includes a strong generation ETag and public cache policy.
-Mobile validates the complete snapshot, matching network, response media type,
-and exact ETag before replacing its TanStack Query value. Later reads send
-`If-None-Match` and reuse only the already validated in-memory generation after
-`304 Not Modified`.
+Trading workflows validate this complete snapshot, matching network, response
+media type, and exact ETag before replacing their in-memory TanStack Query
+value. Later reads send `If-None-Match` and reuse only the already validated
+in-memory generation after `304 Not Modified`. Browse summaries never authorize
+or parameterize an order.
 
 The release build supplies one exact HTTPS backend origin. HTTP, paths,
 credentials, query strings, fragments, redirects, cross-network responses,

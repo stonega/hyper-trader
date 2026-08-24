@@ -10,6 +10,7 @@
   },
   "include": [
     "live-candles.ts",
+    "market-summary-page.ts",
     "notification-account-baseline.ts",
     "notification-proof-digests.ts",
     "testnet-action-encoding.ts",

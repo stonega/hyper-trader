@@ -3,7 +3,12 @@ import type {
   LimitTimeInForce,
   SignerBinding,
 } from "@hyper-trader/hyperliquid";
-import { parseCloid } from "@hyper-trader/hyperliquid";
+import {
+  HyperliquidValidationError,
+  MINIMUM_ORDER_NOTIONAL,
+  MINIMUM_ORDER_NOTIONAL_MESSAGE,
+  parseCloid,
+} from "@hyper-trader/hyperliquid";
 import {
   type DecimalString,
   isDecimalString,
@@ -19,10 +24,12 @@ import {
 } from "../../core/actions/draft-context";
 import { marketMetadataFingerprint } from "../../core/actions/metadata-fingerprint";
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
+import { aggressiveOrderPrice } from "../actions/aggressive-order-price";
 import {
   type ActionReviewSnapshot,
   createActionReview,
 } from "../actions/orchestrator";
+import { marketPairLabel } from "../markets/discovery";
 
 export type TradeOrderType = "market" | "limit";
 export type TradeSide = "buy" | "sell";
@@ -415,7 +422,10 @@ export function evaluateTradeGate(input: {
     account.observedAtMs > input.nowMs + 5_000 ||
     input.nowMs - account.observedAtMs > ACCOUNT_FRESHNESS_WINDOW_MS
   ) {
-    return disabled("stale_account", "Refresh your account before review.");
+    return disabled(
+      "stale_account",
+      "Account details will refresh before review.",
+    );
   }
   return {
     enabled: true,
@@ -426,6 +436,11 @@ export function evaluateTradeGate(input: {
         ? "Ready for review. You’ll confirm on this device only when signing is required."
         : "Ready for review.",
   };
+}
+
+/** A stale account is recoverable because review performs a REST preflight. */
+export function canStartTradeReview(gate: TradeGate): boolean {
+  return gate.enabled || gate.code === "stale_account";
 }
 
 function parseUnsignedDecimal(
@@ -498,39 +513,6 @@ function formatCoefficient(coefficient: bigint, scale: number): DecimalString {
   ) as DecimalString;
 }
 
-function aggressivePrice(input: {
-  readonly reference: string;
-  readonly side: "buy" | "sell";
-  readonly slippageBps: number;
-  readonly maxDecimalPlaces: number;
-  readonly maxSignificantFigures: number;
-}): DecimalString {
-  const reference = parseUnsignedDecimal(input.reference, "Reference price");
-  const wholeDigits = Math.max(
-    1,
-    reference.coefficient.toString().length - reference.scale,
-  );
-  const targetScale = Math.max(
-    0,
-    Math.min(input.maxDecimalPlaces, input.maxSignificantFigures - wholeDigits),
-  );
-  const factor = BigInt(
-    input.side === "buy"
-      ? 10_000 + input.slippageBps
-      : 10_000 - input.slippageBps,
-  );
-  const numerator = reference.coefficient * factor * powerOfTen(targetScale);
-  const denominator = powerOfTen(reference.scale) * 10_000n;
-  let coefficient = numerator / denominator;
-  if (input.side === "sell" && numerator % denominator !== 0n) {
-    coefficient += 1n;
-  }
-  if (coefficient <= 0n) {
-    throw new Error("The slippage price bound is not positive.");
-  }
-  return formatCoefficient(coefficient, targetScale);
-}
-
 export function signerBindingForTradeContext(
   context: NormalizedTradingContext,
 ): SignerBinding {
@@ -594,6 +576,10 @@ export function buildTradeReview(input: {
   if (reference === "") {
     throw new Error("A current reference price is required for review.");
   }
+  const pricePrecision = input.market.pricePrecision;
+  if (pricePrecision === null) {
+    throw new Error("Current price precision is required for review.");
+  }
   if (
     input.market.family === "perp" &&
     input.draft.leverage !== account.leverage
@@ -621,14 +607,11 @@ export function buildTradeReview(input: {
           assetId: input.market.orderAssetId,
           side: input.draft.side,
           size: input.draft.size.trim() as DecimalString,
-          aggressiveLimitPrice: aggressivePrice({
-            reference,
+          aggressiveLimitPrice: aggressiveOrderPrice({
+            referencePrice: reference,
             side: input.draft.side,
             slippageBps: slippage as number,
-            maxDecimalPlaces:
-              input.market.pricePrecision?.maxDecimalPlaces ?? 0,
-            maxSignificantFigures:
-              input.market.pricePrecision?.maxSignificantFigures ?? 0,
+            precision: pricePrecision,
           }),
           cloid: input.cloid,
         } as const);
@@ -639,9 +622,108 @@ export function buildTradeReview(input: {
       : (account.marginMode ?? undefined);
   const binding = signerBindingForTradeContext(input.context);
 
+  try {
+    return createActionReview({
+      binding,
+      capturedContextEpoch: input.capturedContextEpoch,
+      marketLabel: marketPairLabel(input.market),
+      validation: {
+        context: {
+          network: binding.network,
+          masterAccount: binding.masterAccount,
+          targetAccount: binding.targetAccount,
+          capturedContextEpoch: input.capturedContextEpoch,
+          currentContextEpoch: input.capturedContextEpoch,
+          currentNetwork: binding.network,
+          currentMasterAccount: binding.masterAccount,
+          currentTargetAccount: binding.targetAccount,
+          reviewedAtMs: input.nowMs,
+          reviewExpiresAtMs: input.nowMs + REVIEW_WINDOW_MS,
+          nowMs: input.nowMs,
+        },
+        market: {
+          canonicalId: input.market.canonicalId,
+          metadataFingerprint: tradeMarketFingerprint(input.market),
+          orderAssetId: input.market.orderAssetId,
+          family: input.market.family,
+          lifecycle: input.market.lifecycle,
+          orderAvailability: input.market.orderAvailability,
+          sizeDecimals: input.market.sizeDecimals,
+          pricePrecision: input.market.pricePrecision,
+          ...(input.market.family === "perp"
+            ? {
+                maxLeverage: input.market.maxLeverage,
+                onlyIsolated: input.market.onlyIsolated,
+              }
+            : {}),
+          referencePrice: reference as DecimalString,
+          minimumNotional: MINIMUM_ORDER_NOTIONAL,
+        },
+        account: {
+          availableMargin: account.availableFunds[input.draft.side],
+          ...(leverage === null ? {} : { leverage }),
+          ...(marginMode === undefined ? {} : { marginMode }),
+          positionSize: account.positionSize,
+          version: account.version,
+        },
+        controls: {
+          slippageBps: slippage,
+          trigger: null,
+        },
+        intent,
+      },
+    });
+  } catch (error) {
+    if (
+      error instanceof HyperliquidValidationError &&
+      error.path === "intent.notional"
+    ) {
+      throw new Error(MINIMUM_ORDER_NOTIONAL_MESSAGE);
+    }
+    throw error;
+  }
+}
+
+export function buildTradeLeverageReview(input: {
+  readonly market: Market;
+  readonly context: NormalizedTradingContext;
+  readonly capturedContextEpoch: number;
+  readonly authority: TradeAuthority;
+  readonly leverage: number;
+  readonly nowMs: number;
+}): ActionReviewSnapshot {
+  const gate = evaluateTradeGate(input);
+  if (!gate.enabled) throw new Error(gate.reason);
+  if (input.market.family !== "perp") {
+    throw new Error("Leverage can only be changed for perpetual markets.");
+  }
+  const account = input.authority.account;
+  if (
+    account === null ||
+    account.leverage === null ||
+    account.marginMode === null
+  ) {
+    throw new Error(
+      "Current leverage and margin mode are required for review.",
+    );
+  }
+  if (input.leverage === account.leverage) {
+    throw new Error("Choose a leverage different from the current value.");
+  }
+  if (
+    !Number.isSafeInteger(input.leverage) ||
+    input.leverage < 1 ||
+    input.leverage > Math.min(input.market.maxLeverage, 100)
+  ) {
+    throw new Error(
+      `Leverage must be a whole number from 1 through ${Math.min(input.market.maxLeverage, 100)}.`,
+    );
+  }
+  const binding = signerBindingForTradeContext(input.context);
   return createActionReview({
     binding,
     capturedContextEpoch: input.capturedContextEpoch,
+    marketLabel: marketPairLabel(input.market),
     validation: {
       context: {
         network: binding.network,
@@ -665,26 +747,25 @@ export function buildTradeReview(input: {
         orderAvailability: input.market.orderAvailability,
         sizeDecimals: input.market.sizeDecimals,
         pricePrecision: input.market.pricePrecision,
-        ...(input.market.family === "perp"
-          ? {
-              maxLeverage: input.market.maxLeverage,
-              onlyIsolated: input.market.onlyIsolated,
-            }
-          : {}),
-        referencePrice: reference as DecimalString,
+        maxLeverage: input.market.maxLeverage,
+        onlyIsolated: input.market.onlyIsolated,
+        referencePrice: tradeReferencePrice(input.market) as DecimalString,
+        minimumNotional: MINIMUM_ORDER_NOTIONAL,
       },
       account: {
-        availableMargin: account.availableFunds[input.draft.side],
-        ...(leverage === null ? {} : { leverage }),
-        ...(marginMode === undefined ? {} : { marginMode }),
+        availableMargin: account.availableFunds.buy,
+        leverage: account.leverage,
+        marginMode: account.marginMode,
         positionSize: account.positionSize,
         version: account.version,
       },
-      controls: {
-        slippageBps: slippage,
-        trigger: null,
+      controls: { slippageBps: null, trigger: null },
+      intent: {
+        type: "update_leverage",
+        assetId: input.market.orderAssetId,
+        leverage: input.leverage,
+        marginMode: account.marginMode,
       },
-      intent,
     },
   });
 }

@@ -5,7 +5,10 @@ import type {
   ReconciliationLease,
 } from "@hyper-trader/hyperliquid";
 
-import { createActionReconciler } from "./reconciler";
+import {
+  createActionReconciler,
+  createActionReconciliationPort,
+} from "./reconciler";
 
 const record: PreparedActionRecord = {
   journalId: "jrn_00000000000000000000000000000001",
@@ -64,6 +67,47 @@ function evidence(): ReconciliationEvidence {
 }
 
 describe("signer-free reconciliation worker", () => {
+  test("waits for durable backoff and returns a terminal foreground result", async () => {
+    let now = 1_000;
+    let current = record;
+    let attempts = 0;
+    const waits: number[] = [];
+    const reconciliation = createActionReconciliationPort({
+      repository: { getAction: () => current },
+      now: () => now,
+      wait: async (milliseconds) => {
+        waits.push(milliseconds);
+        now += milliseconds;
+      },
+      reconciler: {
+        async reconcile() {
+          attempts += 1;
+          if (attempts === 1) {
+            current = {
+              ...current,
+              reconciliationAttempts: 1,
+              nextReconciliationAt: 2_000,
+            };
+            return { kind: "unresolved", reason: "before_expiry" } as const;
+          }
+          current = {
+            ...current,
+            state: "accepted",
+            lastResultClass: "accepted",
+          };
+          return { kind: "terminal", state: "accepted" } as const;
+        },
+        async reconcileNext() {
+          return null;
+        },
+      },
+    });
+
+    expect(await reconciliation.reconcile(record.journalId)).toBe("accepted");
+    expect(waits).toEqual([1, 999]);
+    expect(attempts).toBe(2);
+  });
+
   test("commits journal evidence but fences active-context cache writes", async () => {
     let current = record;
     let cacheWrites = 0;

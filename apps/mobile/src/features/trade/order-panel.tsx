@@ -6,6 +6,7 @@ import { Dialog } from "heroui-native/dialog";
 import { useThemeColor } from "heroui-native/hooks";
 import { Input } from "heroui-native/input";
 import { Label } from "heroui-native/label";
+import { Slider } from "heroui-native/slider";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -16,6 +17,7 @@ import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { UnderlineTabs } from "../../components/ui/underline-tabs";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
+  canStartTradeReview,
   controlsForMarket,
   hasSupportedOrderMetadata,
   sizeForPreset,
@@ -101,6 +103,7 @@ export function OrderPanel({
   gate,
   invalidationMessage,
   onDraftChange,
+  onLeverageChange,
   onReview,
   compact = false,
   style,
@@ -111,6 +114,7 @@ export function OrderPanel({
   readonly gate: TradeGate;
   readonly invalidationMessage: string | null;
   readonly onDraftChange: (draft: TradeDraft) => void;
+  readonly onLeverageChange: (leverage: number) => Promise<void>;
   readonly onReview: (draft: TradeDraft) => Promise<void>;
   readonly compact?: boolean;
   readonly style?: StyleProp<ViewStyle>;
@@ -122,6 +126,7 @@ export function OrderPanel({
   );
   const [formError, setFormError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [leverageReviewPending, setLeverageReviewPending] = useState(false);
   const errorLeverage = useRef(draft.leverage);
 
   useEffect(() => {
@@ -135,10 +140,17 @@ export function OrderPanel({
   const referencePrice = market.midPx ?? market.markPx ?? null;
   const account = authority.account;
   const leverage = market.family === "spot" ? 1 : (account?.leverage ?? null);
+  const maximumLeverage =
+    market.family === "perp" ? Math.min(market.maxLeverage, 100) : 1;
+  const [leverageSelection, setLeverageSelection] = useState(leverage ?? 1);
+  useEffect(() => {
+    if (leverage !== null) setLeverageSelection(leverage);
+  }, [leverage]);
   const formReady =
     draft.size.trim() !== "" &&
     (!controls.price || draft.limitPrice.trim() !== "") &&
     (!controls.leverage || leverage !== null);
+  const canStartReview = canStartTradeReview(gate);
   const settingsSummary = orderSettingsSummary({
     compact,
     controls,
@@ -193,6 +205,27 @@ export function OrderPanel({
       );
     } finally {
       setReviewingSide(null);
+    }
+  };
+  const reviewLeverageChange = async () => {
+    if (leverage === null) {
+      setFormError("Current leverage is unavailable. Refresh and try again.");
+      return;
+    }
+    if (leverageSelection === leverage || leverageReviewPending) return;
+    setFormError(null);
+    setAdvancedOpen(false);
+    setLeverageReviewPending(true);
+    try {
+      await onLeverageChange(leverageSelection);
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "The leverage change could not be reviewed safely.",
+      );
+    } finally {
+      setLeverageReviewPending(false);
     }
   };
 
@@ -251,7 +284,7 @@ export function OrderPanel({
         >
           <Dialog.Trigger asChild>
             <Button
-              accessibilityHint="Opens order settings. Changes apply immediately."
+              accessibilityHint="Opens order settings. Order preferences apply immediately; leverage changes require review."
               accessibilityLabel={`Order settings, ${settingsSummary}`}
               accessibilityState={{ expanded: advancedOpen }}
               animation={reducedMotion ? "disable-all" : undefined}
@@ -289,22 +322,63 @@ export function OrderPanel({
               <View className="gap-1 pr-12">
                 <Dialog.Title>Order settings</Dialog.Title>
                 <Dialog.Description>
-                  Changes apply immediately to this order.
+                  Adjust this order or review a leverage change.
                 </Dialog.Description>
               </View>
               {controls.leverage ? (
-                <View className="gap-1 rounded-xl bg-surface-secondary p-3">
-                  <Text className="text-sm font-medium text-foreground">
-                    Leverage
-                  </Text>
-                  <Text className="text-lg font-semibold tabular-nums text-foreground">
-                    {leverage === null ? "Unavailable" : `${leverage}× current`}
-                  </Text>
-                  <Text className="text-xs leading-4 text-muted">
-                    {market.family === "perp"
-                      ? `${market.maxLeverage}× maximum · Changes require a separate review.`
-                      : "Not applicable"}
-                  </Text>
+                <View className="gap-3 rounded-xl bg-surface-secondary p-3">
+                  <View className="flex-row items-center justify-between gap-3">
+                    <Text className="text-sm font-medium text-foreground">
+                      Leverage
+                    </Text>
+                    <Text className="text-lg font-semibold tabular-nums text-foreground">
+                      {leverageSelection}×
+                    </Text>
+                  </View>
+                  <Slider
+                    accessibilityLabel={`Leverage ${leverageSelection}×, maximum ${maximumLeverage}×`}
+                    animation={reducedMotion ? "disable-all" : undefined}
+                    isDisabled={leverage === null || leverageReviewPending}
+                    maxValue={maximumLeverage}
+                    minValue={1}
+                    onChange={(value) => {
+                      const next = Array.isArray(value) ? value[0] : value;
+                      if (next !== undefined) setLeverageSelection(next);
+                    }}
+                    step={1}
+                    value={leverageSelection}
+                  >
+                    <Slider.Track>
+                      <Slider.Fill />
+                      <Slider.Thumb />
+                    </Slider.Track>
+                  </Slider>
+                  <View className="flex-row items-center justify-between">
+                    <Text className="text-xs tabular-nums text-muted">1×</Text>
+                    <Text className="text-xs tabular-nums text-muted">
+                      {maximumLeverage}× max
+                    </Text>
+                  </View>
+                  <Button
+                    accessibilityLabel={`Review leverage change to ${leverageSelection}×`}
+                    animation={reducedMotion ? "disable-all" : undefined}
+                    className="min-h-11 w-full"
+                    isDisabled={
+                      leverage === null ||
+                      leverageSelection === leverage ||
+                      !canStartReview ||
+                      leverageReviewPending
+                    }
+                    onPress={() => void reviewLeverageChange()}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    {leverageReviewPending
+                      ? "Preparing review…"
+                      : leverageSelection === leverage
+                        ? `Current leverage · ${leverageSelection}×`
+                        : `Review change · ${leverageSelection}×`}
+                  </Button>
                 </View>
               ) : null}
               {controls.timeInForce ? (
@@ -437,7 +511,7 @@ export function OrderPanel({
             Available {market.family === "spot" ? "funds" : "margin"}
           </Text>
           <Text className="shrink-0 text-right text-base tabular-nums text-foreground">
-            {account?.availableFunds[draft.side] ?? "Unavailable"}
+            {account?.availableFunds[draft.side] ?? "-"}
           </Text>
         </View>
 
@@ -469,7 +543,7 @@ export function OrderPanel({
             {formError}
           </Text>
         ) : null}
-        {!formReady && gate.enabled ? (
+        {!formReady && canStartReview ? (
           <Text className="text-sm leading-5 text-muted">
             Enter all visible required values before review.
           </Text>
@@ -480,7 +554,7 @@ export function OrderPanel({
           accessibilityHint="Reviews this buy order, then requests device verification before submission."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 w-full"
-          isDisabled={!gate.enabled || !formReady || reviewingSide !== null}
+          isDisabled={!canStartReview || !formReady || reviewingSide !== null}
           onPress={() => void review("buy")}
           variant="primary"
         >
@@ -494,7 +568,7 @@ export function OrderPanel({
           accessibilityHint="Reviews this sell order, then requests device verification before submission."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 w-full"
-          isDisabled={!gate.enabled || !formReady || reviewingSide !== null}
+          isDisabled={!canStartReview || !formReady || reviewingSide !== null}
           onPress={() => void review("sell")}
           variant="danger"
         >

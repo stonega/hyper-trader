@@ -10,6 +10,9 @@
     "updates": {
       "enabled": false
     },
+    "extra": {
+      "backendOrigin": "https://hyper-trader-backend.stoneflare.workers.dev"
+    },
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,

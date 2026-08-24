@@ -5,7 +5,7 @@ import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Platform,
   processColor,
@@ -77,6 +77,13 @@ const CANDLE_INSPECTION_LONG_PRESS_MS = 260;
 interface ChartInteractionState extends CandlestickChartInteraction {
   readonly key: string;
   readonly followLive: boolean;
+}
+
+interface RetainedCandleSeries {
+  readonly canonicalMarketId: string;
+  readonly candles: readonly Candle[];
+  readonly interval: TradeChartInterval;
+  readonly liveRange: NumericRange | null;
 }
 
 interface VerticalDragStart {
@@ -183,23 +190,52 @@ function MarketCandlestickChartComponent({
   const axisFont = useFont(BarlowSemiCondensed_400Regular, 10);
   const [success, danger, muted, separator, accent, warning] =
     useThemeColor(CHART_THEME_COLORS);
-  const spec = tradeChartSpec(interval);
+  const retainedSeriesRef = useRef<RetainedCandleSeries | null>(null);
+  const retainedSeries =
+    candles === undefined &&
+    retainedSeriesRef.current?.canonicalMarketId === canonicalMarketId
+      ? retainedSeriesRef.current
+      : null;
+  const displayedCandles = candles ?? retainedSeries?.candles;
+  const displayedInterval = retainedSeries?.interval ?? interval;
+  const displayedLiveRange = liveRange ?? retainedSeries?.liveRange ?? null;
+  const isShowingRetainedInterval =
+    candles === undefined &&
+    retainedSeries !== null &&
+    displayedInterval !== interval;
+  const spec = tradeChartSpec(displayedInterval);
+  const requestedSpec = tradeChartSpec(interval);
+  useEffect(() => {
+    if (candles === undefined) return;
+    retainedSeriesRef.current = {
+      canonicalMarketId,
+      candles,
+      interval,
+      liveRange,
+    };
+  }, [candles, canonicalMarketId, interval, liveRange]);
   const modelWindowLabel =
-    liveRange && candles?.[0] && candles[0].openTime < liveRange[0]
+    displayedLiveRange &&
+    displayedCandles?.[0] &&
+    displayedCandles[0].openTime < displayedLiveRange[0]
       ? "Loaded history"
       : spec.windowLabel;
   const model = useMemo(
     () =>
-      candles ? buildCandlestickChartModel(candles, modelWindowLabel) : null,
-    [candles, modelWindowLabel],
+      displayedCandles
+        ? buildCandlestickChartModel(displayedCandles, modelWindowLabel)
+        : null,
+    [displayedCandles, modelWindowLabel],
   );
   const chartDomains = useMemo(
     () => (model ? buildCandlestickChartDomains(model.data) : null),
     [model],
   );
-  const interactionKey = `${canonicalMarketId}:${interval}`;
+  const interactionKey = `${canonicalMarketId}:${displayedInterval}`;
   const currentLiveRange =
-    liveRange ?? chartDomains?.x ?? ([0, 1] as const satisfies NumericRange);
+    displayedLiveRange ??
+    chartDomains?.x ??
+    ([0, 1] as const satisfies NumericRange);
   const defaultInteraction = useMemo<ChartInteractionState>(
     () => ({
       key: interactionKey,
@@ -578,11 +614,6 @@ function MarketCandlestickChartComponent({
           timestamp: model.data[selectedIndex]?.timestamp ?? 0,
           close: model.data[selectedIndex]?.close ?? 0,
         };
-  const inspectLatest = useCallback(() => {
-    const latest = model?.inspection.at(-1)?.timestamp ?? null;
-    selectedTimestampRef.current = latest;
-    setSelectedTimestamp(latest);
-  }, [model]);
   const moveSelection = useCallback(
     (offset: -1 | 1) => {
       if (!model || selectedIndex === null) return;
@@ -616,7 +647,14 @@ function MarketCandlestickChartComponent({
         <View className="min-w-40 flex-1 gap-1">
           <Card.Title>Price chart</Card.Title>
           <Card.Description>
-            {spec.windowLabel} · {spec.label} · {realtime ? "Live" : "Snapshot"}
+            {spec.windowLabel} · {spec.label} ·{" "}
+            {isShowingRetainedInterval
+              ? unavailable
+                ? `${requestedSpec.label} unavailable`
+                : `Loading ${requestedSpec.label}`
+              : realtime
+                ? "Live"
+                : "Snapshot"}
           </Card.Description>
         </View>
         <View
@@ -657,48 +695,21 @@ function MarketCandlestickChartComponent({
           })}
         </View>
 
-        {model ? (
+        {model && (selectedCandle || interaction.yOffset !== 0) ? (
           <View className="flex-row flex-wrap gap-2">
-            <Button
-              accessibilityHint="Shows exact values for individual candles."
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="h-10 min-h-10 px-3"
-              onPress={
-                selectedCandle
-                  ? () => {
-                      selectedTimestampRef.current = null;
-                      setSelectedTimestamp(null);
-                    }
-                  : inspectLatest
-              }
-              size="sm"
-              variant="tertiary"
-            >
-              {selectedCandle ? "Done" : "Inspect"}
-            </Button>
-            {canLoadOlder && onLoadOlder ? (
+            {selectedCandle ? (
               <Button
-                accessibilityHint="Loads the preceding candle window."
+                accessibilityHint="Closes candle inspection."
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="h-10 min-h-10 px-3"
-                isDisabled={loadingOlder}
-                onPress={() => void onLoadOlder()}
+                onPress={() => {
+                  selectedTimestampRef.current = null;
+                  setSelectedTimestamp(null);
+                }}
                 size="sm"
                 variant="tertiary"
               >
-                {loadingOlder ? "Loading…" : "Older"}
-              </Button>
-            ) : null}
-            {!interaction.followLive ? (
-              <Button
-                accessibilityHint="Returns the time window to the newest candles."
-                animation={reducedMotion ? "disable-all" : undefined}
-                className="h-10 min-h-10 px-3"
-                onPress={returnToLive}
-                size="sm"
-                variant="tertiary"
-              >
-                Live
+                Done
               </Button>
             ) : null}
             {interaction.yOffset !== 0 ? (
@@ -724,94 +735,98 @@ function MarketCandlestickChartComponent({
 
         {model && chartViewport ? (
           <>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              style={compact ? styles.compactChart : styles.chart}
-            >
+            <View style={compact ? styles.compactChart : styles.chart}>
               <View
                 style={compact ? styles.compactPriceChart : styles.priceChart}
               >
-                <CartesianChart
-                  customGestures={chartGesture}
-                  domain={{ y: chartViewport.y }}
-                  frame={{
-                    lineColor: colors.grid,
-                    lineWidth: {
-                      top: 0,
-                      right: 0,
-                      bottom: StyleSheet.hairlineWidth,
-                      left: 0,
-                    },
-                  }}
-                  data={model.data}
-                  domainPadding={{ left: 4, right: 4, top: 12, bottom: 12 }}
-                  onChartBoundsChange={(bounds) => {
-                    chartBoundsRef.current = bounds;
-                  }}
-                  padding={{
-                    left: 2,
-                    right: 0,
-                    top: 4,
-                    bottom: 4,
-                  }}
-                  viewport={{ x: chartViewport.x }}
-                  xKey="timestamp"
-                  yKeys={[...TRADE_CANDLE_Y_KEYS]}
-                  yAxis={[
-                    {
-                      axisSide: "right",
-                      font: axisFont,
-                      formatYLabel: formatTradeChartAxisPrice,
-                      labelColor: colors.neutral,
-                      labelOffset: 5,
-                      labelPosition: "inset",
-                      lineColor: colors.grid,
-                      lineWidth: StyleSheet.hairlineWidth,
-                      tickCount: 4,
-                      yKeys: [...TRADE_CANDLE_Y_KEYS],
-                    },
-                  ]}
+                <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
+                  style={styles.chartCanvas}
                 >
-                  {({ points, chartBounds, xScale, yScale }) => (
-                    <>
-                      <SkiaCandlestickSeries
-                        colors={{
-                          positive: colors.positive,
-                          negative: colors.negative,
-                          neutral: colors.neutral,
-                        }}
-                        candleRatio={0.68}
-                        chartBounds={chartBounds}
-                        closePoints={points.close}
-                        highPoints={points.high}
-                        lowPoints={points.low}
-                        minBodyHeight={1.5}
-                        openPoints={points.open}
-                        wickStrokeWidth={1}
-                      />
-                      <SkiaTradeChartOverlays
-                        chartBounds={chartBounds}
-                        colors={{
-                          accent: colors.accent,
-                          crosshair: colors.accent,
-                          danger: colors.negative,
-                          muted: colors.neutral,
-                          success: colors.positive,
-                          warning: colors.warning,
-                        }}
-                        font={axisFont}
-                        overlays={overlays}
-                        selected={selectedPoint}
-                        xScale={xScale}
-                        yScale={yScale}
-                      />
-                    </>
-                  )}
-                </CartesianChart>
+                  <CartesianChart
+                    customGestures={chartGesture}
+                    domain={{ y: chartViewport.y }}
+                    frame={{
+                      lineColor: colors.grid,
+                      lineWidth: {
+                        top: 0,
+                        right: 0,
+                        bottom: StyleSheet.hairlineWidth,
+                        left: 0,
+                      },
+                    }}
+                    data={model.data}
+                    domainPadding={{ left: 4, right: 4, top: 12, bottom: 12 }}
+                    onChartBoundsChange={(bounds) => {
+                      chartBoundsRef.current = bounds;
+                    }}
+                    padding={{
+                      left: 2,
+                      right: 0,
+                      top: 4,
+                      bottom: 4,
+                    }}
+                    viewport={{ x: chartViewport.x }}
+                    xKey="timestamp"
+                    yKeys={[...TRADE_CANDLE_Y_KEYS]}
+                    yAxis={[
+                      {
+                        axisSide: "right",
+                        font: axisFont,
+                        formatYLabel: formatTradeChartAxisPrice,
+                        labelColor: colors.neutral,
+                        labelOffset: 5,
+                        labelPosition: "inset",
+                        lineColor: colors.grid,
+                        lineWidth: StyleSheet.hairlineWidth,
+                        tickCount: 4,
+                        yKeys: [...TRADE_CANDLE_Y_KEYS],
+                      },
+                    ]}
+                  >
+                    {({ points, chartBounds, xScale, yScale }) => (
+                      <>
+                        <SkiaCandlestickSeries
+                          colors={{
+                            positive: colors.positive,
+                            negative: colors.negative,
+                            neutral: colors.neutral,
+                          }}
+                          candleRatio={0.68}
+                          chartBounds={chartBounds}
+                          closePoints={points.close}
+                          highPoints={points.high}
+                          lowPoints={points.low}
+                          minBodyHeight={1.5}
+                          openPoints={points.open}
+                          wickStrokeWidth={1}
+                        />
+                        <SkiaTradeChartOverlays
+                          chartBounds={chartBounds}
+                          colors={{
+                            accent: colors.accent,
+                            crosshair: colors.accent,
+                            danger: colors.negative,
+                            muted: colors.neutral,
+                            success: colors.positive,
+                            warning: colors.warning,
+                          }}
+                          font={axisFont}
+                          overlays={overlays}
+                          selected={selectedPoint}
+                          xScale={xScale}
+                          yScale={yScale}
+                        />
+                      </>
+                    )}
+                  </CartesianChart>
+                </View>
               </View>
               {visibleMaximumVolume !== null ? (
                 <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
                   style={
                     compact ? styles.compactVolumeChart : styles.volumeChart
                   }
@@ -881,6 +896,8 @@ function MarketCandlestickChartComponent({
                 </View>
               ) : (
                 <View
+                  accessibilityElementsHidden
+                  importantForAccessibility="no-hide-descendants"
                   style={
                     compact ? styles.compactVolumeChart : styles.volumeChart
                   }
@@ -891,21 +908,24 @@ function MarketCandlestickChartComponent({
             </View>
             <View className="flex-row justify-between gap-3">
               <Text className="text-xs tabular-nums text-muted">
-                {formatTimestamp(chartViewport.x[0], interval)}
+                {formatTimestamp(chartViewport.x[0], displayedInterval)}
               </Text>
               <Text className="text-right text-xs tabular-nums text-muted">
-                {formatTimestamp(chartViewport.x[1], interval)}
+                {formatTimestamp(chartViewport.x[1], displayedInterval)}
               </Text>
             </View>
             {selectedCandle && selectedIndex !== null ? (
               <>
                 <View
                   accessible
-                  accessibilityLabel={`${formatTimestamp(selectedCandle.timestamp, interval)} candle. Open ${selectedCandle.open}. High ${selectedCandle.high}. Low ${selectedCandle.low}. Close ${selectedCandle.close}. Volume ${selectedCandle.volume}. ${selectedCandle.tradeCount} trades.`}
+                  accessibilityLabel={`${formatTimestamp(selectedCandle.timestamp, displayedInterval)} candle. Open ${selectedCandle.open}. High ${selectedCandle.high}. Low ${selectedCandle.low}. Close ${selectedCandle.close}. Volume ${selectedCandle.volume}. ${selectedCandle.tradeCount} trades.`}
                   className="flex-row flex-wrap gap-x-3 gap-y-1"
                 >
                   <Text className="w-full text-xs font-medium text-foreground">
-                    {formatTimestamp(selectedCandle.timestamp, interval)}
+                    {formatTimestamp(
+                      selectedCandle.timestamp,
+                      displayedInterval,
+                    )}
                   </Text>
                   {(
                     [
@@ -1008,6 +1028,21 @@ function MarketCandlestickChartComponent({
                 ) : null}
               </View>
             ) : null}
+            {!interaction.followLive ? (
+              <View className="flex-row justify-end">
+                <Button
+                  accessibilityHint="Returns the time window to the newest candles."
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  className="h-10 min-h-10 px-2"
+                  hitSlop={compact ? COMPACT_SEGMENT_HIT_SLOP : undefined}
+                  onPress={returnToLive}
+                  size="sm"
+                  variant="ghost"
+                >
+                  <Button.Label>Live</Button.Label>
+                </Button>
+              </View>
+            ) : null}
           </>
         ) : (
           <View className="gap-2 py-5">
@@ -1031,6 +1066,10 @@ function MarketCandlestickChartComponent({
 export const MarketCandlestickChart = memo(MarketCandlestickChartComponent);
 
 const styles = StyleSheet.create({
+  chartCanvas: {
+    flex: 1,
+    width: "100%",
+  },
   compactChart: {
     gap: 4,
     height: 210,

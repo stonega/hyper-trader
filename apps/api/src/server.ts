@@ -1,7 +1,18 @@
 import {
+  createMarketSummaryPage,
+  DEFAULT_MARKET_SUMMARY_PAGE_SIZE,
   type HyperliquidNetwork,
+  HyperliquidValidationError,
+  MAX_MARKET_SUMMARY_PAGE_SIZE,
   type MarketCatalog,
+  type MarketFamily,
+  type MarketLifecycle,
+  type MarketOrderAvailability,
+  MarketSummaryGenerationChangedError,
+  type MarketSummaryQuery,
+  type MarketSummarySort,
   parseMarketCatalogSnapshot,
+  parseMarketSummaryCursor,
 } from "@hyper-trader/hyperliquid/public";
 import {
   assertRequestBodySize,
@@ -44,6 +55,7 @@ import {
 
 const JSON_CONTENT_TYPE = "application/json";
 const MAX_MARKET_CATALOG_RESPONSE_BYTES = 8 * 1024 * 1024;
+const MAX_MARKET_SUMMARY_RESPONSE_BYTES = 256 * 1024;
 const MAX_PORTFOLIO_RESPONSE_BYTES = 4 * 1024 * 1024;
 const BEARER = /^Bearer ([0-9a-f]{64})$/;
 const PROTECTED_POST_PATHS = new Set([
@@ -104,11 +116,21 @@ export function createMarketCatalogRequestHandler(
       if (url.origin !== origin) {
         return jsonResponse(421, { error: "origin_mismatch" });
       }
-      if (url.search !== "") {
+      const summaryMatch =
+        request.method === "GET"
+          ? /^\/v1\/market-summaries\/(testnet|mainnet)$/.exec(url.pathname)
+          : null;
+      if (url.search !== "" && !summaryMatch)
         return jsonResponse(400, { error: "query_not_allowed" });
-      }
       if (request.method === "GET" && url.pathname === "/health") {
         return jsonResponse(200, { status: "ok" });
+      }
+      if (summaryMatch?.[1]) {
+        return await marketSummaryResponse(
+          url,
+          summaryMatch[1] as HyperliquidNetwork,
+          options.marketCatalog,
+        );
       }
       const catalogMatch =
         request.method === "GET"
@@ -146,8 +168,15 @@ export function createMarketCatalogRequestHandler(
       if (error instanceof BodyTooLargeError) {
         return jsonResponse(413, { error: "body_too_large" });
       }
-      if (error instanceof ContractError || error instanceof SyntaxError) {
+      if (
+        error instanceof ContractError ||
+        error instanceof SyntaxError ||
+        error instanceof HyperliquidValidationError
+      ) {
         return jsonResponse(400, { error: "invalid_request" });
+      }
+      if (error instanceof MarketSummaryGenerationChangedError) {
+        return jsonResponse(409, { error: "generation_changed" });
       }
       if (error instanceof ApplicationError) {
         return jsonResponse(
@@ -176,7 +205,11 @@ export function createNotificationRequestHandler(
       const url = new URL(request.url);
       if (url.origin !== origin)
         return jsonResponse(421, { error: "origin_mismatch" });
-      if (url.search !== "")
+      const marketSummaryPath =
+        request.method === "GET"
+          ? /^\/v1\/market-summaries\/(testnet|mainnet)$/.exec(url.pathname)
+          : null;
+      if (url.search !== "" && !marketSummaryPath)
         return jsonResponse(400, { error: "query_not_allowed" });
       if (request.method === "GET" && url.pathname === "/health") {
         return jsonResponse(200, { status: "ok" });
@@ -222,6 +255,7 @@ export function createNotificationRequestHandler(
       if (
         !isRegistration &&
         !marketCatalogPath &&
+        !marketSummaryPath &&
         !portfolioPath &&
         !isKnownProtectedRoute
       ) {
@@ -234,6 +268,16 @@ export function createNotificationRequestHandler(
         return marketCatalogResponse(
           request,
           marketCatalogPath[1] as HyperliquidNetwork,
+          options.marketCatalog,
+        );
+      }
+      if (marketSummaryPath?.[1]) {
+        if (!options.marketCatalog) {
+          throw new ApplicationError(503, "market catalog is not configured");
+        }
+        return await marketSummaryResponse(
+          url,
+          marketSummaryPath[1] as HyperliquidNetwork,
           options.marketCatalog,
         );
       }
@@ -407,8 +451,15 @@ export function createNotificationRequestHandler(
       if (error instanceof BodyTooLargeError) {
         return jsonResponse(413, { error: "body_too_large" });
       }
-      if (error instanceof ContractError || error instanceof SyntaxError) {
+      if (
+        error instanceof ContractError ||
+        error instanceof SyntaxError ||
+        error instanceof HyperliquidValidationError
+      ) {
         return jsonResponse(400, { error: "invalid_request" });
+      }
+      if (error instanceof MarketSummaryGenerationChangedError) {
+        return jsonResponse(409, { error: "generation_changed" });
       }
       if (error instanceof ApplicationError) {
         const headers =
@@ -464,6 +515,150 @@ export function startMarketCatalogServer(
     tls,
     fetch: handler,
   });
+}
+
+const MARKET_SUMMARY_QUERY_KEYS = new Set([
+  "availability",
+  "cursor",
+  "family",
+  "id",
+  "includeHip3",
+  "lifecycle",
+  "limit",
+  "query",
+  "sort",
+]);
+
+function singleSearchParameter(
+  parameters: URLSearchParams,
+  name: string,
+): string | null {
+  const values = parameters.getAll(name);
+  if (values.length > 1) throw new SyntaxError(`${name} must be singular`);
+  return values[0] ?? null;
+}
+
+function marketSummaryQuery(url: URL): MarketSummaryQuery {
+  for (const key of url.searchParams.keys()) {
+    if (!MARKET_SUMMARY_QUERY_KEYS.has(key)) {
+      throw new SyntaxError("unknown market summary query field");
+    }
+  }
+  const rawLimit = singleSearchParameter(url.searchParams, "limit");
+  const limit =
+    rawLimit === null ? DEFAULT_MARKET_SUMMARY_PAGE_SIZE : Number(rawLimit);
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_MARKET_SUMMARY_PAGE_SIZE
+  ) {
+    throw new SyntaxError("invalid market summary limit");
+  }
+  const query = singleSearchParameter(url.searchParams, "query") ?? "";
+  if (query.length > 80) {
+    throw new SyntaxError("market summary query is too long");
+  }
+  const rawFamily = singleSearchParameter(url.searchParams, "family");
+  const family: MarketFamily | null =
+    rawFamily === null || rawFamily === "all"
+      ? null
+      : rawFamily === "perp" || rawFamily === "spot" || rawFamily === "outcome"
+        ? rawFamily
+        : (() => {
+            throw new SyntaxError("invalid market family");
+          })();
+  const rawIncludeHip3 =
+    singleSearchParameter(url.searchParams, "includeHip3") ?? "true";
+  const includeHip3 =
+    rawIncludeHip3 === "true"
+      ? true
+      : rawIncludeHip3 === "false"
+        ? false
+        : (() => {
+            throw new SyntaxError("invalid HIP-3 inclusion flag");
+          })();
+  const rawAvailability =
+    singleSearchParameter(url.searchParams, "availability") ?? "enabled";
+  const availability: MarketOrderAvailability | "all" =
+    rawAvailability === "enabled" ||
+    rawAvailability === "browse_only" ||
+    rawAvailability === "all"
+      ? rawAvailability
+      : (() => {
+          throw new SyntaxError("invalid market availability");
+        })();
+  const rawLifecycle =
+    singleSearchParameter(url.searchParams, "lifecycle") ?? "active";
+  const lifecycle: MarketLifecycle | "all" =
+    rawLifecycle === "active" ||
+    rawLifecycle === "delisted" ||
+    rawLifecycle === "all"
+      ? rawLifecycle
+      : (() => {
+          throw new SyntaxError("invalid market lifecycle");
+        })();
+  const rawSort = singleSearchParameter(url.searchParams, "sort") ?? "volume";
+  const sort: MarketSummarySort =
+    rawSort === "symbol" ||
+    rawSort === "volume" ||
+    rawSort === "price_change" ||
+    rawSort === "funding" ||
+    rawSort === "open_interest"
+      ? rawSort
+      : (() => {
+          throw new SyntaxError("invalid market summary sort");
+        })();
+  const cursor = singleSearchParameter(url.searchParams, "cursor");
+  parseMarketSummaryCursor(cursor);
+  const ids = url.searchParams.getAll("id");
+  if (
+    ids.length > 50 ||
+    ids.some((id) => !/^[A-Za-z0-9:_-]{1,256}$/.test(id) || id !== id.trim()) ||
+    new Set(ids).size !== ids.length
+  ) {
+    throw new SyntaxError("invalid market summary IDs");
+  }
+  return {
+    query,
+    family,
+    includeHip3,
+    availability,
+    lifecycle,
+    sort,
+    ids,
+    cursor,
+    limit,
+  };
+}
+
+async function marketSummaryResponse(
+  url: URL,
+  network: HyperliquidNetwork,
+  marketCatalog: MarketCatalogReader,
+): Promise<Response> {
+  const query = marketSummaryQuery(url);
+  const published = await marketCatalog.readPublished(network);
+  if (!published || published.catalog.markets.length === 0) {
+    return jsonResponse(503, { error: "not_ready" }, { "retry-after": "30" });
+  }
+  const page = createMarketSummaryPage({
+    network: published.network,
+    generation: published.generation,
+    publishedAtMs: published.publishedAtMs,
+    markets: published.catalog.markets,
+    quarantinedCount: published.catalog.quarantined.length,
+    sourceErrorCount: published.catalog.sourceErrors.length,
+    query,
+  });
+  return jsonResponse(
+    200,
+    page,
+    {
+      "cache-control":
+        "public, max-age=30, stale-while-revalidate=300, stale-if-error=86400",
+    },
+    MAX_MARKET_SUMMARY_RESPONSE_BYTES,
+  );
 }
 
 async function marketCatalogResponse(

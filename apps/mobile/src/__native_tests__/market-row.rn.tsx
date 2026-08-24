@@ -4,6 +4,17 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { HIP3_DUPLICATE, NATIVE_DUPLICATE } from "../features/markets/fixture";
 import { MarketRow } from "../features/markets/market-row";
 
+jest.mock("@expo/vector-icons/Ionicons", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  const { Text } =
+    jest.requireActual<typeof import("react-native")>("react-native");
+  return {
+    __esModule: true,
+    default: ({ name }: { readonly name: string }) =>
+      React.createElement(Text, null, name),
+  };
+});
+
 jest.mock("../components/use-reduced-motion", () => ({
   useReducedMotion: () => true,
 }));
@@ -22,8 +33,13 @@ test("uses the market selector icon and pair-name treatment", () => {
   );
 
   expect(screen.getByText("DUP-USDC")).toBeTruthy();
+  expect(screen.getByText("x20")).toBeTruthy();
+  expect(screen.queryByText("Perpetual")).toBeNull();
   expect(screen.queryByText("DUP")).toBeNull();
   expect(screen.queryByText("Native")).toBeNull();
+  expect(
+    screen.getByText("star-outline", { includeHiddenElements: true }),
+  ).toBeTruthy();
   expect(
     screen.getByTestId("market-icon-image", { includeHiddenElements: true }),
   ).toBeTruthy();
@@ -40,7 +56,7 @@ test("uses the market selector icon and pair-name treatment", () => {
 test("keeps the provider visible for non-native perpetual markets", () => {
   render(
     <MarketRow
-      isFavorite={false}
+      isFavorite
       market={HIP3_DUPLICATE}
       onOpen={jest.fn()}
       onToggleFavorite={jest.fn()}
@@ -49,4 +65,10 @@ test("keeps the provider visible for non-native perpetual markets", () => {
   );
 
   expect(screen.getByText("Omega Markets")).toBeTruthy();
+  expect(screen.getByText("x20")).toBeTruthy();
+  expect(screen.queryByText("HIP-3 perpetual")).toBeNull();
+  expect(
+    screen.getByText("star", { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(screen.getByText("Favorited")).toBeTruthy();
 });

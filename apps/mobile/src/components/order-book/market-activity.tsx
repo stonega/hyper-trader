@@ -198,9 +198,17 @@ export function MarketActivity({
     mode === "book" ? bookRows.length === 0 : tradeRows.length === 0;
   const loading = mode === "book" ? bookLoading : tradesLoading;
   const unavailable = mode === "book" ? bookUnavailable : tradesUnavailable;
+  const modeLabel = mode === "book" ? "order-book levels" : "recent trades";
 
   return (
     <Card
+      accessibilityLabel={
+        loading
+          ? `Loading ${modeLabel}`
+          : unavailable
+            ? `${modeLabel} unavailable`
+            : undefined
+      }
       className={compact ? "gap-2" : "gap-3"}
       style={style}
       variant="default"
@@ -223,13 +231,31 @@ export function MarketActivity({
         />
       </Card.Header>
       <Card.Body className="gap-1">
-        {compact && !empty ? (
-          <View className="flex-row gap-1 pb-1">
-            <Text className="w-7 text-xs text-muted">Side</Text>
-            <Text className="flex-1 text-right text-xs text-muted">Price</Text>
-            <Text className="flex-1 text-right text-xs text-muted">Size</Text>
-          </View>
-        ) : null}
+        <View
+          className={
+            compact
+              ? "flex-row gap-1 pb-1"
+              : "flex-row items-baseline justify-between gap-x-3 pb-1"
+          }
+        >
+          <Text
+            className={
+              compact ? "w-7 text-xs text-muted" : "min-w-10 text-xs text-muted"
+            }
+          >
+            Side
+          </Text>
+          <Text className="flex-1 text-right text-xs text-muted">Price</Text>
+          <Text
+            className={
+              compact
+                ? "flex-1 text-right text-xs text-muted"
+                : "min-w-24 text-right text-xs text-muted"
+            }
+          >
+            Size
+          </Text>
+        </View>
         {mode === "book"
           ? bookRows.map((row) => (
               <LevelRow
@@ -246,16 +272,12 @@ export function MarketActivity({
                 trade={trade}
               />
             ))}
-        {empty ? (
+        {empty && unavailable ? (
           <Text
-            accessibilityRole={unavailable ? "alert" : undefined}
+            accessibilityRole="alert"
             className="text-sm leading-5 text-muted"
           >
-            {loading
-              ? `Loading ${mode === "book" ? "order-book levels" : "recent trades"}.`
-              : unavailable
-                ? "Current market activity is unavailable. No rows are inferred."
-                : "No current activity rows are available."}
+            Current market activity is unavailable. No rows are inferred.
           </Text>
         ) : null}
         {!empty && unavailable ? (

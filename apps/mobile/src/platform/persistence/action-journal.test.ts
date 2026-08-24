@@ -173,6 +173,11 @@ describe("SQLite action journal", () => {
     expect(afterCrash.repository.getAction(accepted.journalId)?.state).toBe(
       "accepted",
     );
+    expect(
+      afterCrash.repository
+        .listReconcilableActions()
+        .map(({ journalId, state }) => [journalId, state]),
+    ).toEqual([[started.journalId, "unresolved"]]);
     expect(() =>
       afterCrash.repository.markSubmissionStarted(
         prepared.journalId,

@@ -14,6 +14,16 @@ export type PublicSubscription =
       readonly interval: string;
     }
   | { readonly type: "activeAssetCtx"; readonly coin: string }
+  | {
+      readonly type: "activeAssetData";
+      readonly user: string;
+      readonly coin: string;
+    }
+  | {
+      readonly type: "spotState";
+      readonly user: string;
+      readonly isPortfolioMargin: boolean;
+    }
   | { readonly type: "userEvents"; readonly user: string }
   | { readonly type: "orderUpdates"; readonly user: string }
   | {
@@ -108,6 +118,12 @@ function matchesSubscription(
     case "l2Book":
     case "activeAssetCtx":
       return data?.coin === subscription.coin;
+    case "activeAssetData":
+      return (
+        data?.user === subscription.user && data.coin === subscription.coin
+      );
+    case "spotState":
+      return data?.user === subscription.user;
     case "candle":
       return data?.s === subscription.coin && data.i === subscription.interval;
     case "trades":
@@ -392,6 +408,8 @@ function validateSubscription(subscription: PublicSubscription): void {
       subscription.type === "orderUpdates" ||
       subscription.type === "userFills" ||
       subscription.type === "userFundings" ||
+      subscription.type === "activeAssetData" ||
+      subscription.type === "spotState" ||
       subscription.type === "allDexsClearinghouseState") &&
     !/^0x[0-9a-f]{40}$/.test(subscription.user)
   ) {

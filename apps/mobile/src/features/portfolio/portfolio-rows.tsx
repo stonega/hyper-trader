@@ -1,10 +1,11 @@
+import type { Market } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
 import { Input } from "heroui-native/input";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { useState } from "react";
 import { View } from "react-native";
 
@@ -17,7 +18,14 @@ import {
   type PortfolioFilter,
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
+  portfolioFundingId,
 } from "./portfolio-model";
+import {
+  formatPortfolioRecordTime,
+  portfolioMarketLabel,
+  portfolioSideColor,
+  portfolioSideLabel,
+} from "./portfolio-row-presentation";
 import {
   boundedPortfolioRowLimit,
   nextPortfolioRowLimit,
@@ -25,10 +33,10 @@ import {
 } from "./portfolio-row-window";
 
 export type PortfolioEditor = {
-  readonly kind: "margin";
+  readonly kind: "limit_close";
   readonly positionId: string;
-  readonly leverage: string;
-  readonly marginMode: "cross" | "isolated";
+  readonly limitPrice: string;
+  readonly size: string;
 };
 
 export type PortfolioActionAccess =
@@ -51,17 +59,74 @@ function EmptyFilter({ label }: { readonly label: string }): JSX.Element {
 function Value({
   label,
   value,
+  tone = "default",
 }: {
   readonly label: string;
   readonly value: string;
+  readonly tone?: "danger" | "default" | "success";
 }): JSX.Element {
+  const valueClassName =
+    tone === "danger"
+      ? "text-sm font-medium tabular-nums text-danger"
+      : tone === "success"
+        ? "text-sm font-medium tabular-nums text-success"
+        : "text-sm tabular-nums text-foreground";
   return (
     <View className="min-w-32 flex-1 gap-1">
       <Text className="text-xs uppercase tracking-wide text-muted">
         {label}
       </Text>
-      <Text className="text-sm tabular-nums text-foreground">{value}</Text>
+      <Text className={valueClassName}>{value}</Text>
     </View>
+  );
+}
+
+function amountTone(value: string): "danger" | "default" | "success" {
+  if (value.startsWith("-")) return "danger";
+  return /^0(?:\.0+)?$/.test(value) ? "default" : "success";
+}
+
+function SideChip({ side }: { readonly side: string }): JSX.Element {
+  const label = portfolioSideLabel(side);
+  return (
+    <Chip
+      accessibilityLabel={`${label} side`}
+      color={portfolioSideColor(side)}
+      size="sm"
+      variant="soft"
+    >
+      <Chip.Label>{label}</Chip.Label>
+    </Chip>
+  );
+}
+
+function RecordTypeChip({ label }: { readonly label: string }): JSX.Element {
+  return (
+    <Chip color="accent" size="sm" variant="soft">
+      <Chip.Label>{label}</Chip.Label>
+    </Chip>
+  );
+}
+
+function RecordHeader({
+  title,
+  detail,
+  badges,
+}: {
+  readonly title: string;
+  readonly detail: string;
+  readonly badges: ReactNode;
+}): JSX.Element {
+  return (
+    <Card.Header className="flex-row flex-wrap items-start justify-between gap-3">
+      <View className="min-w-40 flex-1 gap-1">
+        <Card.Title numberOfLines={1}>{title}</Card.Title>
+        <Card.Description>{detail}</Card.Description>
+      </View>
+      <View className="flex-row flex-wrap items-center justify-end gap-2">
+        {badges}
+      </View>
+    </Card.Header>
   );
 }
 
@@ -86,61 +151,62 @@ export function PortfolioSelectionChip({
       onPress={onPress}
       variant={selected ? "primary" : "secondary"}
     >
-      {label}
+      <Chip.Label>{label}</Chip.Label>
     </Chip>
   );
 }
 
 function PositionCard({
   position,
+  markets,
   editor,
   setEditor,
   actionAccess,
+  closePending,
   error,
+  reviewingCloseBehavior,
   onReviewClose,
-  onReviewMargin,
 }: {
   readonly position: PortfolioPositionRow;
+  readonly markets: readonly Market[];
   readonly editor: PortfolioEditor | null;
   readonly setEditor: (editor: PortfolioEditor | null) => void;
   readonly actionAccess: PortfolioActionAccess;
+  readonly closePending: boolean;
   readonly error: string | null;
+  readonly reviewingCloseBehavior: CloseDraft["behavior"] | null;
   readonly onReviewClose: (
     position: PortfolioPositionRow,
     draft: CloseDraft,
-  ) => void;
-  readonly onReviewMargin: (
-    position: PortfolioPositionRow,
-    leverage: number,
-    marginMode: "cross" | "isolated",
-  ) => void;
+  ) => Promise<void>;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const active = editor?.positionId === position.id ? editor : null;
   const closeEnabled = actionAccess.allowed && position.closeEnabled;
-  const marginEnabled = actionAccess.allowed && position.marginActionEnabled;
+  const positionSide = position.side === "long" ? "Long" : "Short";
+  const positionSideColor = position.side === "long" ? "success" : "danger";
+  const pnlTone = amountTone(position.unrealizedPnl);
   return (
     <Card variant="default" className="gap-4">
-      <Card.Header className="flex-row flex-wrap items-start justify-between gap-3">
-        <View className="min-w-40 flex-1 gap-1">
-          <Card.Title>
-            {position.coin} · {position.side}
-          </Card.Title>
-          <Card.Description>{position.venue}</Card.Description>
-        </View>
-        <Chip
-          color={position.unrealizedPnl.startsWith("-") ? "danger" : "success"}
-          size="sm"
-          variant="soft"
-        >
-          PnL {position.unrealizedPnl}
-        </Chip>
-      </Card.Header>
+      <RecordHeader
+        badges={
+          <>
+            <Chip color={positionSideColor} size="sm" variant="soft">
+              <Chip.Label>{positionSide}</Chip.Label>
+            </Chip>
+            <Chip color={pnlTone} size="sm" variant="soft">
+              <Chip.Label>PnL {position.unrealizedPnl} USDC</Chip.Label>
+            </Chip>
+          </>
+        }
+        detail={position.venue}
+        title={portfolioMarketLabel(position.coin, markets, position.market)}
+      />
       <Card.Body className="gap-4">
         <View className="flex-row flex-wrap gap-x-5 gap-y-3">
-          <Value label="Size" value={position.size} />
+          <Value label="Position size" value={position.absoluteSize} />
           <Value label="Entry" value={position.entryPrice ?? "Unavailable"} />
-          <Value label="Value" value={position.positionValue} />
+          <Value label="Position value" value={position.positionValue} />
           <Value label="Leverage" value={`${position.leverage}×`} />
           <Value
             label="Liquidation"
@@ -148,72 +214,106 @@ function PositionCard({
           />
           <Value label="Margin" value={position.marginMode ?? "Unavailable"} />
         </View>
-        {closeEnabled || marginEnabled ? (
+        {closeEnabled ? (
           <View className="flex-row flex-wrap gap-2">
-            {closeEnabled ? (
-              <Button
-                accessibilityHint="Opens a review for a full reduce-only market close."
-                animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 min-w-28 flex-1"
-                onPress={() =>
-                  onReviewClose(position, createCloseDraft(position))
+            <Button
+              accessibilityHint="Reviews a full reduce-only market close, then requests device verification before submission."
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="min-h-12 min-w-28 flex-1"
+              isDisabled={closePending}
+              onPress={() => {
+                setEditor(null);
+                void onReviewClose(position, createCloseDraft(position));
+              }}
+              variant="primary"
+            >
+              <Button.Label>
+                {reviewingCloseBehavior === "market" ? "Reviewing…" : "Market"}
+              </Button.Label>
+            </Button>
+            <Button
+              accessibilityHint="Opens a reduce-only limit close form for this position."
+              accessibilityState={{ expanded: active !== null }}
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="min-h-12 min-w-28 flex-1"
+              isDisabled={closePending}
+              onPress={() => {
+                if (active !== null) {
+                  setEditor(null);
+                  return;
                 }
-                variant="primary"
-              >
-                Review full close
-              </Button>
-            ) : null}
-            {marginEnabled ? (
-              <Button
-                accessibilityHint="Edit leverage and margin mode before review."
-                animation={reducedMotion ? "disable-all" : undefined}
-                className="min-h-12 min-w-28 flex-1"
-                onPress={() =>
-                  setEditor({
-                    kind: "margin",
-                    positionId: position.id,
-                    leverage: String(position.leverage),
-                    marginMode: position.onlyIsolated
-                      ? "isolated"
-                      : (position.marginMode ?? "cross"),
-                  })
-                }
-                variant="secondary"
-              >
-                Margin
-              </Button>
-            ) : null}
+                const draft = createCloseDraft(position);
+                setEditor({
+                  kind: "limit_close",
+                  positionId: position.id,
+                  limitPrice: position.market?.midPx ?? draft.limitPrice,
+                  size: draft.size,
+                });
+              }}
+              variant="secondary"
+            >
+              <Button.Label>Limit</Button.Label>
+            </Button>
           </View>
         ) : null}
 
-        {active?.kind === "margin" ? (
+        {active?.kind === "limit_close" ? (
           <View
-            accessibilityLabel={`Edit margin for ${position.coin}`}
+            accessibilityLabel={`Limit close for ${position.coin}`}
             className="gap-4 border-t border-divider pt-4"
           >
-            <Text className="text-base font-medium text-foreground">
-              Edit margin action
-            </Text>
-            <View className="flex-row flex-wrap gap-2">
-              <PortfolioSelectionChip
-                label="Cross margin"
-                onPress={() => setEditor({ ...active, marginMode: "cross" })}
-                selected={active.marginMode === "cross"}
-              />
-              <PortfolioSelectionChip
-                label="Isolated margin"
-                onPress={() => setEditor({ ...active, marginMode: "isolated" })}
-                selected={active.marginMode === "isolated"}
-              />
+            <View className="gap-1">
+              <Text className="text-base font-medium text-foreground">
+                Limit close
+              </Text>
+              <Text className="text-sm leading-5 text-muted">
+                Place a reduce-only order to close at your price.
+              </Text>
             </View>
-            <TextField animation={reducedMotion ? "disable-all" : undefined}>
-              <Label>Leverage, maximum {position.maxLeverage}×</Label>
+            <TextField
+              animation={reducedMotion ? "disable-all" : undefined}
+              isDisabled={closePending}
+              isInvalid={error !== null}
+            >
+              <Label>Limit price (USDC)</Label>
               <Input
-                keyboardType="number-pad"
-                onChangeText={(leverage) => setEditor({ ...active, leverage })}
-                value={active.leverage}
+                accessibilityLabel={`Limit price for ${position.coin}`}
+                keyboardType="decimal-pad"
+                onChangeText={(limitPrice) =>
+                  setEditor({ ...active, limitPrice })
+                }
+                value={active.limitPrice}
               />
             </TextField>
+            <TextField
+              animation={reducedMotion ? "disable-all" : undefined}
+              isDisabled={closePending}
+              isInvalid={error !== null}
+            >
+              <Label>Size ({position.coin})</Label>
+              <Input
+                accessibilityLabel={`Close size for ${position.coin}`}
+                keyboardType="decimal-pad"
+                onChangeText={(size) => setEditor({ ...active, size })}
+                value={active.size}
+              />
+            </TextField>
+            <View className="flex-row items-center justify-between gap-3">
+              <Text className="flex-1 text-xs leading-4 text-muted">
+                Position size {position.absoluteSize} {position.coin}
+              </Text>
+              <Button
+                animation={reducedMotion ? "disable-all" : undefined}
+                isDisabled={closePending}
+                onPress={() =>
+                  setEditor({ ...active, size: position.absoluteSize })
+                }
+                size="sm"
+                variant="tertiary"
+              >
+                <Button.Label>Use full size</Button.Label>
+              </Button>
+            </View>
             {error ? (
               <Text
                 accessibilityRole="alert"
@@ -224,26 +324,34 @@ function PositionCard({
             ) : null}
             <View className="flex-row flex-wrap gap-2">
               <Button
+                accessibilityHint="Validates this reduce-only limit close, then requests device verification before submission."
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 min-w-32 flex-1"
+                isDisabled={closePending}
                 onPress={() =>
-                  onReviewMargin(
-                    position,
-                    Number(active.leverage),
-                    active.marginMode,
-                  )
+                  void onReviewClose(position, {
+                    ...createCloseDraft(position),
+                    behavior: "limit",
+                    limitPrice: active.limitPrice,
+                    size: active.size,
+                  })
                 }
                 variant="primary"
               >
-                Review margin
+                <Button.Label>
+                  {reviewingCloseBehavior === "limit"
+                    ? "Reviewing…"
+                    : "Review limit close"}
+                </Button.Label>
               </Button>
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 min-w-32 flex-1"
+                isDisabled={closePending}
                 onPress={() => setEditor(null)}
                 variant="tertiary"
               >
-                Keep current margin
+                <Button.Label>Cancel</Button.Label>
               </Button>
             </View>
           </View>
@@ -255,45 +363,106 @@ function PositionCard({
 
 function OrderCard({
   order,
+  markets,
   actionAccess,
+  cancelPending,
+  reviewingCancel,
   onCancel,
 }: {
   readonly order: PortfolioOpenOrderRow;
+  readonly markets: readonly Market[];
   readonly actionAccess: PortfolioActionAccess;
-  readonly onCancel: (order: PortfolioOpenOrderRow) => void;
+  readonly cancelPending: boolean;
+  readonly reviewingCancel: boolean;
+  readonly onCancel: (order: PortfolioOpenOrderRow) => Promise<void>;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const cancelEnabled = actionAccess.allowed && order.cancelEnabled;
   return (
     <Card variant="default" className="gap-3">
+      <RecordHeader
+        badges={
+          <>
+            <RecordTypeChip label="Open" />
+            <SideChip side={order.side} />
+          </>
+        }
+        detail={`${order.venue} · Order #${order.oid} · ${formatPortfolioRecordTime(order.timestamp)}`}
+        title={portfolioMarketLabel(order.coin, markets, order.market)}
+      />
       <Card.Body className="gap-3">
-        <View className="flex-row flex-wrap items-start justify-between gap-3">
-          <View className="gap-1">
-            <Card.Title>
-              {order.coin} · order {order.oid}
-            </Card.Title>
-            <Card.Description>{order.venue}</Card.Description>
-          </View>
-          <Chip size="sm" variant="soft" color="accent">
-            Open
-          </Chip>
-        </View>
         <View className="flex-row flex-wrap gap-x-5 gap-y-3">
-          <Value label="Side" value={order.side} />
-          <Value label="Size" value={order.size} />
-          <Value label="Limit" value={order.limitPrice} />
+          <Value label="Order size" value={order.size} />
+          <Value label="Limit price" value={order.limitPrice} />
         </View>
         {cancelEnabled ? (
           <Button
-            accessibilityHint="Review this order cancellation."
+            accessibilityHint="Validates this cancellation, then requests device verification before submission."
             animation={reducedMotion ? "disable-all" : undefined}
             className="min-h-12 w-full"
-            onPress={() => onCancel(order)}
+            isDisabled={cancelPending}
+            onPress={() => void onCancel(order)}
             variant="danger-soft"
           >
-            Review cancel
+            <Button.Label>
+              {reviewingCancel ? "Reviewing…" : "Cancel"}
+            </Button.Label>
           </Button>
         ) : null}
+      </Card.Body>
+    </Card>
+  );
+}
+
+interface HistoryMetric {
+  readonly label: string;
+  readonly value: string;
+  readonly tone?: "danger" | "default" | "success";
+}
+
+interface HistoryRecord {
+  readonly id: string;
+  readonly coin: string;
+  readonly type: "Fill" | "Funding";
+  readonly time: number;
+  readonly side: string | null;
+  readonly detail?: string;
+  readonly metrics: readonly HistoryMetric[];
+}
+
+function HistoryRecordCard({
+  markets,
+  record,
+}: {
+  readonly markets: readonly Market[];
+  readonly record: HistoryRecord;
+}): JSX.Element {
+  return (
+    <Card variant="default" className="gap-3">
+      <RecordHeader
+        badges={
+          <>
+            <RecordTypeChip label={record.type} />
+            {record.side === null ? null : <SideChip side={record.side} />}
+          </>
+        }
+        detail={formatPortfolioRecordTime(record.time)}
+        title={portfolioMarketLabel(record.coin, markets)}
+      />
+      <Card.Body className="gap-3">
+        {record.detail ? (
+          <Card.Description>{record.detail}</Card.Description>
+        ) : null}
+        <View className="flex-row flex-wrap gap-x-5 gap-y-3">
+          {record.metrics.map((metric) => (
+            <Value
+              key={metric.label}
+              label={metric.label}
+              tone={metric.tone}
+              value={metric.value}
+            />
+          ))}
+        </View>
       </Card.Body>
     </Card>
   );
@@ -329,6 +498,7 @@ function RowWindowFooter({
 
 export function PortfolioRows({
   portfolio,
+  markets,
   filter,
   editor,
   setEditor,
@@ -336,25 +506,27 @@ export function PortfolioRows({
   error,
   onCancel,
   onReviewClose,
-  onReviewMargin,
 }: {
   readonly portfolio: NormalizedPortfolio;
+  readonly markets: readonly Market[];
   readonly filter: PortfolioFilter;
   readonly editor: PortfolioEditor | null;
   readonly setEditor: (editor: PortfolioEditor | null) => void;
   readonly actionAccess: PortfolioActionAccess;
   readonly error: string | null;
-  readonly onCancel: (order: PortfolioOpenOrderRow) => void;
+  readonly onCancel: (order: PortfolioOpenOrderRow) => Promise<void>;
   readonly onReviewClose: (
     position: PortfolioPositionRow,
     draft: CloseDraft,
-  ) => void;
-  readonly onReviewMargin: (
-    position: PortfolioPositionRow,
-    leverage: number,
-    marginMode: "cross" | "isolated",
-  ) => void;
+  ) => Promise<void>;
 }): JSX.Element {
+  const [reviewingClose, setReviewingClose] = useState<{
+    readonly behavior: CloseDraft["behavior"];
+    readonly positionId: string;
+  } | null>(null);
+  const [reviewingCancelOrderId, setReviewingCancelOrderId] = useState<
+    string | null
+  >(null);
   const rowScope = `${portfolio.ownerKey}:${filter}`;
   const [rowWindow, setRowWindow] = useState({
     scope: rowScope,
@@ -371,6 +543,27 @@ export function PortfolioRows({
       ),
     }));
   };
+  const reviewClose = async (
+    position: PortfolioPositionRow,
+    draft: CloseDraft,
+  ) => {
+    if (reviewingClose !== null) return;
+    setReviewingClose({ behavior: draft.behavior, positionId: position.id });
+    try {
+      await onReviewClose(position, draft);
+    } finally {
+      setReviewingClose(null);
+    }
+  };
+  const cancelOrder = async (order: PortfolioOpenOrderRow) => {
+    if (reviewingCancelOrderId !== null) return;
+    setReviewingCancelOrderId(order.id);
+    try {
+      await onCancel(order);
+    } finally {
+      setReviewingCancelOrderId(null);
+    }
+  };
   if (filter === "positions") {
     const visible = boundedPortfolioRowLimit(
       requestedLimit,
@@ -383,12 +576,18 @@ export function PortfolioRows({
         {portfolio.positions.slice(0, visible).map((position) => (
           <PositionCard
             actionAccess={actionAccess}
+            closePending={reviewingClose !== null}
             editor={editor}
             error={editor?.positionId === position.id ? error : null}
             key={position.id}
-            onReviewClose={onReviewClose}
-            onReviewMargin={onReviewMargin}
+            markets={markets}
+            onReviewClose={reviewClose}
             position={position}
+            reviewingCloseBehavior={
+              reviewingClose?.positionId === position.id
+                ? reviewingClose.behavior
+                : null
+            }
             setEditor={setEditor}
           />
         ))}
@@ -412,9 +611,12 @@ export function PortfolioRows({
         {portfolio.openOrders.slice(0, visible).map((order) => (
           <OrderCard
             actionAccess={actionAccess}
+            cancelPending={reviewingCancelOrderId !== null}
             key={order.id}
-            onCancel={onCancel}
+            markets={markets}
+            onCancel={cancelOrder}
             order={order}
+            reviewingCancel={reviewingCancelOrderId === order.id}
           />
         ))}
         <RowWindowFooter
@@ -461,41 +663,63 @@ export function PortfolioRows({
         ? portfolio.funding.length
         : portfolio.activity.length;
   const visible = boundedPortfolioRowLimit(requestedLimit, sourceLength);
-  const rows =
+  const rows: readonly HistoryRecord[] =
     filter === "fills"
       ? portfolio.fills.slice(0, visible).map((fill) => ({
           id: `fill:${fill.hash}:${fill.oid}`,
-          title: `${fill.coin} · ${fill.side}`,
-          detail: `${fill.size} at ${fill.price} · fee ${fill.fee} ${fill.feeToken}`,
-          amount: `Closed PnL ${fill.closedPnl}`,
+          coin: fill.coin,
+          type: "Fill" as const,
+          time: fill.time,
+          side: fill.side,
+          metrics: [
+            { label: "Price", value: fill.price },
+            { label: "Size", value: fill.size },
+            { label: "Fee", value: `${fill.fee} ${fill.feeToken}` },
+            {
+              label: "Closed PnL",
+              value: `${fill.closedPnl} USDC`,
+              tone: amountTone(fill.closedPnl),
+            },
+          ],
         }))
       : filter === "funding"
         ? portfolio.funding.slice(0, visible).map((funding) => ({
-            id: `funding:${funding.hash}:${funding.coin}`,
-            title: `${funding.coin} · funding`,
-            detail: `Rate ${funding.fundingRate} · size ${funding.size}`,
-            amount: `${funding.usdc} USDC`,
+            id: portfolioFundingId(funding),
+            coin: funding.coin,
+            type: "Funding" as const,
+            time: funding.time,
+            side: null,
+            metrics: [
+              {
+                label: "Payment",
+                value: `${funding.usdc} USDC`,
+                tone: amountTone(funding.usdc),
+              },
+              { label: "Funding rate", value: funding.fundingRate },
+              { label: "Position size", value: funding.size },
+            ],
           }))
         : portfolio.activity.slice(0, visible).map((activity) => ({
             id: activity.id,
-            title: `${activity.coin} · ${activity.kind}`,
+            coin: activity.coin,
+            type: activity.kind === "fill" ? "Fill" : "Funding",
+            time: activity.time,
+            side: activity.side,
             detail: activity.detail,
-            amount: activity.amount,
+            metrics: [
+              {
+                label: activity.kind === "fill" ? "Closed PnL" : "Payment",
+                value: `${activity.amount} USDC`,
+                tone: amountTone(activity.amount),
+              },
+            ],
           }));
   return rows.length === 0 ? (
     <EmptyFilter label={filter.replaceAll("_", " ")} />
   ) : (
     <View className="gap-3">
       {rows.map((row) => (
-        <Card key={row.id} variant="default">
-          <Card.Body className="gap-2">
-            <Card.Title>{row.title}</Card.Title>
-            <Card.Description>{row.detail}</Card.Description>
-            <Text className="text-sm tabular-nums text-foreground">
-              {row.amount}
-            </Text>
-          </Card.Body>
-        </Card>
+        <HistoryRecordCard key={row.id} markets={markets} record={row} />
       ))}
       <RowWindowFooter
         onShowMore={() => showMore(sourceLength)}

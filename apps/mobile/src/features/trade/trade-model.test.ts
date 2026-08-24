@@ -9,7 +9,9 @@ import {
   SPOT_DUPLICATE,
 } from "../markets/fixture";
 import {
+  buildTradeLeverageReview,
   buildTradeReview,
+  canStartTradeReview,
   cloidFromRandomBytes,
   controlsForMarket,
   createTradeDraft,
@@ -51,6 +53,64 @@ const readyAuthority: TradeAuthority = {
   signerState: "unlocked",
   actionRuntimeAvailable: true,
 };
+
+describe("Trade leverage review", () => {
+  test("builds a bounded update using the current margin mode", () => {
+    const review = buildTradeLeverageReview({
+      market: NATIVE_DUPLICATE,
+      context,
+      capturedContextEpoch: 7,
+      authority: readyAuthority,
+      leverage: 10,
+      nowMs: NOW,
+    });
+
+    expect(review.validated.intent).toEqual({
+      type: "update_leverage",
+      assetId: NATIVE_DUPLICATE.orderAssetId,
+      leverage: 10,
+      marginMode: "cross",
+    });
+    expect(review.presentation).toMatchObject({
+      market: "DUP-USDC",
+      action: "Update leverage",
+      leverageAndMargin: "10× · cross",
+    });
+  });
+
+  test("rejects unchanged, excessive, and non-perpetual leverage", () => {
+    expect(() =>
+      buildTradeLeverageReview({
+        market: NATIVE_DUPLICATE,
+        context,
+        capturedContextEpoch: 7,
+        authority: readyAuthority,
+        leverage: 5,
+        nowMs: NOW,
+      }),
+    ).toThrow("different from the current value");
+    expect(() =>
+      buildTradeLeverageReview({
+        market: NATIVE_DUPLICATE,
+        context,
+        capturedContextEpoch: 7,
+        authority: readyAuthority,
+        leverage: 21,
+        nowMs: NOW,
+      }),
+    ).toThrow("from 1 through 20");
+    expect(() =>
+      buildTradeLeverageReview({
+        market: SPOT_DUPLICATE,
+        context,
+        capturedContextEpoch: 7,
+        authority: readyAuthority,
+        leverage: 2,
+        nowMs: NOW,
+      }),
+    ).toThrow("perpetual markets");
+  });
+});
 
 describe("Trade control applicability", () => {
   test("keeps only family and order appropriate controls visible", () => {
@@ -308,17 +368,31 @@ describe("Trade fail-closed gates", () => {
         nowMs: NOW,
       }),
     ).toMatchObject({ enabled: false, code: "market_unavailable" });
+    const staleAccountGate = evaluateTradeGate({
+      market: NATIVE_DUPLICATE,
+      context,
+      authority: {
+        ...readyAuthority,
+        account: { ...account, observedAtMs: NOW - 30_001 },
+      },
+      nowMs: NOW,
+    });
+    expect(staleAccountGate).toMatchObject({
+      enabled: false,
+      code: "stale_account",
+      reason: "Account details will refresh before review.",
+    });
+    expect(canStartTradeReview(staleAccountGate)).toBe(true);
     expect(
-      evaluateTradeGate({
-        market: NATIVE_DUPLICATE,
-        context,
-        authority: {
-          ...readyAuthority,
-          account: { ...account, observedAtMs: NOW - 30_001 },
-        },
-        nowMs: NOW,
-      }),
-    ).toMatchObject({ enabled: false, code: "stale_account" });
+      canStartTradeReview(
+        evaluateTradeGate({
+          market: NATIVE_DUPLICATE,
+          context,
+          authority: { ...readyAuthority, connectivity: "offline" },
+          nowMs: NOW,
+        }),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -391,7 +465,7 @@ describe("canonical switching and review handoff", () => {
     });
     expect(review.validation.account.availableMargin).toBe("900");
     expect(review.presentation).toEqual({
-      market: NATIVE_DUPLICATE.canonicalId,
+      market: "DUP-USDC",
       account: context.targetAccount as string,
       network: "Hyperliquid testnet",
       action: "Limit order · Gtc",
@@ -485,6 +559,34 @@ describe("canonical switching and review handoff", () => {
     });
     expect(review.presentation.slippage).toBe("0.5%");
 
+    const bitcoinLikeMarket = {
+      ...NATIVE_DUPLICATE,
+      markPx: "78800" as const,
+      midPx: "78800" as const,
+      sizeDecimals: 5,
+      pricePrecision: {
+        maxSignificantFigures: 5 as const,
+        maxDecimalPlaces: 1,
+      },
+    };
+    const bitcoinDraft = {
+      ...createTradeDraft({
+        market: bitcoinLikeMarket,
+        context,
+        account,
+      }),
+      size: "0.0001",
+      side: "buy" as const,
+      slippageBps: "50",
+    };
+    expect(() =>
+      buildTradeReview({
+        ...input,
+        market: bitcoinLikeMarket,
+        draft: bitcoinDraft,
+      }),
+    ).toThrow("Order must have minimum value of $10.");
+
     expect(() =>
       buildTradeReview({
         ...input,
@@ -510,7 +612,7 @@ describe("canonical switching and review handoff", () => {
       ...createTradeDraft({ market: SPOT_DUPLICATE, context, account }),
       orderType: "limit" as const,
       side: "buy" as const,
-      size: "2",
+      size: "5",
       limitPrice: "2",
     };
     const review = buildTradeReview({

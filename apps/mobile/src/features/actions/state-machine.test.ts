@@ -51,6 +51,38 @@ describe("shared action flow", () => {
     ).toBe(confirming);
   });
 
+  test("preserves an allowlisted terminal rejection message", () => {
+    const confirming = reduceActionFlow(INITIAL_ACTION_FLOW, {
+      type: "CONFIRM",
+    });
+    let submitting = confirming;
+    for (const phase of [
+      "unlocking",
+      "reserving",
+      "signing",
+      "submission_start",
+      "submitting",
+    ] as const) {
+      submitting = reduceActionFlow(submitting, {
+        type: "ADVANCE",
+        generation: confirming.generation,
+        phase,
+      });
+    }
+    expect(
+      reduceActionFlow(submitting, {
+        type: "TERMINAL",
+        generation: confirming.generation,
+        journalId: "jrn_00000000000000000000000000000000",
+        phase: "rejected",
+        message: "Order must have minimum value of $10.",
+      }),
+    ).toMatchObject({
+      phase: "rejected",
+      message: "Order must have minimum value of $10.",
+    });
+  });
+
   test("rejects illegal terminal, unresolved, and failure transitions", () => {
     const confirming = reduceActionFlow(INITIAL_ACTION_FLOW, {
       type: "CONFIRM",

@@ -143,8 +143,34 @@ test("does not expose a dismiss action while submission is critical", () => {
   };
   render(<ActionFlowSheet />);
 
-  expect(screen.getByText("Submitting")).toBeTruthy();
+  expect(screen.getByText("Submitting order…")).toBeTruthy();
+  expect(screen.getByLabelText("Submitting order…")).toBeTruthy();
   expect(screen.queryByRole("button")).toBeNull();
+});
+
+test("replaces the status rail and checking copy with a compact loader", () => {
+  mockRuntime.available = true;
+  mockFlow = {
+    phase: "reconciling",
+    generation: 1,
+    journalId: "journal-1",
+    message: "Hyperliquid has not confirmed the result yet.",
+  };
+  render(<ActionFlowSheet />);
+
+  expect(screen.getByLabelText("Checking order status")).toBeTruthy();
+  expect(screen.getByText("Checking order…")).toBeTruthy();
+  expect(screen.queryByText("Checking status")).toBeNull();
+  expect(
+    screen.queryByText("Confirming the result with Hyperliquid."),
+  ).toBeNull();
+  expect(
+    screen.queryByText("Hyperliquid has not confirmed the result yet."),
+  ).toBeNull();
+  expect(screen.queryByText("Leverage / margin")).toBeNull();
+  expect(screen.queryByText("Reduce only")).toBeNull();
+  expect(screen.queryByText("Estimated fee")).toBeNull();
+  expect(screen.queryByText("Account")).toBeNull();
 });
 
 test("stays closed during background review and opens after authentication", () => {
@@ -185,8 +211,25 @@ test("stays closed during background review and opens after authentication", () 
   view.rerender(<ActionFlowSheet />);
 
   expect(screen.getByLabelText("Order submission status")).toBeTruthy();
-  expect(screen.getByText("Preparing order")).toBeTruthy();
+  expect(screen.getByText("Preparing order…")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Place buy order" })).toBeNull();
+});
+
+test("shows the allowlisted minimum-notional rejection", () => {
+  mockFlow = {
+    phase: "rejected",
+    generation: 1,
+    journalId: "journal-1",
+    message: "Order must have minimum value of $10.",
+  };
+  render(<ActionFlowSheet />);
+
+  expect(screen.getByText("Action rejected")).toBeTruthy();
+  expect(
+    screen.getByText("Order must have minimum value of $10."),
+  ).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Edit order" }));
+  expect(mockClear).toHaveBeenCalledTimes(1);
 });
 
 test("closes and clears the completed review after acceptance", () => {

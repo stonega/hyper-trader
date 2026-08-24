@@ -1,3 +1,4 @@
+import { parseMarketSummaryPage } from "@hyper-trader/hyperliquid/public";
 import { createAsyncStoragePersister } from "@tanstack/query-async-storage-persister";
 import type {
   PersistedClient,
@@ -6,10 +7,11 @@ import type {
 
 import { isAllowlistedPublicQuery } from "../query/persistence";
 
-export const PUBLIC_CACHE_STORAGE_KEY = "hyper-trader.public-query-cache.v3";
+export const PUBLIC_CACHE_STORAGE_KEY = "hyper-trader.public-query-cache.v4";
 const LEGACY_PUBLIC_CACHE_STORAGE_KEYS = [
   "hyper-trader.public-query-cache.v1",
   "hyper-trader.public-query-cache.v2",
+  "hyper-trader.public-query-cache.v3",
 ] as const;
 
 export interface AsyncKeyValueStorage {
@@ -22,17 +24,47 @@ function isRestorablePublicData(
   queryKey: readonly unknown[],
   data: unknown,
 ): boolean {
-  if (queryKey[2] !== "marketCatalog") return true;
+  if (queryKey[2] !== "marketSummaries") return true;
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
     return false;
   }
-  const catalog = data as Readonly<Record<string, unknown>>;
-  return (
-    Array.isArray(catalog.markets) &&
-    catalog.markets.length > 0 &&
-    Array.isArray(catalog.quarantined) &&
-    Array.isArray(catalog.sourceErrors)
-  );
+  const infinite = data as Readonly<Record<string, unknown>>;
+  if (
+    !Array.isArray(infinite.pages) ||
+    infinite.pages.length === 0 ||
+    !Array.isArray(infinite.pageParams) ||
+    infinite.pageParams.length !== infinite.pages.length
+  ) {
+    return false;
+  }
+  const firstPageParam = infinite.pageParams[0];
+  if (
+    typeof firstPageParam !== "object" ||
+    firstPageParam === null ||
+    Array.isArray(firstPageParam) ||
+    Object.keys(firstPageParam).length !== 2 ||
+    (firstPageParam as Record<string, unknown>).cursor !== null ||
+    (firstPageParam as Record<string, unknown>).idOffset !== 0
+  ) {
+    return false;
+  }
+  try {
+    for (const page of infinite.pages) parseMarketSummaryPage(page);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function firstMarketSummaryPage(data: unknown): unknown {
+  const infinite = data as {
+    readonly pages: readonly unknown[];
+    readonly pageParams: readonly unknown[];
+  };
+  return {
+    pages: [infinite.pages[0]],
+    pageParams: [infinite.pageParams[0]],
+  };
 }
 
 function sanitizePersistedClient(value: PersistedClient): PersistedClient {
@@ -48,12 +80,23 @@ function sanitizePersistedClient(value: PersistedClient): PersistedClient {
     ...value,
     clientState: {
       mutations: [],
-      queries: value.clientState.queries.filter(
-        ({ queryKey, state }) =>
-          state.status === "success" &&
-          isAllowlistedPublicQuery(queryKey) &&
-          isRestorablePublicData(queryKey, state.data),
-      ),
+      queries: value.clientState.queries
+        .filter(
+          ({ queryKey, state }) =>
+            state.status === "success" &&
+            isAllowlistedPublicQuery(queryKey) &&
+            isRestorablePublicData(queryKey, state.data),
+        )
+        .map((query) => ({
+          ...query,
+          state: {
+            ...query.state,
+            data:
+              query.queryKey[2] === "marketSummaries"
+                ? firstMarketSummaryPage(query.state.data)
+                : query.state.data,
+          },
+        })),
     },
   };
 }

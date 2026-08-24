@@ -64,12 +64,14 @@ bun run market-catalog
 
 The executable applies forward migrations, synchronizes testnet and mainnet
 catalog generations, and exposes `/health`,
-`/v1/market-catalog/{testnet|mainnet}`, and the bounded Portfolio aggregation
-routes `/v1/portfolio-snapshots/{live|history}`. Portfolio requests use `POST`
-with `{ network, user }`; the public address is not placed in the URL, and
-responses are explicitly `no-store`. It terminates TLS directly and reads key
-material from files rather than ordinary environment-variable values. Set a
-unique, lowercase `NOTIFICATION_INSTANCE_ID` in multi-instance deployments.
+`/v1/market-catalog/{testnet|mainnet}`,
+`/v1/market-summaries/{testnet|mainnet}`, and the bounded Portfolio aggregation
+routes `/v1/portfolio-snapshots/{live|history}`. Market summaries are public,
+bounded to 50 rows, and use generation-bound cursors. Portfolio requests use
+`POST` with `{ network, user }`; the public address is not placed in the URL,
+and responses are explicitly `no-store`. It terminates TLS directly and reads
+key material from files rather than ordinary environment-variable values. Set
+a unique, lowercase `NOTIFICATION_INSTANCE_ID` in multi-instance deployments.
 
 Catalog publication fails closed when core discovery contains no validated
 native perpetual market. The public catalog route also treats an absent or
@@ -79,12 +81,21 @@ successful empty catalog to mobile clients.
 
 ## Mobile configuration
 
-Set `EXPO_PUBLIC_BACKEND_ORIGIN` to the reviewed exact HTTPS origin at build
-time. Expo `extra.backendOrigin` is the matching native-config field. During the
-transition, `EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` and Expo
+The checked-in Expo config pins `extra.backendOrigin` to the reviewed public
+Cloudflare backend. `EXPO_PUBLIC_BACKEND_ORIGIN` takes precedence when a build
+must target another reviewed exact HTTPS origin. During the transition,
+`EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` and Expo
 `extra.notificationServiceOrigin` remain accepted aliases because the catalog
-route is hosted by that service. The client captures the origin once and rejects
-runtime changes or invalid values.
+route is hosted by that service. The client captures the origin once and
+rejects runtime changes or invalid values. Fully reload a running Expo app after
+changing an `EXPO_PUBLIC_` value.
+
+Inspect one bounded page against a deployed backend with:
+
+```sh
+HYPER_TRADER_BACKEND_ORIGIN=https://catalog.example.com \
+bun examples/market-summary-page.ts
+```
 
 Portfolio uses this same origin for its versioned live and history aggregates.
 An invalid configured origin is an unavailable backend, not permission to fall
@@ -97,19 +108,52 @@ does not enumerate HIP-3 builder DEXes, remains visibly partial, and is compiled
 out of release behavior. Configured development builds and every release build
 continue to use the generation-pinned backend exclusively.
 
-On an empty development cache, the mobile client requests validated native
-perpetual metadata alongside the complete core bootstrap. Trade may select and
-render that native subset as soon as it arrives while spot and outcome metadata
-continue loading. The complete core result atomically replaces the subset; the
-progressive request is never used in configured or release builds.
+In an unconfigured development build only, summary pagination may be derived
+from one cached testnet core discovery. It reuses the same TanStack catalog
+query as Trade, including an equivalent request already in flight, instead of
+starting a second Hyperliquid discovery for Markets. Configured development
+builds and every release build request bounded server pages and do not download
+the full catalog for Markets.
+
+### Markets first-content timing
+
+Markets renders the cached default summary page directly from TanStack Query,
+or requests 24 summaries on a cold start. Search and filters are sent to the
+summary endpoint, and the next page is requested only near the list end.
+Summary data itself is not put behind React deferred rendering; only user-driven
+search and filter changes are deferred. The list renders three cards in its
+first batch, which fills the usual phone viewport without constructing
+off-screen cards before the first visible row.
+
+Development builds emit structured `[Markets timing]` records with a trace ID,
+step duration, and total elapsed time. The measured path includes public-cache
+restoration, summary-page query resolution, backend response/body assembly/JSON
+and strict parsing, each development-only direct Hyperliquid response and body
+decode, market discovery and sorting, summary publication to the screen, and
+first-row layout. The one-shot `screen:all-data-fetched` record is emitted after
+the initial summary request and local market preferences have both settled. Its
+`totalMs`, cache flags, outcome, and counts distinguish a cold response, a
+cached response, an offline pause, and an error without waiting for later
+infinite-scroll pages.
+The records include counts and status codes but never account identifiers,
+request payloads, response contents, or signing material. Timing callbacks are
+observability-only: an exception in a callback cannot alter transport behavior.
 
 ## Cloudflare public-backend deployment
 
 The repository includes a Cloudflare Worker deployment adapter for the public
-market-catalog and Portfolio routes. It uses D1 for generation and incremental
+market-catalog, market-summary, and Portfolio routes. It uses D1 for generation and incremental
 sync state, runs one bounded synchronization step per minute, and keeps the
 same exact-origin, request-size, response-size, ETag, and fail-closed HTTP
 contracts as the Bun service.
+
+D1 migration `0002_catalog_records` moves the published and building catalog
+documents out of `market_catalog_sync_state` into generation-scoped
+`market_catalog_records` and `market_catalog_source_errors` rows. This keeps
+lease queries and stored rows below D1's 2 MB string/BLOB/row limit while
+retaining the previous published generation during an incremental build.
+Record and metadata transitions use transactional D1 batches with the same
+generation and lease fencing.
 
 The Worker keeps Portfolio live reads within Cloudflare's six simultaneous
 outbound-connection limit by batching three active DEXes at a time. Active DEX

@@ -54,6 +54,22 @@ describe("market catalog discovery", () => {
     expect(catalog.markets.every(({ family }) => family === "perp")).toBe(true);
   });
 
+  test("can return validated spot markets without downloading perp or outcome metadata", async () => {
+    const requests: string[] = [];
+    const catalog = await createPublicHyperliquidClient({
+      network: "testnet",
+      fetch: async (input, init) => {
+        const body = JSON.parse(String(init?.body)) as { type: string };
+        requests.push(body.type);
+        return catalogFetch()(input, init);
+      },
+    }).getMarketCatalog({ scope: "spot" });
+
+    expect(requests).toEqual(["spotMetaAndAssetCtxs"]);
+    expect(catalog.markets.length).toBeGreaterThan(0);
+    expect(catalog.markets.every(({ family }) => family === "spot")).toBe(true);
+  });
+
   test("preserves canonical identities and quarantines unsafe records", async () => {
     const catalog = await createPublicHyperliquidClient({
       network: "testnet",

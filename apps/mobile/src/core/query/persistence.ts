@@ -4,18 +4,21 @@ import { isPublicQueryKey, type PublicQueryFamily } from "./keys";
 
 export const PUBLIC_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 export const PUBLIC_CACHE_GC_TIME_MS = 24 * 60 * 60 * 1000;
-export const PUBLIC_CACHE_BUSTER = "hyper-trader-public-v3";
+export const PUBLIC_CACHE_BUSTER = "hyper-trader-public-v5";
 
-const persistedFamilies = new Set<PublicQueryFamily>(["marketCatalog"]);
+const persistedFamilies = new Set<PublicQueryFamily>(["marketSummaries"]);
 
 const PERSISTING_CACHE_EVENT_TYPES = new Set(["added", "removed", "updated"]);
 
 export function isAllowlistedPublicQuery(queryKey: QueryKey): boolean {
-  return (
+  const allowedFamily =
     isPublicQueryKey(queryKey) &&
     (queryKey[1] === "mainnet" || queryKey[1] === "testnet") &&
     typeof queryKey[2] === "string" &&
-    persistedFamilies.has(queryKey[2] as PublicQueryFamily)
+    persistedFamilies.has(queryKey[2] as PublicQueryFamily);
+  return (
+    allowedFamily &&
+    (queryKey[2] !== "marketSummaries" || queryKey[3] === "default")
   );
 }
 

@@ -1,6 +1,7 @@
 import {
   assertSignerBinding,
   createExchangeClient,
+  createHyperliquidClient,
   type SignerBinding,
 } from "@hyper-trader/hyperliquid";
 import { randomUUID } from "expo-crypto";
@@ -30,8 +31,13 @@ import {
   refreshReviewedOrder,
   type TestnetServerClock,
 } from "./authoritative-order-refresh";
+import { createHyperliquidReconciliationEvidenceSource } from "./authoritative-reconciliation";
 import { developmentTestnetSubmissionEnabled } from "./development-capability";
 import { createActionOrchestrator } from "./orchestrator";
+import {
+  createActionReconciler,
+  createActionReconciliationPort,
+} from "./reconciler";
 import { ActionRuntimeProvider } from "./runtime-provider";
 
 function developmentBuild(): boolean {
@@ -116,6 +122,36 @@ interface DevelopmentActionInfrastructure {
   readonly clock: TestnetServerClock;
 }
 
+function createDevelopmentReconciliationPort(input: {
+  readonly infrastructure: DevelopmentActionInfrastructure;
+  readonly owner: string;
+  readonly shouldContinue?: () => boolean;
+}) {
+  const client = createHyperliquidClient({
+    network: "testnet",
+    fetch: input.infrastructure.clock.fetch,
+  });
+  const reconciler = createActionReconciler({
+    owner: input.owner,
+    now: Date.now,
+    repository: input.infrastructure.repository,
+    evidence: createHyperliquidReconciliationEvidenceSource({
+      clock: input.infrastructure.clock,
+      client,
+    }),
+    isActiveContext: () => false,
+    publishToActiveContext: () => undefined,
+  });
+  return createActionReconciliationPort({
+    repository: input.infrastructure.repository,
+    reconciler,
+    now: Date.now,
+    ...(input.shouldContinue === undefined
+      ? {}
+      : { shouldContinue: input.shouldContinue }),
+  });
+}
+
 function bindingForContext(
   context: NormalizedTradingContext,
 ): SignerBinding | null {
@@ -165,6 +201,13 @@ export function DevelopmentActionRuntimeProvider({
   const trading = useTradingContext();
   const tradingRef = useRef(trading);
   tradingRef.current = trading;
+  const reconciliationOwnerRef = useRef<string | null>(null);
+  if (reconciliationOwnerRef.current === null) {
+    reconciliationOwnerRef.current = `recon_${randomUUID()
+      .replaceAll("-", "")
+      .toLowerCase()}`;
+  }
+  const reconciliationOwner = reconciliationOwnerRef.current;
   const [infrastructure, setInfrastructure] =
     useState<DevelopmentActionInfrastructure | null>(null);
   const currentBinding = useMemo(
@@ -203,6 +246,7 @@ export function DevelopmentActionRuntimeProvider({
             return commit();
           },
         });
+        repository.recoverAfterRestart(Date.now());
         setInfrastructure({
           manual,
           repository,
@@ -238,6 +282,27 @@ export function DevelopmentActionRuntimeProvider({
     }
   }, [currentBinding, currentBindingKey, infrastructure]);
 
+  useEffect(() => {
+    if (infrastructure === null) return;
+    let active = true;
+    const reconciliation = createDevelopmentReconciliationPort({
+      infrastructure,
+      owner: reconciliationOwner,
+      shouldContinue: () => active,
+    });
+    const journalIds = infrastructure.repository
+      .listReconcilableActions()
+      .map(({ journalId }) => journalId);
+    void Promise.all(
+      journalIds.map((journalId) => reconciliation.reconcile(journalId)),
+    ).catch(() => {
+      // Durable unresolved records remain available for the next safe restart.
+    });
+    return () => {
+      active = false;
+    };
+  }, [infrastructure, reconciliationOwner]);
+
   const orchestrator = useMemo(() => {
     if (
       !enabled ||
@@ -256,6 +321,10 @@ export function DevelopmentActionRuntimeProvider({
       exchange: createExchangeClient({
         network: "testnet",
         fetch: clock.fetch,
+      }),
+      reconciliation: createDevelopmentReconciliationPort({
+        infrastructure,
+        owner: reconciliationOwner,
       }),
       refresh: (review) =>
         refreshReviewedOrder({
@@ -280,6 +349,7 @@ export function DevelopmentActionRuntimeProvider({
     currentBindingKey,
     enabled,
     infrastructure,
+    reconciliationOwner,
     registeredBindingKey,
     signerSession.manager,
   ]);

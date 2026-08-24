@@ -2,7 +2,11 @@ import { describe, expect, test } from "bun:test";
 
 import {
   accountEventStreamKey,
+  activeAssetDataStreamKey,
   createAccountEventWire,
+  createActiveAssetDataWire,
+  createSpotStateWire,
+  spotStateStreamKey,
 } from "./account-events";
 
 const USER = `0x${"1".repeat(40)}`;
@@ -53,5 +57,55 @@ describe("account event stream wires", () => {
         data: { user: USER, isSnapshot: true, fills: [] },
       })[0]?.isSnapshot,
     ).toBe(true);
+  });
+
+  test("invalidates the exact perp account and coin from active asset data", () => {
+    const key = activeAssetDataStreamKey("testnet", USER, "BTC");
+    const wire = createActiveAssetDataWire(key, USER, "BTC");
+
+    expect(wire.subscription).toEqual({
+      type: "activeAssetData",
+      user: USER,
+      coin: "BTC",
+    });
+    expect(
+      wire.decode({
+        channel: "activeAssetData",
+        data: { user: USER, coin: "BTC", leverage: { value: 5 } },
+      }),
+    ).toEqual([
+      expect.objectContaining({ key, data: null, isSnapshot: false }),
+    ]);
+    expect(
+      wire.decode({
+        channel: "activeAssetData",
+        data: { user: USER, coin: "ETH" },
+      }),
+    ).toEqual([]);
+  });
+
+  test("invalidates spot balances from the exact account state", () => {
+    const key = spotStateStreamKey("testnet", USER, false);
+    const wire = createSpotStateWire(key, USER, false);
+
+    expect(wire.subscription).toEqual({
+      type: "spotState",
+      user: USER,
+      isPortfolioMargin: false,
+    });
+    expect(
+      wire.decode({
+        channel: "spotState",
+        data: { user: USER, balances: [] },
+      }),
+    ).toEqual([
+      expect.objectContaining({ key, data: null, isSnapshot: false }),
+    ]);
+    expect(
+      wire.decode({
+        channel: "spotState",
+        data: { user: `0x${"2".repeat(40)}`, balances: [] },
+      }),
+    ).toEqual([]);
   });
 });

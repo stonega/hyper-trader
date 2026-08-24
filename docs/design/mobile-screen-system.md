@@ -77,6 +77,10 @@ making the API wallet independently selectable.
 - R4. Read-only users must be able to browse every validated market without connecting a wallet.
 - R5. Loading, stale, offline, empty, unavailable, and retry states must preserve the last trustworthy data whenever it remains safe to display.
 - R6. Primary controls must meet native accessibility expectations for labels, focus order, touch targets, text scaling, reduced motion, and non-color status cues.
+- R6a. Every routed form and full-screen input modal must resize for the software
+  keyboard on iOS and Android so the focused input and its nearby action remain
+  reachable. Scrollable forms must allow handled controls to receive taps while
+  the keyboard is open and dismiss it when the user drags the form.
 
 ### Market coverage and discovery
 
@@ -114,7 +118,7 @@ making the API wallet independently selectable.
 
 - R29. Portfolio must lead with total account value, absolute and percentage PnL, and a selectable time-range performance chart.
 - R30. Portfolio must present one account overview with filters for positions, open orders, spot balances, fills, funding, and other supported activity.
-- R31. Position rows must expose a direct full-close review and applicable margin actions. Unavailable controls, including TP/SL until implemented end to end, must not be rendered.
+- R31. Position rows must expose direct Market and Limit close actions. Market starts a full-position close review, while Limit opens an inline reduce-only price and size form. Unavailable controls, including margin changes and TP/SL, must not be rendered.
 - R32. Direct portfolio actions must use the same validation, review, session-unlock, signing, result, and reconciliation rules as Trade.
 - R33. Portfolio must isolate loading, cached data, and action state by master account, sub-account or vault context, and network.
 - R33a. Portfolio endpoint fan-out must run in the backend; mobile keeps private aggregates in memory and uses account WebSocket events only to trigger an authoritative refresh.
@@ -178,7 +182,7 @@ making the API wallet independently selectable.
 - AE4. **Covers R19.** Given a user rejects master-wallet approval, when the user returns to Trade, then read-only exploration still works and setup can be resumed later.
 - AE5. **Covers R26.** Given a valid order draft and an expired signing session, when device authentication succeeds, then the app revalidates and restores the draft before signing.
 - AE6. **Covers R27.** Given submission times out after signing, when the exchange outcome is not yet known, then the app shows a reconciling state and does not invite an unsafe duplicate submission.
-- AE7. **Covers R32.** Given a user taps Close from Portfolio, when review opens, then account, network, market, side, size, order behavior, and estimated impact remain visible before confirmation.
+- AE7. **Covers R32.** Given a user taps Market or submits the Limit form from Portfolio, when review opens, then account, network, market, side, size, order behavior, and estimated impact remain visible before confirmation.
 - AE8. **Covers R44.** Given a notification for account B arrives while account A is active, when the user opens it, then the app identifies the context switch before showing B's data.
 - AE9. **Covers R45, R46.** Given a user unlinks an account from a device, when removal completes, then the device token and associated alert rules are revoked without affecting on-device signing credentials for other accounts.
 

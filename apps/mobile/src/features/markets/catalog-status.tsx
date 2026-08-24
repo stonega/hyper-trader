@@ -3,6 +3,7 @@ import type { JSX } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
+import { CompactUpdateStatus } from "../../components/ui/compact-update-status";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import type { CatalogPresentationState } from "./catalog-state";
@@ -21,6 +22,7 @@ export function CatalogStatus({
     state.content === "unavailable"
       ? {
           containerClass: "bg-danger/10",
+          compact: "danger" as const,
           dotClass: "bg-danger",
           titleClass: "text-danger",
         }
@@ -29,11 +31,13 @@ export function CatalogStatus({
           !state.hasPartialSources
         ? {
             containerClass: "bg-success/10",
+            compact: "success" as const,
             dotClass: "bg-success",
             titleClass: "text-success",
           }
         : {
             containerClass: "bg-warning/10",
+            compact: "warning" as const,
             dotClass: "bg-warning",
             titleClass: "text-warning",
           };
@@ -50,35 +54,29 @@ export function CatalogStatus({
 
   if (compact) {
     return (
-      <View
-        className="shrink flex-row items-center gap-1.5"
+      <CompactUpdateStatus
+        accessibilityRole={state.content === "unavailable" ? "alert" : "text"}
+        description={description}
         testID="catalog-status"
-      >
-        <View className={`size-2 shrink-0 rounded-full ${tone.dotClass}`} />
-        <Text
-          accessibilityLabel={`${title}. ${description}`}
-          accessibilityLiveRegion="polite"
-          accessibilityRole={state.content === "unavailable" ? "alert" : "text"}
-          className={`min-w-0 shrink text-xs font-semibold ${tone.titleClass}`}
-          numberOfLines={1}
-        >
-          {title}
-        </Text>
-        {state.canRetry ? (
-          <Button
-            accessibilityHint="Tries to refresh the market list."
-            accessibilityLabel="Retry market update"
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="h-10 min-h-10 shrink-0 px-2"
-            hitSlop={COMPACT_SEGMENT_HIT_SLOP}
-            onPress={onRetry}
-            size="sm"
-            variant="ghost"
-          >
-            <Button.Label className="text-xs">Retry</Button.Label>
-          </Button>
-        ) : null}
-      </View>
+        title={title}
+        tone={tone.compact}
+        trailing={
+          state.canRetry ? (
+            <Button
+              accessibilityHint="Tries to refresh the market list."
+              accessibilityLabel="Retry market update"
+              animation={reducedMotion ? "disable-all" : undefined}
+              className="h-10 min-h-10 shrink-0 px-2"
+              hitSlop={COMPACT_SEGMENT_HIT_SLOP}
+              onPress={onRetry}
+              size="sm"
+              variant="ghost"
+            >
+              <Button.Label className="text-xs">Retry</Button.Label>
+            </Button>
+          ) : null
+        }
+      />
     );
   }
 

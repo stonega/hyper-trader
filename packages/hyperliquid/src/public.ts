@@ -41,6 +41,7 @@ export type { MarketCatalogRequestOptions } from "./markets/catalog";
 export { parseMarketContext } from "./markets/catalog";
 export * from "./markets/reads";
 export * from "./markets/snapshot";
+export * from "./markets/summary";
 export * from "./markets/types";
 export * from "./network";
 export * from "./numbers/decimal";

@@ -22,6 +22,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { AppText as Text } from "../../components/app-text";
+import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { useAccountDirectory } from "../../features/accounts/account-directory-provider";
@@ -523,272 +524,278 @@ export default function SetupScreen(): JSX.Element {
       state.phase === "activating");
 
   return (
-    <ScrollView
-      className="flex-1 bg-background"
-      contentContainerClassName="gap-6 px-5"
-      contentContainerStyle={{
-        flexGrow: 1,
-        paddingTop: Math.max(insets.top, 24),
-        paddingBottom: Math.max(insets.bottom, 24),
-      }}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View className="gap-2">
-        <Text className="text-sm font-medium text-accent">
-          Hyperliquid testnet
-        </Text>
-        <Text
-          accessibilityRole="header"
-          className="text-4xl font-semibold tracking-tight text-foreground"
-        >
-          Set up trading
-        </Text>
-        <Text className="text-base leading-6 text-muted">
-          {stepLabel(state.phase)}
-        </Text>
-      </View>
-
-      <Card variant="default" className="min-h-80 gap-4">
-        <Card.Body className="gap-4">
-          <Animated.View
-            key={state.phase}
-            className="gap-4"
-            entering={FadeIn.duration(duration).reduceMotion(
-              ReduceMotion.System,
-            )}
-            exiting={FadeOut.duration(Math.min(duration, 100)).reduceMotion(
-              ReduceMotion.System,
-            )}
+    <KeyboardAwareView className="flex-1 bg-background">
+      <ScrollView
+        className="flex-1 bg-background"
+        contentContainerClassName="gap-6 px-5"
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingTop: Math.max(insets.top, 24),
+          paddingBottom: Math.max(insets.bottom, 24),
+        }}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+      >
+        <View className="gap-2">
+          <Text className="text-sm font-medium text-accent">
+            Hyperliquid testnet
+          </Text>
+          <Text
+            accessibilityRole="header"
+            className="text-4xl font-semibold tracking-tight text-foreground"
           >
-            <View className="gap-2">
-              <Card.Title>{copy.title}</Card.Title>
-              <Card.Description>{copy.description}</Card.Description>
-            </View>
+            Set up trading
+          </Text>
+          <Text className="text-base leading-6 text-muted">
+            {stepLabel(state.phase)}
+          </Text>
+        </View>
 
-            {state.phase === "account" ? (
-              <View>
-                <TextField isInvalid={addressInvalid} isRequired>
-                  <Label>Master wallet address</Label>
-                  <InputGroup>
-                    <InputGroup.Input
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      onChangeText={(value) => {
-                        scannerActive.current = false;
-                        setMasterAccount(value);
-                        setNotice(null);
-                      }}
-                      placeholder="0x…"
-                      value={masterAccount}
-                    />
-                    <InputGroup.Suffix className="px-1">
-                      <Button
-                        accessibilityHint="Opens the camera to scan a public wallet address."
-                        accessibilityLabel="Scan master wallet QR code"
-                        animation={reducedMotion ? "disable-all" : undefined}
-                        hitSlop={4}
-                        isIconOnly
-                        onPress={() => {
-                          void scanMasterWallet();
-                        }}
-                        size="sm"
-                        variant="ghost"
-                      >
-                        <Ionicons
-                          accessibilityElementsHidden
-                          color={accent}
-                          importantForAccessibility="no-hide-descendants"
-                          name="qr-code-outline"
-                          size={20}
-                        />
-                      </Button>
-                    </InputGroup.Suffix>
-                  </InputGroup>
-                  <Description>
-                    Public address only. Never enter a seed phrase or private
-                    key.
-                  </Description>
-                  {addressInvalid ? <FieldError>{notice}</FieldError> : null}
-                </TextField>
+        <Card variant="default" className="min-h-80 gap-4">
+          <Card.Body className="gap-4">
+            <Animated.View
+              key={state.phase}
+              className="gap-4"
+              entering={FadeIn.duration(duration).reduceMotion(
+                ReduceMotion.System,
+              )}
+              exiting={FadeOut.duration(Math.min(duration, 100)).reduceMotion(
+                ReduceMotion.System,
+              )}
+            >
+              <View className="gap-2">
+                <Card.Title>{copy.title}</Card.Title>
+                <Card.Description>{copy.description}</Card.Description>
               </View>
+
+              {state.phase === "account" ? (
+                <View>
+                  <TextField isInvalid={addressInvalid} isRequired>
+                    <Label>Master wallet address</Label>
+                    <InputGroup>
+                      <InputGroup.Input
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        onChangeText={(value) => {
+                          scannerActive.current = false;
+                          setMasterAccount(value);
+                          setNotice(null);
+                        }}
+                        placeholder="0x…"
+                        value={masterAccount}
+                      />
+                      <InputGroup.Suffix className="px-1">
+                        <Button
+                          accessibilityHint="Opens the camera to scan a public wallet address."
+                          accessibilityLabel="Scan master wallet QR code"
+                          animation={reducedMotion ? "disable-all" : undefined}
+                          hitSlop={4}
+                          isIconOnly
+                          onPress={() => {
+                            void scanMasterWallet();
+                          }}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          <Ionicons
+                            accessibilityElementsHidden
+                            color={accent}
+                            importantForAccessibility="no-hide-descendants"
+                            name="qr-code-outline"
+                            size={20}
+                          />
+                        </Button>
+                      </InputGroup.Suffix>
+                    </InputGroup>
+                    <Description>
+                      Public address only. Never enter a seed phrase or private
+                      key.
+                    </Description>
+                    {addressInvalid ? <FieldError>{notice}</FieldError> : null}
+                  </TextField>
+                </View>
+              ) : null}
+
+              {state.phase === "protection" ? (
+                <View className="gap-3 rounded-2xl bg-surface-secondary p-4">
+                  <Text className="font-medium text-foreground">
+                    {masterAccount}
+                  </Text>
+                  <Text className="text-base leading-6 text-muted">
+                    Your device protects the private key. Hyper Trader never
+                    shows or copies it.
+                  </Text>
+                </View>
+              ) : null}
+
+              {authorizationVisible ? (
+                <View className="gap-4">
+                  <View className="gap-4 rounded-2xl bg-surface-secondary p-4">
+                    <View className="gap-1">
+                      <Text className="text-sm font-medium text-muted">
+                        API wallet address
+                      </Text>
+                      <Text className="text-sm leading-5 text-muted">
+                        Scan or copy this exact public address into Hyperliquid.
+                      </Text>
+                    </View>
+
+                    <View
+                      accessible
+                      accessibilityLabel="QR code for the generated API wallet address"
+                      accessibilityRole="image"
+                      className="items-center self-center rounded-3xl bg-white p-1"
+                      testID="api-wallet-address-qr"
+                    >
+                      <QRCodeStyled
+                        color="#111827"
+                        data={attempt.agentAddress}
+                        errorCorrectionLevel="M"
+                        padding={14}
+                        pieceScale={1.03}
+                        size={156}
+                        testID="api-wallet-address-qr-code"
+                      />
+                    </View>
+
+                    <Text
+                      selectable
+                      className="text-center text-sm font-medium leading-5 text-foreground"
+                    >
+                      {attempt.agentAddress}
+                    </Text>
+                    <Button
+                      accessibilityLabel="Copy API wallet address"
+                      animation={reducedMotion ? "disable-all" : undefined}
+                      className="min-h-11 w-full"
+                      onPress={() => {
+                        void copyPublicValue(
+                          attempt.agentAddress,
+                          "API wallet address",
+                        );
+                      }}
+                      variant="outline"
+                    >
+                      <Ionicons
+                        accessibilityElementsHidden
+                        color={accent}
+                        importantForAccessibility="no-hide-descendants"
+                        name="copy-outline"
+                        size={18}
+                      />
+                      <Button.Label>Copy wallet address</Button.Label>
+                    </Button>
+                  </View>
+
+                  <Text className="text-sm leading-5 text-muted">
+                    Connect {attempt.masterAccount} and add this address. Use
+                    {` ${attempt.registrationName}`} if Hyperliquid asks for a
+                    name, and choose the expiry you want.
+                  </Text>
+                </View>
+              ) : null}
+
+              {state.phase === "failure" ? (
+                <Text
+                  accessibilityRole="alert"
+                  className="text-sm text-warning"
+                >
+                  {state.failureReason}
+                </Text>
+              ) : null}
+
+              {notice !== null && !addressInvalid ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  className="text-sm text-muted"
+                >
+                  {notice}
+                </Text>
+              ) : null}
+            </Animated.View>
+          </Card.Body>
+
+          <Card.Footer className="flex-col gap-3">
+            {state.phase === "account" ? (
+              <Button
+                animation={reducedMotion ? "disable-all" : undefined}
+                className="min-h-12 w-full"
+                onPress={() => void generateWallet()}
+                variant="primary"
+              >
+                Generate API wallet
+              </Button>
             ) : null}
 
             {state.phase === "protection" ? (
-              <View className="gap-3 rounded-2xl bg-surface-secondary p-4">
-                <Text className="font-medium text-foreground">
-                  {masterAccount}
-                </Text>
-                <Text className="text-base leading-6 text-muted">
-                  Your device protects the private key. Hyper Trader never shows
-                  or copies it.
-                </Text>
-              </View>
+              <Button
+                animation={reducedMotion ? "disable-all" : undefined}
+                className="min-h-12 w-full"
+                isDisabled={state.readiness === "working"}
+                onPress={() => void generateWallet()}
+                variant="primary"
+              >
+                {state.readiness === "working"
+                  ? "Generating wallet…"
+                  : "Generate API wallet"}
+              </Button>
             ) : null}
 
             {authorizationVisible ? (
-              <View className="gap-4">
-                <View className="gap-4 rounded-2xl bg-surface-secondary p-4">
-                  <View className="gap-1">
-                    <Text className="text-sm font-medium text-muted">
-                      API wallet address
-                    </Text>
-                    <Text className="text-sm leading-5 text-muted">
-                      Scan or copy this exact public address into Hyperliquid.
-                    </Text>
-                  </View>
-
-                  <View
-                    accessible
-                    accessibilityLabel="QR code for the generated API wallet address"
-                    accessibilityRole="image"
-                    className="items-center self-center rounded-3xl bg-white p-1"
-                    testID="api-wallet-address-qr"
-                  >
-                    <QRCodeStyled
-                      color="#111827"
-                      data={attempt.agentAddress}
-                      errorCorrectionLevel="M"
-                      padding={14}
-                      pieceScale={1.03}
-                      size={156}
-                      testID="api-wallet-address-qr-code"
-                    />
-                  </View>
-
-                  <Text
-                    selectable
-                    className="text-center text-sm font-medium leading-5 text-foreground"
-                  >
-                    {attempt.agentAddress}
-                  </Text>
-                  <Button
-                    accessibilityLabel="Copy API wallet address"
-                    animation={reducedMotion ? "disable-all" : undefined}
-                    className="min-h-11 w-full"
-                    onPress={() => {
-                      void copyPublicValue(
-                        attempt.agentAddress,
-                        "API wallet address",
-                      );
-                    }}
-                    variant="outline"
-                  >
-                    <Ionicons
-                      accessibilityElementsHidden
-                      color={accent}
-                      importantForAccessibility="no-hide-descendants"
-                      name="copy-outline"
-                      size={18}
-                    />
-                    <Button.Label>Copy wallet address</Button.Label>
-                  </Button>
-                </View>
-
-                <Text className="text-sm leading-5 text-muted">
-                  Connect {attempt.masterAccount} and add this address. Use
-                  {` ${attempt.registrationName}`} if Hyperliquid asks for a
-                  name, and choose the expiry you want.
-                </Text>
-              </View>
+              <>
+                <Button
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  className="min-h-12 w-full"
+                  isDisabled={state.readiness === "working"}
+                  onPress={() => void openHyperliquid()}
+                  variant="primary"
+                >
+                  Open Hyperliquid API
+                </Button>
+                <Button
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  className="min-h-12 w-full"
+                  isDisabled={state.readiness === "working"}
+                  onPress={() => void verifyAuthorization()}
+                  variant="secondary"
+                >
+                  {state.phase === "verifying"
+                    ? "Checking…"
+                    : state.phase === "activating"
+                      ? "Saving account…"
+                      : "Check again"}
+                </Button>
+              </>
             ) : null}
 
             {state.phase === "failure" ? (
-              <Text accessibilityRole="alert" className="text-sm text-warning">
-                {state.failureReason}
-              </Text>
-            ) : null}
-
-            {notice !== null && !addressInvalid ? (
-              <Text
-                accessibilityLiveRegion="polite"
-                className="text-sm text-muted"
-              >
-                {notice}
-              </Text>
-            ) : null}
-          </Animated.View>
-        </Card.Body>
-
-        <Card.Footer className="flex-col gap-3">
-          {state.phase === "account" ? (
-            <Button
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 w-full"
-              onPress={() => void generateWallet()}
-              variant="primary"
-            >
-              Generate API wallet
-            </Button>
-          ) : null}
-
-          {state.phase === "protection" ? (
-            <Button
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 w-full"
-              isDisabled={state.readiness === "working"}
-              onPress={() => void generateWallet()}
-              variant="primary"
-            >
-              {state.readiness === "working"
-                ? "Generating wallet…"
-                : "Generate API wallet"}
-            </Button>
-          ) : null}
-
-          {authorizationVisible ? (
-            <>
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
-                isDisabled={state.readiness === "working"}
-                onPress={() => void openHyperliquid()}
+                onPress={() => {
+                  dispatch({ type: "RETRY" });
+                }}
                 variant="primary"
               >
-                Open Hyperliquid API
+                {state.returnPhase === "authorization"
+                  ? "Review authorization"
+                  : "Try again"}
               </Button>
+            ) : null}
+
+            {!setupConsumesBack(state.phase) && state.phase !== "ready" ? (
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
-                isDisabled={state.readiness === "working"}
-                onPress={() => void verifyAuthorization()}
-                variant="secondary"
+                onPress={() => router.replace("/(tabs)/trade")}
+                variant="tertiary"
               >
-                {state.phase === "verifying"
-                  ? "Checking…"
-                  : state.phase === "activating"
-                    ? "Saving account…"
-                    : "Check again"}
+                Finish later
               </Button>
-            </>
-          ) : null}
-
-          {state.phase === "failure" ? (
-            <Button
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 w-full"
-              onPress={() => {
-                dispatch({ type: "RETRY" });
-              }}
-              variant="primary"
-            >
-              {state.returnPhase === "authorization"
-                ? "Review authorization"
-                : "Try again"}
-            </Button>
-          ) : null}
-
-          {!setupConsumesBack(state.phase) && state.phase !== "ready" ? (
-            <Button
-              animation={reducedMotion ? "disable-all" : undefined}
-              className="min-h-12 w-full"
-              onPress={() => router.replace("/(tabs)/trade")}
-              variant="tertiary"
-            >
-              Finish later
-            </Button>
-          ) : null}
-        </Card.Footer>
-      </Card>
-    </ScrollView>
+            ) : null}
+          </Card.Footer>
+        </Card>
+      </ScrollView>
+    </KeyboardAwareView>
   );
 }

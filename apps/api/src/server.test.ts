@@ -263,6 +263,160 @@ describe("bounded public notification API", () => {
     expect(notModified.status).toBe(304);
   });
 
+  test("serves a lightweight generation-bound market page before the full catalog", async () => {
+    let generation = 7;
+    const eth: PerpMarket = {
+      ...NATIVE_MARKET,
+      canonicalId: "perp:0:1",
+      coin: "ETH",
+      displaySymbol: "ETH",
+      universeIndex: 1,
+      orderAssetId: 1,
+      dayNtlVlm: "200",
+      markPx: "4000",
+    };
+    const btc: PerpMarket = {
+      ...NATIVE_MARKET,
+      dayNtlVlm: "100",
+    };
+    const hip3: PerpMarket = {
+      ...NATIVE_MARKET,
+      canonicalId: "perp:3:0",
+      coin: "xyz:XYZ",
+      displaySymbol: "XYZ",
+      dexIndex: 3,
+      dexName: "xyz",
+      dexFullName: "XYZ Markets",
+      orderAssetId: 130_000,
+      dayNtlVlm: "50",
+    };
+    const handler = createMarketCatalogRequestHandler({
+      serviceOrigin: "https://notify.example.com",
+      marketCatalog: {
+        readPublished: async (network) => ({
+          network,
+          generation,
+          publishedAtMs: 1_800_000_000_000,
+          catalog: {
+            markets: [btc, eth, hip3],
+            quarantined: [],
+            sourceErrors: [],
+          },
+        }),
+      },
+    });
+
+    const first = await handler(
+      new Request(
+        "https://notify.example.com/v1/market-summaries/testnet?limit=1&includeHip3=true",
+      ),
+    );
+    expect(first.status).toBe(200);
+    expect(await first.json()).toEqual({
+      schemaVersion: 1,
+      network: "testnet",
+      generation: 7,
+      publishedAtMs: 1_800_000_000_000,
+      items: [
+        {
+          family: "perp",
+          canonicalId: "perp:0:1",
+          displaySymbol: "ETH",
+          coin: "ETH",
+          lifecycle: "active",
+          orderAvailability: "enabled",
+          pricePrecision: {
+            maxSignificantFigures: 5,
+            maxDecimalPlaces: 1,
+          },
+          dayNtlVlm: "200",
+          markPx: "4000",
+          dexIndex: 0,
+          dexName: "",
+          dexFullName: null,
+          maxLeverage: 50,
+        },
+      ],
+      total: 3,
+      nextCursor: "g7o1",
+      quarantinedCount: 0,
+      sourceErrorCount: 0,
+    });
+
+    const second = await handler(
+      new Request(
+        "https://notify.example.com/v1/market-summaries/testnet?limit=1&cursor=g7o1",
+      ),
+    );
+    expect(second.status).toBe(200);
+    expect(
+      ((await second.json()) as { items: { canonicalId: string }[] }).items[0]
+        ?.canonicalId,
+    ).toBe("perp:0:0");
+
+    const filtered = await handler(
+      new Request(
+        "https://notify.example.com/v1/market-summaries/testnet?query=btc&family=perp",
+      ),
+    );
+    expect(filtered.status).toBe(200);
+    expect(((await filtered.json()) as { total: number }).total).toBe(1);
+
+    const strict = await handler(
+      new Request(
+        "https://notify.example.com/v1/market-summaries/testnet?includeHip3=false",
+      ),
+    );
+    expect(strict.status).toBe(200);
+    const strictPage = (await strict.json()) as {
+      items: { canonicalId: string }[];
+      total: number;
+    };
+    expect(strictPage.total).toBe(2);
+    expect(strictPage.items.map(({ canonicalId }) => canonicalId)).toEqual([
+      eth.canonicalId,
+      btc.canonicalId,
+    ]);
+
+    generation = 8;
+    expect(
+      (
+        await handler(
+          new Request(
+            "https://notify.example.com/v1/market-summaries/testnet?cursor=g7o1",
+          ),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await handler(
+          new Request(
+            "https://notify.example.com/v1/market-summaries/testnet?unknown=true",
+          ),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await handler(
+          new Request(
+            "https://notify.example.com/v1/market-summaries/testnet?cursor=untrusted",
+          ),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await handler(
+          new Request(
+            "https://notify.example.com/v1/market-summaries/testnet?includeHip3=maybe",
+          ),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
   test("serves bounded no-store Portfolio aggregates without placing an address in the URL", async () => {
     const user = `0x${"1".repeat(40)}`;
     const calls: string[] = [];

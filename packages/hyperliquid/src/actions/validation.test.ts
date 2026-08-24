@@ -62,6 +62,33 @@ describe("action boundary validation", () => {
     expect(result.notional).toBe("10");
   });
 
+  test("reports the exact minimum-notional message", () => {
+    expect(() =>
+      validateTradingAction({
+        context,
+        market,
+        account: {
+          availableMargin: "1000",
+          leverage: 5,
+          marginMode: "cross",
+          positionSize: "0",
+          version: 4,
+        },
+        controls: { slippageBps: null, trigger: null },
+        intent: {
+          type: "limit_order",
+          assetId: 0,
+          side: "buy",
+          size: "0.099",
+          limitPrice: "100",
+          timeInForce: "Gtc",
+          reduceOnly: false,
+          cloid: "0x0000000000000000000000000000000a",
+        },
+      }),
+    ).toThrow("Order must have minimum value of $10.");
+  });
+
   test("accepts integer prices while rejecting forged precision metadata", () => {
     const input = {
       context,

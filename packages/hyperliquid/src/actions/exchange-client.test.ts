@@ -25,6 +25,17 @@ describe("exchange response boundary", () => {
         },
       }),
     ).toEqual({ kind: "accepted", providerOrderIds: [] });
+    expect(
+      classifyExchangeResponse({
+        status: "ok",
+        response: {
+          type: "order",
+          data: {
+            statuses: [{ error: "Order must have minimum value of $10." }],
+          },
+        },
+      }),
+    ).toEqual({ kind: "rejected", reason: "minimum_notional" });
     expect(classifyExchangeResponse({ status: "wat" })).toEqual({
       kind: "unresolved",
       reason: "malformed_response",

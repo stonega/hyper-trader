@@ -4,8 +4,8 @@
 
 The native Trade screen provides one surface for every canonical catalog market. It
 combines global account/network context, exact market identity and statistics,
-a native candlestick chart with a visible exact OHLC alternative, order book or
-recent trades, and progressive order drafting. Public market reads use canonical
+a native Skia K-line chart with a visible exact OHLC rail, order book or recent
+trades, and progressive order drafting. Public market reads use canonical
 query keys and abortable `/info` requests; default tests inject no network calls.
 
 The root `ActionRuntimeProvider` still has no production orchestrator while the
@@ -21,10 +21,13 @@ leverage and margin mode plus the selected position size, account version, and
 observation time. It does not infer an unknown target kind, duplicate balance,
 malformed value, response-account mismatch, response-market mismatch, or
 missing leverage. The focused query establishes an authoritative REST baseline,
-then account WebSocket events invalidate it for a coalesced reload. It also
-refreshes on focus and participates in pull-to-refresh; continuous 20-second
-polling is removed. The review boundary independently rejects an account
-observation older than 30 seconds. Deterministic fixtures cover perpetual margin with and without an
+then account WebSocket events invalidate it for a coalesced reload. Perpetual
+order entry listens to clearinghouse and selected-coin `activeAssetData`
+changes; spot listens to `userEvents` and `spotState`. While Trade is focused,
+REST reconciles every 10 seconds and refreshes immediately on focus, reconnect,
+or pull-to-refresh. If the cached observation is older than 30 seconds when the
+user starts review, the same action performs an automatic REST preflight before
+review continues. Deterministic fixtures cover perpetual margin with and without an
 open position, spot held funds, and ambiguous input. This screen does not add a
 signer or submission path.
 
@@ -37,14 +40,14 @@ order controls.
 
 ## Candlestick chart and data boundary
 
-Trade renders Hyperliquid `candleSnapshot` rows with Victory Native 41 and the
-Expo SDK-compatible React Native Skia build. Victory Native was selected over a
-WebView chart because it renders on the native Skia canvas, has a dedicated
-candlestick primitive, and composes with the Gesture Handler and Reanimated
-versions already required by the application. A general ECharts adapter remains
-more appropriate for a web-option compatibility requirement, while the narrower
-Wagmi chart package offers less value than Victory Native's current Cartesian
-chart framework for future overlays and indicators.
+Trade renders Hyperliquid `candleSnapshot` rows with
+`react-native-kline-chart`, a Skia renderer with native pan, pinch, and
+long-press crosshair gestures. Native code remains the only owner of
+Hyperliquid transport, market identity, validation, theme tokens, interval
+state, and account-derived overlays. The renderer receives validated in-memory
+candles and performs no network access. See the
+[native K-line chart integration](./kline-price-chart.md) for the runtime and
+data-boundary contract.
 
 The selected candle interval is presentation state and does not affect order
 authority. The available views deliberately stay near 96 visible candles:
@@ -65,18 +68,16 @@ shared stream runtime subscribes with `{ "type": "candle", "coin": "BTC",
 new interval appends one row and evicts only the oldest row beyond the configured
 window. Exact duplicate payloads are ignored.
 
-Historical candles use a separate `(network, canonical market, interval)`
-infinite-query cache. The live REST/WebSocket head never shares its writable
-array with historical pages, so reconnect baselines cannot erase history the
-person has loaded. Dragging against the oldest loaded boundary or pressing
-`Older` requests the preceding exclusive time window. Pages merge by exact open
-time, the live head wins any overlap, and the resident series is bounded to six
-history pages plus the live window. Once those six contiguous pages are loaded,
-older loading stops instead of evicting the page adjacent to the live head and
-creating a chart gap. The viewport stores timestamp bounds rather than
-array-relative percentages, preventing prepended candles from moving the visible
-time range. `Live` resumes following the newest head; `Reset` also restores the
-automatic price range.
+Switching intervals keeps the last validated series for the current network and
+market visible until the requested interval has data. The selected interval
+updates immediately, while the chart description identifies the interval still
+on screen and the interval being loaded. A market or network change remounts the
+chart boundary and never retains candles from the previous trading context.
+
+The native chart displays the bounded, validated window owned by the selected
+TanStack Query entry. It has no datafeed bridge and issues no renderer-owned
+history requests. Reconnect baselines replace or append only the selected live
+series, and market or network changes remount the scoped renderer.
 
 The stream runtime stops in the background or offline, sends a bounded heartbeat,
 and uses jittered bounded reconnect backoff. A failed heartbeat, socket close, or
@@ -98,6 +99,16 @@ Candle and market-activity query observers are owned by memoized leaf
 components. Candle changes redraw only the chart; book and trade changes redraw
 only the activity card. The screen-level order authority observes market
 context, but price-only context changes do not rerun draft reconciliation.
+Trade has no page-level loading skeleton. Before a market is resolved, the
+summary, chart, order-entry, and activity cards render immediately in their
+final layout. Static labels and controls stay visible; unresolved market metrics
+and available margin render as `-`, while chart and activity tables keep their
+controls and headers with empty data bodies. After resolution, each card
+owns its pending state, so an account or market-detail refresh cannot replace
+unrelated visible content. Trade restores the last active market from the
+network-scoped public preferences cache; when no saved market exists, it selects
+the native `BTC-USDC` perpetual, falling back to the highest-volume active market
+only when `BTC-USDC` is unavailable.
 
 The public package validates every REST and WebSocket candle interval, symbol,
 timestamp, and decimal field against the requested series before mobile code
@@ -105,31 +116,16 @@ receives it. Hyperliquid candle messages do not expose a sequence number, so the
 runtime uses the complete candle payload as its stable duplicate identity and
 relies on heartbeat/reconnect baselines for discontinuity recovery.
 
-Decimal strings remain exact through the public boundary and visible OHLC text.
-Only the disposable Skia geometry converts validated prices to finite JavaScript
-numbers. Invalid ordering, impossible OHLC geometry, non-finite conversion, or
-missing rows produces the explicit unavailable alternative instead of an
-invented path. Up/down labels supplement color, and assistive technology receives
-the selected window, candle count, and exact open, high, low, and close values.
-Victory's single price axis owns all four OHLC keys; this is required for it to
-materialize the four point arrays consumed by the candlestick primitive. The
-shared key tuple prevents the axis and renderer contracts from drifting apart.
-Within the plot, a vertical drag shifts the price window and a two-finger pinch
-changes the visible time span and candle density. These interactions update the
-authoritative chart domains, keeping the price axis and visible endpoint times
-synchronized with the candle geometry. Gesture Handler callbacks remain on the
-UI thread. They publish viewport work to React at a bounded 32-millisecond
-interval and always publish the final gesture value, preventing raw device
-gesture frequency from flooding the JavaScript thread.
-
-A directional one-finger drag pans the loaded timestamp range horizontally. A
-long press enters candle inspection and snaps to the nearest validated open
-time. The visible inspection rail and screen-reader alternative expose exact
-timestamp, open, high, low, close, volume, and trade count; previous and next
-actions provide canvas-independent navigation. A compact volume plot uses its
-own y-domain while sharing the price plot's x viewport and selection cursor.
-Malformed volume suppresses only the volume plot and never invalidates otherwise
-valid price geometry.
+Decimal strings remain exact through the public boundary and the native visible
+OHLC rail. Only validated disposable chart bars convert prices to finite
+JavaScript numbers. Invalid ordering, impossible OHLC geometry, non-finite
+conversion, or missing rows produces the explicit unavailable alternative
+instead of an invented path. Up/down labels supplement color, and assistive
+technology receives the selected window, candle count, and exact open, high,
+low, and close values without depending on Skia-drawn text. The K-line renderer
+owns horizontal panning, pinching, crosshair inspection, price scaling, and
+moving-average lines; the app keeps its compact native interval selector so
+chart navigation never changes order authority.
 
 The chart accepts typed, presentation-only price overlays. The last price comes
 from the newest validated live candle close; perpetual mark price comes from the
@@ -138,10 +134,11 @@ liquidation prices come from the authoritative selected-position snapshot;
 open-order prices come from an independently owned private query; a limit draft
 appears only while its context binding matches the selected market. Every
 overlay keeps the exact source decimal for visible and accessible text and uses
-numeric conversion only for disposable Skia coordinates. Account, target,
+numeric conversion only for disposable chart drawing coordinates. Account, target,
 network, or market changes replace the owning query key and remove obsolete
-overlays. Overlay interaction is read-only: the chart adds no cancel, edit,
-signing, or submission path and cannot bypass order review or confirmation.
+overlays. The exact overlay values remain in a native read-only rail below the
+chart; the renderer adds no cancel, edit, signing, or submission path and cannot
+bypass order review or confirmation.
 The private order read uses Hyperliquid `frontendOpenOrders`, validates its
 trigger fields, and plots TP/SL at the authoritative trigger price rather than
 the accompanying execution limit.
@@ -194,7 +191,7 @@ The backend catalog worker always requests native perpetual, spot, and testnet
 outcome metadata first, then loads returned HIP-3 DEXes in rate-bounded pages
 with a concurrency of eight. Mobile reads only a validated, generation-pinned
 backend response and never opens catalog-enumeration requests itself. Its cached
-catalog becomes stale after two minutes and reconciles every five minutes while
+catalog becomes stale after six minutes and reconciles every five minutes while
 active. The Markets tab paints before catalog ranking, performs ranking and
 search from deferred values, caches normalized search and sort projections per
 immutable market record, and mounts rows in small `FlatList` batches. Live
@@ -209,10 +206,11 @@ with four points of vertical hit slop on each edge. The order card omits a
 redundant title and keeps one 40-point settings icon at the right edge of the
 order-type tabs with the same effective 48-point target. The trigger shows the
 current leverage/TIF/slippage summary and opens a dialog containing
-authoritative current leverage and applicable time-in-force, reduce-only, or
-slippage controls. Settings apply immediately, so the dialog needs only its
-standard close control. Leverage remains display-only because changing it
-requires a separate reviewed action. Order type and market activity
+authoritative current leverage, a bounded `1×` through market-maximum selector,
+and applicable time-in-force, reduce-only, or slippage controls. Draft settings
+apply immediately. A leverage change has its own review action in the same
+dialog and does not affect order sizing until a refreshed account snapshot
+confirms it. Order type and market activity
 use quiet underline tabs. Their visual weight stays subordinate to order review
 and other primary actions.
 
@@ -241,21 +239,29 @@ Applicable controls are intentionally narrow:
 
 | Market/order | Visible controls |
 |---|---|
-| Native perpetual market | side, type, size, current leverage, size presets, slippage |
-| Native perpetual limit | side, type, price, size, current leverage, presets, TIF, reduce-only |
+| Native perpetual market | side, type, size, reviewed leverage change, size presets, slippage |
+| Native perpetual limit | side, type, price, size, reviewed leverage change, presets, TIF, reduce-only |
 | Spot market | side, type, size, presets, slippage |
 | Spot limit | side, type, price, size, presets, TIF |
 | HIP-3 | same family controls, evidence-specific review gate |
 | Outcome/delisted/browse-only | no editable order controls |
 
-Leverage is display-only. When the authoritative account snapshot first loads
-or later changes, Order Entry synchronizes the draft's current leverage while
-preserving side, type, size, price, TIF, reduce-only, and slippage input. The
-final review boundary still rejects a leverage change that races review
-preparation. Intentionally changing leverage or margin mode requires its
-separately reviewed action. Hidden limit-order slippage is ignored. Decimal
+When the authoritative account snapshot first loads or later changes, Order
+Entry synchronizes the draft's current leverage while preserving side, type,
+size, price, TIF, reduce-only, and slippage input. The leverage selector is
+bounded by validated market metadata and opens a separately reviewed
+`update_leverage` action using the current margin mode. The final order review
+boundary still rejects a leverage change that races review preparation. Hidden
+limit-order slippage is ignored. Decimal
 size presets use `BigInt` arithmetic and fail visibly when the result falls
-below size precision.
+below size precision. Market and limit reviews also apply Hyperliquid's $10
+minimum notional before opening the action sheet. An undersized order remains
+editable and shows `Order must have minimum value of $10.` inline without
+reserving a nonce, unlocking the signer, or calling transport.
+An authoritative rejection returns through **Edit order** and cannot keep a
+later review blocked by stale terminal presentation state. The immutable
+rejected journal record remains available for diagnostics while a fresh order
+uses a new `cloid`, nonce, and review snapshot.
 
 Perpetual trading capacity remains directional. `availableToTrade[0]` is bound
 to Buy/Long and `availableToTrade[1]` to Sell/Short. Presets use the currently
@@ -271,19 +277,29 @@ connectivity, confirmation-runtime capability, and every account snapshot field.
 price-only, metadata-only, account-only, market, account, or network change while
 randomness is pending rejects the late completion. The pressed side-specific
 order button becomes `Reviewing…` while the deep-frozen snapshot receives its
-authoritative market/account refresh. No sheet opens during that review. A
-successful review requests device authentication; only after authentication
-does the root action sheet appear for reservation, signing, submission, and
-authoritative status. Acceptance closes it automatically after a brief
+authoritative market/account refresh. A stale displayed account is recoverable:
+the button remains available and first refreshes the exact account and market
+scope. Market execution rebases only its derived IOC limit to the fresh
+reference price using the unchanged slippage control and current precision;
+limit prices and every user-authored order field remain exact. The ticket shown
+after authentication contains that refreshed price limit. A refresh failure,
+context change, or changed leverage/margin/position stops review with a specific
+message. No sheet opens during that review. A successful review requests device
+authentication; only after authentication does the root action sheet appear for
+reservation, signing, submission, and authoritative status. Acceptance closes
+it automatically after a brief
 accessible confirmation; all non-success outcomes remain visible until the user
 dismisses them.
 
 The side-specific order button is the explicit confirmation boundary and keeps
 the visible order fields on screen while review runs. After device
 authentication, the compact content-sized sheet shows the immutable ticket and
-submission status without asking for a redundant second confirmation. Nonce
-reservation, signing, and the write-once transport remain behind successful
-authoritative review and authentication.
+submission status without asking for a redundant second confirmation. The
+status ticket shows the readable market pair, such as `BTC-USDC`, and only the
+applicable execution and risk details. One loading spinner and short status
+label replace the Review/Submit/Status rail and explanatory status block while
+the action is pending. Nonce reservation, signing, and the write-once transport
+remain behind successful authoritative review and authentication.
 
 ## Visible phases and Back behavior
 
@@ -304,7 +320,9 @@ of color, and disable staged motion under system Reduced Motion.
 
 Review reports a specific reason for invalid clock, mainnet, non-orderable
 metadata, pending HIP-3 evidence, stale/offline/reconnecting metadata,
-read-only/missing binding, expired agent, and stale account state. An unavailable
+read-only/missing binding, and expired agent. Stale account state is the one
+recoverable gate: starting review runs the REST preflight, while refresh failure
+or a materially changed account still stops the handoff. An unavailable
 confirmation runtime stops the inline review with a submission-unavailable
 message and does not open a sheet. Presentation-only candle, book, or
 recent-trade errors preserve cached rows and do not independently decide action

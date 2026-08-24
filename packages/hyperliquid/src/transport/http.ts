@@ -114,6 +114,16 @@ export function getInfoRequestBudget(
 export interface InfoRequestOptions {
   readonly signal?: AbortSignal;
   readonly onRequestBudget?: (budget: InfoRequestBudget) => void;
+  readonly onRequestTiming?: (timing: InfoRequestTiming) => void;
+}
+
+export interface InfoRequestTiming {
+  readonly requestType: string;
+  readonly outcome: "error" | "success";
+  readonly responseMs: number;
+  readonly bodyDecodeMs: number;
+  readonly totalMs: number;
+  readonly status?: number;
 }
 
 export interface InfoHttpTransport {
@@ -232,6 +242,21 @@ function parseRateLimitMetadata(
   };
 }
 
+function monotonicNow(): number {
+  return globalThis.performance?.now() ?? Date.now();
+}
+
+function reportRequestTiming(
+  callback: InfoRequestOptions["onRequestTiming"],
+  timing: InfoRequestTiming,
+): void {
+  try {
+    callback?.(timing);
+  } catch {
+    // Observability must never change transport behavior.
+  }
+}
+
 export function createInfoHttpTransport(
   options: InfoHttpTransportOptions = {},
 ): InfoHttpTransport {
@@ -262,24 +287,53 @@ export function createInfoHttpTransport(
         timeoutMs,
       );
       const operation = (async () => {
-        const response = await fetchRequest(endpoint, {
-          method: "POST",
-          redirect: "error",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: deadline.signal,
-        });
-
-        if (!response.ok) {
-          throw new HyperliquidApiError({
-            status: response.status,
-            endpoint,
-            requestBudget,
-            rateLimit: parseRateLimitMetadata(response.headers),
+        const startedAt = monotonicNow();
+        let responseAt: number | undefined;
+        let responseStatus: number | undefined;
+        let timingReported = false;
+        const report = (outcome: InfoRequestTiming["outcome"]) => {
+          if (timingReported) return;
+          timingReported = true;
+          const finishedAt = monotonicNow();
+          reportRequestTiming(requestOptions.onRequestTiming, {
+            requestType: body.type,
+            outcome,
+            responseMs: (responseAt ?? finishedAt) - startedAt,
+            bodyDecodeMs:
+              responseAt === undefined ? 0 : finishedAt - responseAt,
+            totalMs: finishedAt - startedAt,
+            ...(responseStatus === undefined ? {} : { status: responseStatus }),
           });
-        }
+        };
 
-        return response.json();
+        try {
+          const response = await fetchRequest(endpoint, {
+            method: "POST",
+            redirect: "error",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: deadline.signal,
+          });
+          responseAt = monotonicNow();
+          responseStatus = response.status;
+
+          if (!response.ok) {
+            report("error");
+            throw new HyperliquidApiError({
+              status: response.status,
+              endpoint,
+              requestBudget,
+              rateLimit: parseRateLimitMetadata(response.headers),
+            });
+          }
+
+          const value = await response.json();
+          report("success");
+          return value;
+        } catch (error) {
+          report("error");
+          throw error;
+        }
       })();
 
       try {

@@ -6,7 +6,7 @@ import {
 import { assertTestnetSigningCapability } from "../signing/boundary";
 import type { Eip712Signature } from "../signing/types";
 import { encodeL1Action } from "./codec";
-import { MAX_BULK_CANCELS } from "./constants";
+import { MAX_BULK_CANCELS, MINIMUM_ORDER_NOTIONAL_MESSAGE } from "./constants";
 import type { ExchangeAction } from "./types";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -23,7 +23,10 @@ export interface SignedExchangeRequest {
 
 export type ExchangeSubmissionResult =
   | { readonly kind: "accepted"; readonly providerOrderIds: readonly number[] }
-  | { readonly kind: "rejected"; readonly reason: "provider_rejected" }
+  | {
+      readonly kind: "rejected";
+      readonly reason: "minimum_notional" | "provider_rejected";
+    }
   | { readonly kind: "expired"; readonly reason: "provider_expired" }
   | {
       readonly kind: "unresolved";
@@ -65,8 +68,11 @@ function classifyError(error: unknown): ExchangeSubmissionResult {
   if (typeof error !== "string" || error.length === 0 || error.length > 2_048) {
     return { kind: "unresolved", reason: "malformed_response" };
   }
-  return KNOWN_EXPIRED_ERRORS.has(error)
-    ? { kind: "expired", reason: "provider_expired" }
+  if (KNOWN_EXPIRED_ERRORS.has(error)) {
+    return { kind: "expired", reason: "provider_expired" };
+  }
+  return error === MINIMUM_ORDER_NOTIONAL_MESSAGE
+    ? { kind: "rejected", reason: "minimum_notional" }
     : { kind: "rejected", reason: "provider_rejected" };
 }
 

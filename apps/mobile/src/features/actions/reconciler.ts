@@ -25,12 +25,25 @@ export interface ActionReconciler {
   reconcileNext(): Promise<ActionReconcilerResult | null>;
 }
 
+export type ReconciledActionPhase =
+  | "accepted"
+  | "rejected"
+  | "expired"
+  | "ambiguous";
+
+export interface ActionReconciliationPort {
+  reconcile(journalId: string): Promise<ReconciledActionPhase | null>;
+}
+
 function nextAttempt(record: PreparedActionRecord, now: number): number {
   const delay = Math.min(
     30_000,
     1_000 * 2 ** Math.min(record.reconciliationAttempts, 5),
   );
-  return now + delay;
+  const expiryProbeAt = record.expiresAfterMs + 1_000;
+  return now < expiryProbeAt
+    ? Math.min(now + delay, expiryProbeAt)
+    : Math.min(now + delay, now + 1_000);
 }
 
 function resultClass(
@@ -40,6 +53,64 @@ function resultClass(
   >,
 ): "accepted" | "rejected" | "expired" | "ambiguous" {
   return state === "reconciled_ambiguous" ? "ambiguous" : state;
+}
+
+function terminalPhase(state: JournalState): ReconciledActionPhase | null {
+  if (state === "reconciled_ambiguous") return "ambiguous";
+  return state === "accepted" || state === "rejected" || state === "expired"
+    ? state
+    : null;
+}
+
+const DEFAULT_MAX_FOREGROUND_ATTEMPTS = 10;
+const LEASE_RETRY_MS = 250;
+
+export function createActionReconciliationPort(options: {
+  readonly repository: Pick<ActionJournalRepository, "getAction">;
+  readonly reconciler: ActionReconciler;
+  readonly now: () => number;
+  readonly wait?: (milliseconds: number) => Promise<void>;
+  readonly maxAttempts?: number;
+  readonly shouldContinue?: () => boolean;
+}): ActionReconciliationPort {
+  const wait =
+    options.wait ??
+    ((milliseconds: number) =>
+      new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
+  const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_FOREGROUND_ATTEMPTS;
+  if (!Number.isSafeInteger(maxAttempts) || maxAttempts < 1) {
+    throw new TypeError("maxAttempts must be a positive integer.");
+  }
+
+  return Object.freeze({
+    async reconcile(journalId: string): Promise<ReconciledActionPhase | null> {
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        if (options.shouldContinue?.() === false) return null;
+        const record = options.repository.getAction(journalId);
+        if (record === null) return null;
+        const existingTerminal = terminalPhase(record.state);
+        if (existingTerminal !== null) return existingTerminal;
+        if (
+          record.state !== "submission_started" &&
+          record.state !== "unresolved"
+        ) {
+          return null;
+        }
+        const waitMs = Math.max(0, record.nextReconciliationAt - options.now());
+        if (waitMs > 0) await wait(waitMs);
+        if (options.shouldContinue?.() === false) return null;
+
+        const result = await options.reconciler.reconcile(journalId);
+        if (result.kind === "terminal") return resultClass(result.state);
+        if (result.kind === "already_terminal") {
+          return terminalPhase(result.state);
+        }
+        if (result.kind === "not_reconcilable") return null;
+        if (result.kind === "lease_lost") await wait(LEASE_RETRY_MS);
+      }
+      return null;
+    },
+  });
 }
 
 export function createActionReconciler(options: {

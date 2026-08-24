@@ -1,4 +1,7 @@
-import type { Market, MarketFamily } from "@hyper-trader/hyperliquid/public";
+import type {
+  MarketFamily,
+  MarketSummary,
+} from "@hyper-trader/hyperliquid/public";
 import { useRouter } from "expo-router";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
@@ -8,18 +11,32 @@ import type { JSX } from "react";
 import {
   useCallback,
   useDeferredValue,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { FlatList, RefreshControl, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  type ListRenderItem,
+  RefreshControl,
+  ScrollView,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
+import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
 import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
+import {
+  createMarketLoadTrace,
+  isInitialMarketDataSettled,
+  marketTimingNow,
+} from "../../core/performance/market-load-timing";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import {
   type MarketCatalogMode,
@@ -33,7 +50,7 @@ import {
 import { runManualRefresh } from "../../features/markets/manual-refresh";
 import { MarketRow } from "../../features/markets/market-row";
 import { useMarketPreferences } from "../../features/markets/preferences-provider";
-import { useMarketCatalogPresentation } from "../../features/markets/query";
+import { useMarketSummaryPages } from "../../features/markets/query";
 import { tradeMarketRoute } from "../../navigation/routes";
 
 const FAMILY_FILTERS: readonly {
@@ -47,19 +64,7 @@ const FAMILY_FILTERS: readonly {
 ];
 
 const EMPTY_MARKET_IDS: readonly string[] = [];
-const EMPTY_MARKETS: readonly Market[] = [];
 const MARKET_LOADING_ITEMS = ["market-1", "market-2", "market-3"] as const;
-const INITIAL_DISCOVERY_OPTIONS: MarketDiscoveryOptions = {
-  query: "",
-  families: [],
-  availability: "enabled",
-  lifecycle: "active",
-  favoritesOnly: false,
-  recentsOnly: false,
-  favoriteIds: EMPTY_MARKET_IDS,
-  recentIds: EMPTY_MARKET_IDS,
-  sort: "volume",
-};
 
 function FilterChip({
   label,
@@ -90,7 +95,7 @@ function FilterChip({
 function LoadingCatalog(): JSX.Element {
   return (
     <LoadingSkeletons
-      accessibilityLabel="Loading market catalog"
+      accessibilityLabel="Loading markets"
       className="gap-3 px-5"
       items={MARKET_LOADING_ITEMS}
     />
@@ -102,11 +107,19 @@ export default function MarketsScreen(): JSX.Element {
   const router = useRouter();
   const { current } = useTradingContext();
   const preferences = useMarketPreferences();
-  const { catalog, catalogQuery, presentation } = useMarketCatalogPresentation(
-    current.network,
+  const screenTiming = useMemo(
+    () =>
+      createMarketLoadTrace({
+        network: current.network,
+        source: "markets-screen",
+      }),
+    [current.network],
   );
   const reducedMotion = useReducedMotion();
   const manualRefreshGate = useRef(false);
+  const allDataTraceId = useRef<string | null>(null);
+  const fetchStartedTraceId = useRef<string | null>(null);
+  const firstRowTraceId = useRef<string | null>(null);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [query, setQuery] = useState("");
   const [catalogMode, setCatalogMode] = useState<MarketCatalogMode>("strict");
@@ -123,12 +136,12 @@ export default function MarketsScreen(): JSX.Element {
     () => new Set(preferences.preferences.favoriteIds),
     [preferences.preferences.favoriteIds],
   );
-  const sourceMarkets = catalog?.markets ?? EMPTY_MARKETS;
   const discoveryOptions = useMemo<MarketDiscoveryOptions>(
     () => ({
       query,
       families: family === "all" ? [] : [family],
-      availability: catalogMode === "strict" ? "enabled" : "all",
+      includeHip3: catalogMode === "all",
+      availability: "enabled",
       lifecycle: "active",
       favoritesOnly,
       recentsOnly,
@@ -146,19 +159,150 @@ export default function MarketsScreen(): JSX.Element {
       recentsOnly,
     ],
   );
-  const deferredMarkets = useDeferredValue(sourceMarkets, EMPTY_MARKETS);
-  const deferredDiscoveryOptions = useDeferredValue(
-    discoveryOptions,
-    INITIAL_DISCOVERY_OPTIONS,
+  // A cached first summary page is first content, so never defer it. Only
+  // user-driven discovery changes may keep showing the current list briefly.
+  const deferredDiscoveryOptions = useDeferredValue(discoveryOptions);
+  const isDiscoveryPending = deferredDiscoveryOptions !== discoveryOptions;
+  const requestedIds = deferredDiscoveryOptions.favoritesOnly
+    ? deferredDiscoveryOptions.favoriteIds
+    : deferredDiscoveryOptions.recentsOnly
+      ? deferredDiscoveryOptions.recentIds
+      : EMPTY_MARKET_IDS;
+  const summaryOptions = useMemo(
+    () => ({
+      query: deferredDiscoveryOptions.query,
+      family: deferredDiscoveryOptions.families[0] ?? null,
+      includeHip3: deferredDiscoveryOptions.includeHip3,
+      availability: deferredDiscoveryOptions.availability,
+      lifecycle: deferredDiscoveryOptions.lifecycle,
+      sort: deferredDiscoveryOptions.sort,
+      restrictToIds:
+        deferredDiscoveryOptions.favoritesOnly ||
+        deferredDiscoveryOptions.recentsOnly,
+      ids: requestedIds,
+    }),
+    [deferredDiscoveryOptions, requestedIds],
   );
-  const isDiscoveryPending =
-    deferredMarkets !== sourceMarkets ||
-    deferredDiscoveryOptions !== discoveryOptions;
-  const markets = useMemo(
-    () => discoverMarkets(deferredMarkets, deferredDiscoveryOptions),
-    [deferredDiscoveryOptions, deferredMarkets],
+  const {
+    loadNextPage: fetchNextSummaryPage,
+    markets: sourceMarkets,
+    presentation,
+    query: summaryQuery,
+    total,
+  } = useMarketSummaryPages(current.network, summaryOptions);
+  const discovery = useMemo(() => {
+    const startedAt = marketTimingNow();
+    const visibleMarkets = discoverMarkets(
+      sourceMarkets,
+      deferredDiscoveryOptions,
+    );
+    return {
+      durationMs: marketTimingNow() - startedAt,
+      markets: visibleMarkets,
+    };
+  }, [deferredDiscoveryOptions, sourceMarkets]);
+  const markets = discovery.markets;
+  const firstOpenState = useRef({
+    traceId: screenTiming.traceId,
+    hadCachedSummary: summaryQuery.data !== undefined,
+    initialDataUpdatedAt: summaryQuery.dataUpdatedAt,
+  });
+  if (firstOpenState.current.traceId !== screenTiming.traceId) {
+    firstOpenState.current = {
+      traceId: screenTiming.traceId,
+      hadCachedSummary: summaryQuery.data !== undefined,
+      initialDataUpdatedAt: summaryQuery.dataUpdatedAt,
+    };
+  }
+  useEffect(() => {
+    screenTiming.mark("screen:mounted");
+  }, [screenTiming]);
+  useEffect(() => {
+    if (
+      summaryQuery.fetchStatus !== "fetching" ||
+      fetchStartedTraceId.current === screenTiming.traceId
+    ) {
+      return;
+    }
+    fetchStartedTraceId.current = screenTiming.traceId;
+    screenTiming.mark("screen:data-fetch-started", {
+      hadCachedSummary: firstOpenState.current.hadCachedSummary,
+    });
+  }, [screenTiming, summaryQuery.fetchStatus]);
+  useEffect(() => {
+    if (
+      allDataTraceId.current === screenTiming.traceId ||
+      !isInitialMarketDataSettled({
+        content: presentation.content,
+        fetchStatus: summaryQuery.fetchStatus,
+        preferencesStatus: preferences.status,
+      })
+    ) {
+      return;
+    }
+    allDataTraceId.current = screenTiming.traceId;
+    const initial = firstOpenState.current;
+    const fetchFailed = summaryQuery.isError || summaryQuery.isRefetchError;
+    screenTiming.mark("screen:all-data-fetched", {
+      outcome:
+        summaryQuery.fetchStatus === "paused"
+          ? "paused"
+          : fetchFailed || presentation.content === "unavailable"
+            ? "error"
+            : "success",
+      hadCachedSummary: initial.hadCachedSummary,
+      freshSummaryReceived:
+        summaryQuery.dataUpdatedAt > initial.initialDataUpdatedAt,
+      marketCount: sourceMarkets.length,
+      preferencesStatus: preferences.status,
+      total,
+    });
+  }, [
+    preferences.status,
+    presentation.content,
+    screenTiming,
+    sourceMarkets.length,
+    summaryQuery.dataUpdatedAt,
+    summaryQuery.fetchStatus,
+    summaryQuery.isError,
+    summaryQuery.isRefetchError,
+    total,
+  ]);
+  useEffect(() => {
+    screenTiming.record("screen:discovery", discovery.durationMs, {
+      resultCount: markets.length,
+      sourceCount: sourceMarkets.length,
+    });
+  }, [discovery, markets.length, screenTiming, sourceMarkets.length]);
+  useEffect(() => {
+    if (sourceMarkets.length === 0) return;
+    screenTiming.mark("screen:catalog-received", {
+      catalogKind: "summary-page",
+      marketCount: sourceMarkets.length,
+    });
+  }, [screenTiming, sourceMarkets]);
+  const markFirstRowLayout = useCallback(() => {
+    if (firstRowTraceId.current === screenTiming.traceId) return;
+    firstRowTraceId.current = screenTiming.traceId;
+    screenTiming.mark("screen:first-row-layout", {
+      catalogKind: "summary-page",
+      visibleMarketCount: markets.length,
+    });
+  }, [markets.length, screenTiming]);
+  const selectMarket = preferences.selectMarket;
+  const toggleFavorite = preferences.toggleFavorite;
+  const openMarket = useCallback(
+    (market: MarketSummary) => {
+      selectMarket(market.canonicalId);
+      router.navigate(tradeMarketRoute(market.canonicalId));
+    },
+    [router, selectMarket],
   );
-  const refetchCatalog = catalogQuery.refetch;
+  const toggleMarketFavorite = useCallback(
+    (canonicalId: string) => toggleFavorite(canonicalId),
+    [toggleFavorite],
+  );
+  const refetchCatalog = summaryQuery.refetch;
   const refreshFromPullGesture = useCallback(
     () =>
       runManualRefresh(
@@ -173,11 +317,38 @@ export default function MarketsScreen(): JSX.Element {
     presentation.freshness === "stale" ||
     presentation.freshness === "offline" ||
     presentation.hasPartialSources;
+  const loadNextPage = useCallback(() => {
+    if (!summaryQuery.hasNextPage || summaryQuery.isFetchingNextPage) return;
+    void fetchNextSummaryPage();
+  }, [
+    fetchNextSummaryPage,
+    summaryQuery.hasNextPage,
+    summaryQuery.isFetchingNextPage,
+  ]);
 
-  const openMarket = (market: Market) => {
-    preferences.selectMarket(market.canonicalId);
-    router.navigate(tradeMarketRoute(market.canonicalId));
-  };
+  const renderMarket = useCallback<ListRenderItem<MarketSummary>>(
+    ({ index, item }) => (
+      <View
+        className="px-5"
+        onLayout={index === 0 ? markFirstRowLayout : undefined}
+      >
+        <MarketRow
+          isFavorite={favoriteSet.has(item.canonicalId)}
+          market={item}
+          onOpen={openMarket}
+          onToggleFavorite={toggleMarketFavorite}
+          preferencesReady={preferences.status !== "loading"}
+        />
+      </View>
+    ),
+    [
+      favoriteSet,
+      markFirstRowLayout,
+      openMarket,
+      preferences.status,
+      toggleMarketFavorite,
+    ],
+  );
 
   const header = (
     <View
@@ -262,7 +433,9 @@ export default function MarketsScreen(): JSX.Element {
             accessibilityLiveRegion="polite"
             className="shrink-0 text-sm text-muted"
           >
-            {markets.length} markets
+            {markets.length < total
+              ? `${markets.length} of ${total} markets`
+              : `${total} markets`}
           </Text>
           {showCatalogStatus ? (
             <CatalogStatus
@@ -281,17 +454,30 @@ export default function MarketsScreen(): JSX.Element {
     </View>
   );
 
-  const footer = <View className="h-6" />;
+  const footer = (
+    <View className="h-14 items-center justify-center">
+      {summaryQuery.isFetchingNextPage ? (
+        <ActivityIndicator accessibilityLabel="Loading more markets" />
+      ) : null}
+    </View>
+  );
+  const hasDiscoveryConstraint =
+    query !== "" ||
+    family !== "all" ||
+    catalogMode !== "strict" ||
+    favoritesOnly ||
+    recentsOnly;
   const emptyTitle =
     presentation.content === "unavailable"
       ? "Catalog unavailable"
       : presentation.content === "empty"
-        ? "No validated markets"
+        ? hasDiscoveryConstraint
+          ? "No markets match"
+          : "No validated markets"
         : "No markets match";
-  const emptyDescription =
-    presentation.content === "ready"
-      ? "Clear a search or filter to show more markets."
-      : "Pull to refresh and try again.";
+  const emptyDescription = hasDiscoveryConstraint
+    ? "Clear a search or filter to show more markets."
+    : "Pull to refresh and try again.";
   const emptyContent =
     presentation.content === "loading" ||
     (isDiscoveryPending && markets.length === 0) ? (
@@ -308,43 +494,35 @@ export default function MarketsScreen(): JSX.Element {
     );
 
   return (
-    <FlatList
-      className="flex-1 bg-background"
-      contentContainerStyle={{
-        paddingBottom: floatingTabBarInset(insets.bottom) + 16,
-      }}
-      data={presentation.content === "ready" ? markets : []}
-      initialNumToRender={6}
-      ItemSeparatorComponent={() => <View className="h-3" />}
-      keyboardDismissMode="on-drag"
-      keyboardShouldPersistTaps="handled"
-      keyExtractor={(market) => market.canonicalId}
-      ListEmptyComponent={emptyContent}
-      ListFooterComponent={footer}
-      ListHeaderComponent={header}
-      maxToRenderPerBatch={6}
-      refreshControl={
-        <RefreshControl
-          accessibilityLabel="Refresh market catalog"
-          onRefresh={() => void refreshFromPullGesture()}
-          refreshing={isPullRefreshing}
-        />
-      }
-      renderItem={({ item }) => (
-        <View className="px-5">
-          <MarketRow
-            isFavorite={favoriteSet.has(item.canonicalId)}
-            market={item}
-            onOpen={() => openMarket(item)}
-            onToggleFavorite={() =>
-              preferences.toggleFavorite(item.canonicalId)
-            }
-            preferencesReady={preferences.status !== "loading"}
+    <KeyboardAwareView className="flex-1 bg-background">
+      <FlatList
+        className="flex-1 bg-background"
+        contentContainerStyle={{
+          paddingBottom: floatingTabBarInset(insets.bottom) + 16,
+        }}
+        data={presentation.content === "ready" ? markets : []}
+        initialNumToRender={3}
+        ItemSeparatorComponent={() => <View className="h-3" />}
+        keyboardDismissMode="on-drag"
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(market) => market.canonicalId}
+        ListEmptyComponent={emptyContent}
+        ListFooterComponent={footer}
+        ListHeaderComponent={header}
+        maxToRenderPerBatch={4}
+        onEndReached={loadNextPage}
+        onEndReachedThreshold={0.6}
+        refreshControl={
+          <RefreshControl
+            accessibilityLabel="Refresh markets"
+            onRefresh={() => void refreshFromPullGesture()}
+            refreshing={isPullRefreshing}
           />
-        </View>
-      )}
-      updateCellsBatchingPeriod={50}
-      windowSize={5}
-    />
+        }
+        renderItem={renderMarket}
+        updateCellsBatchingPeriod={32}
+        windowSize={5}
+      />
+    </KeyboardAwareView>
   );
 }

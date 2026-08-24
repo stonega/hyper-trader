@@ -5,7 +5,10 @@ import {
   type ClockGateInput,
   createHyperliquidClient,
   type HyperliquidClient,
+  MINIMUM_ORDER_NOTIONAL,
+  type OpenOrder,
   type SignerBinding,
+  type TradingActionIntent,
   type TradingActionValidationInput,
 } from "@hyper-trader/hyperliquid";
 import type { DecimalString, Market } from "@hyper-trader/hyperliquid/public";
@@ -20,6 +23,7 @@ import {
   tradeMarketFingerprint,
   tradeReferencePrice,
 } from "../trade/trade-model";
+import { aggressiveOrderPrice } from "./aggressive-order-price";
 import type { ActionReviewSnapshot } from "./orchestrator";
 
 export interface TestnetServerClock {
@@ -221,7 +225,78 @@ function refreshedMarketValidation(
         }
       : {}),
     referencePrice: referencePrice as DecimalString,
+    minimumNotional: MINIMUM_ORDER_NOTIONAL,
   };
+}
+
+function refreshedOrderIntent(
+  review: ActionReviewSnapshot,
+  market: TradingActionValidationInput["market"],
+): TradingActionIntent {
+  const intent = review.validated.intent;
+  if (intent.type !== "market_order" && intent.type !== "reduce_only_close") {
+    return intent;
+  }
+  const slippageBps = review.validation.controls.slippageBps;
+  const referencePrice = market.referencePrice;
+  if (
+    slippageBps === null ||
+    market.pricePrecision === null ||
+    typeof referencePrice !== "string"
+  ) {
+    throw new Error(
+      "Current slippage and price precision are required for a market order.",
+    );
+  }
+  return {
+    ...intent,
+    aggressiveLimitPrice: aggressiveOrderPrice({
+      referencePrice,
+      side: intent.side,
+      slippageBps,
+      precision: market.pricePrecision,
+    }),
+  };
+}
+
+function catalogScopeForReview(
+  review: ActionReviewSnapshot,
+): "complete" | "native" | "spot" {
+  if (review.validation.market.family === "spot") return "spot";
+  if (
+    review.validated.intent.type === "cancel" &&
+    !review.validated.marketCanonicalId.startsWith("perp:0:")
+  ) {
+    return "complete";
+  }
+  return "native";
+}
+
+function cancelOpenOrderEvidence(input: {
+  readonly review: ActionReviewSnapshot;
+  readonly market: Market;
+  readonly openOrders: readonly OpenOrder[];
+}): NonNullable<TradingActionValidationInput["account"]["openOrders"]> {
+  const intent = input.review.validated.intent;
+  if (intent.type !== "cancel") return [];
+  if (intent.target.kind !== "oid") {
+    throw new Error(
+      "Current exact open-order evidence for client order ID cancellation is unavailable.",
+    );
+  }
+  const targetOid = intent.target.oid;
+  const matches = input.openOrders.filter(
+    (order) => order.coin === input.market.coin && order.oid === targetOid,
+  );
+  if (matches.length === 0) {
+    throw Object.assign(new Error("The reviewed order is no longer open."), {
+      code: "cancel_target_not_open",
+    });
+  }
+  if (matches.length !== 1) {
+    throw new Error("The reviewed open-order evidence is ambiguous.");
+  }
+  return [{ assetId: input.market.orderAssetId, oid: targetOid }];
 }
 
 export async function refreshReviewedOrder(input: {
@@ -235,10 +310,12 @@ export async function refreshReviewedOrder(input: {
   assertTestnetSigningCapability(review.binding.network);
   if (
     review.validated.intent.type !== "market_order" &&
-    review.validated.intent.type !== "limit_order"
+    review.validated.intent.type !== "limit_order" &&
+    review.validated.intent.type !== "reduce_only_close" &&
+    review.validated.intent.type !== "cancel"
   ) {
     throw new Error(
-      "This development runtime currently submits reviewed market and limit orders only.",
+      "This development runtime currently submits reviewed market, limit, full reduce-only close, and order cancellation actions only.",
     );
   }
   const client =
@@ -247,7 +324,9 @@ export async function refreshReviewedOrder(input: {
   if (client.network !== "testnet") {
     throw new Error("The authoritative refresh client must use testnet.");
   }
-  const catalog = await client.getMarketCatalog({ scope: "core" });
+  const catalog = await client.getMarketCatalog({
+    scope: catalogScopeForReview(review),
+  });
   const markets = catalog.markets.filter(
     (market) => market.canonicalId === review.validated.marketCanonicalId,
   );
@@ -258,33 +337,31 @@ export async function refreshReviewedOrder(input: {
   if (!market) {
     throw new Error("The exact reviewed market is unavailable.");
   }
-  const account = await loadAccountSnapshot({
-    client,
-    target: accountTarget(review.binding),
-    market,
-  });
-  const current = input.readCurrentContext();
-  const currentBinding = bindingForContext(current.context);
-  assertSignerBinding(review.binding, currentBinding);
-  const nowMs = safeMilliseconds(
-    (input.now ?? Date.now)(),
-    "The refresh clock",
-  );
-  const accountVersion = sameReviewedAccount(review, market, account)
-    ? review.validation.account.version
-    : changedVersion(review.validation.account.version);
-  return {
-    context: {
-      ...review.validation.context,
-      currentContextEpoch: current.epoch,
-      currentNetwork: current.context.network,
-      currentMasterAccount: currentBinding.masterAccount,
-      currentTargetAccount: currentBinding.targetAccount,
-      nowMs,
-    },
-    market: refreshedMarketValidation(market),
-    account: {
-      availableMargin: account.availableFunds[review.validated.intent.side],
+  const target = accountTarget(review.binding);
+  const intent = review.validated.intent;
+  let refreshedAccount: TradingActionValidationInput["account"];
+  if (intent.type === "cancel") {
+    refreshedAccount = {
+      availableMargin: review.validation.account.availableMargin,
+      version: review.validation.account.version,
+      openOrders: cancelOpenOrderEvidence({
+        review,
+        market,
+        openOrders: (
+          await client.accounts.getOpenOrders(
+            target,
+            market.family === "perp" ? market.dexName : "",
+          )
+        ).data,
+      }),
+    };
+  } else {
+    const account = await loadAccountSnapshot({ client, target, market });
+    const accountVersion = sameReviewedAccount(review, market, account)
+      ? review.validation.account.version
+      : changedVersion(review.validation.account.version);
+    refreshedAccount = {
+      availableMargin: account.availableFunds[intent.side],
       ...(market.family === "spot"
         ? { leverage: 1 }
         : account.leverage === null
@@ -295,8 +372,28 @@ export async function refreshReviewedOrder(input: {
         : {}),
       positionSize: account.positionSize,
       version: accountVersion,
+    };
+  }
+  const current = input.readCurrentContext();
+  const currentBinding = bindingForContext(current.context);
+  assertSignerBinding(review.binding, currentBinding);
+  const nowMs = safeMilliseconds(
+    (input.now ?? Date.now)(),
+    "The refresh clock",
+  );
+  const marketValidation = refreshedMarketValidation(market);
+  return {
+    context: {
+      ...review.validation.context,
+      currentContextEpoch: current.epoch,
+      currentNetwork: current.context.network,
+      currentMasterAccount: currentBinding.masterAccount,
+      currentTargetAccount: currentBinding.targetAccount,
+      nowMs,
     },
+    market: marketValidation,
+    account: refreshedAccount,
     controls: review.validation.controls,
-    intent: review.validation.intent,
+    intent: refreshedOrderIntent(review, marketValidation),
   };
 }

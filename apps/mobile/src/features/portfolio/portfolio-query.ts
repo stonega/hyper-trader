@@ -37,13 +37,22 @@ import {
   normalizePortfolioHistorySnapshot,
   normalizePortfolioLiveSnapshot,
 } from "./portfolio-model";
-import { portfolioCatalogCacheKey } from "./portfolio-query-key";
+import {
+  portfolioCatalogCacheKey,
+  portfolioQueryKey,
+} from "./portfolio-query-key";
 
 export type PortfolioTargetResolution =
   | { readonly target: AccountTarget; readonly reason: null }
   | { readonly target: null; readonly reason: string };
 
 export type PortfolioFreshness = "fresh" | "refreshing" | "stale" | "offline";
+
+export interface PortfolioQuerySource {
+  readonly accounts: ReturnType<typeof createAccountDataClient>;
+  readonly backend: PortfolioBackendClient | null;
+  readonly backendConfigured: boolean;
+}
 
 export function resolvePortfolioTarget(
   context: NormalizedTradingContext,
@@ -75,6 +84,149 @@ function useOnlineStatus(): boolean {
   );
 }
 
+export function createPortfolioQuerySource(
+  network: NormalizedTradingContext["network"],
+): PortfolioQuerySource {
+  const accounts = createAccountDataClient({ network });
+  const origin =
+    process.env.EXPO_PUBLIC_BACKEND_ORIGIN ??
+    process.env.EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN ??
+    Constants.expoConfig?.extra?.backendOrigin ??
+    Constants.expoConfig?.extra?.notificationServiceOrigin;
+  if (typeof origin !== "string" || origin.length === 0) {
+    return { accounts, backend: null, backendConfigured: false };
+  }
+  try {
+    return {
+      accounts,
+      backend: createPortfolioBackendClient({ origin }),
+      backendConfigured: true,
+    };
+  } catch {
+    return { accounts, backend: null, backendConfigured: true };
+  }
+}
+
+interface PortfolioQueryOptionsInput {
+  readonly context: NormalizedTradingContext;
+  readonly target: AccountTarget;
+  readonly markets: readonly Market[];
+  readonly source: PortfolioQuerySource;
+}
+
+export function portfolioAccountQueryOptions(
+  input: PortfolioQueryOptionsInput,
+) {
+  const { context, markets, source, target } = input;
+  const masterAccount = context.masterAccount;
+  if (masterAccount === null || context.targetAccount === null) {
+    throw new Error("An exact account target and catalog are required.");
+  }
+  const baseQueryKey = portfolioQueryKey(
+    context,
+    target,
+    portfolioCatalogCacheKey(markets),
+  );
+  return {
+    queryKey: [...baseQueryKey, "account"] as const,
+    queryFn: ({ signal }: { readonly signal: AbortSignal }) => {
+      if (source.backend) {
+        return source.backend
+          .readLive(context.network, target.address.toLowerCase(), signal)
+          .then((snapshot) => ({
+            owner: {
+              network: context.network,
+              masterAccount,
+              target,
+            },
+            markets,
+            perpStates: snapshot.dexes.map((portfolioSource) => {
+              const market = markets.find(
+                (candidate) =>
+                  candidate.family === "perp" &&
+                  candidate.dexName === portfolioSource.dex,
+              );
+              return {
+                dexName: portfolioSource.dex,
+                dexFullName:
+                  market?.family === "perp" ? market.dexFullName : null,
+                state: portfolioSource.clearinghouse,
+                openOrders: portfolioSource.openOrders,
+              };
+            }),
+            spotState: snapshot.spot,
+            observedAtMs: snapshot.generatedAtMs,
+            sourceGaps: snapshot.sourceGaps,
+          }));
+      }
+      if (
+        !source.backendConfigured &&
+        typeof __DEV__ !== "undefined" &&
+        __DEV__
+      ) {
+        return loadPortfolioAccountSnapshot({
+          accounts: source.accounts,
+          network: context.network,
+          masterAccount,
+          target,
+          markets,
+          signal,
+          now: Date.now(),
+        });
+      }
+      throw new Error("The Portfolio backend is not configured.");
+    },
+    staleTime: mobileDataPolicies.portfolioLive.staleTimeMs,
+  };
+}
+
+export function portfolioHistoryQueryOptions(
+  input: PortfolioQueryOptionsInput,
+) {
+  const { context, markets, source, target } = input;
+  const masterAccount = context.masterAccount;
+  if (masterAccount === null || context.targetAccount === null) {
+    throw new Error("An exact account target and catalog are required.");
+  }
+  const baseQueryKey = portfolioQueryKey(
+    context,
+    target,
+    portfolioCatalogCacheKey(markets),
+  );
+  return {
+    queryKey: [...baseQueryKey, "history"] as const,
+    queryFn: ({ signal }: { readonly signal: AbortSignal }) => {
+      if (source.backend) {
+        return source.backend
+          .readHistory(context.network, target.address.toLowerCase(), signal)
+          .then((snapshot) => ({
+            fills: snapshot.fills,
+            funding: snapshot.funding,
+            periods: snapshot.periods,
+            sourceGaps: snapshot.sourceGaps,
+          }));
+      }
+      if (
+        !source.backendConfigured &&
+        typeof __DEV__ !== "undefined" &&
+        __DEV__
+      ) {
+        return loadPortfolioHistorySnapshot({
+          accounts: source.accounts,
+          network: context.network,
+          masterAccount,
+          target,
+          markets,
+          signal,
+          now: Date.now(),
+        });
+      }
+      throw new Error("The Portfolio backend is not configured.");
+    },
+    staleTime: mobileDataPolicies.portfolioHistory.staleTimeMs,
+  };
+}
+
 export function usePortfolioData(
   context: NormalizedTradingContext,
   target: AccountTarget | null,
@@ -100,32 +252,10 @@ export function usePortfolioData(
             : (target.masterAddress?.trim().toLowerCase() ?? null),
         ]);
   const targetUser = target?.address.trim().toLowerCase() ?? null;
-  const accounts = useMemo(
-    () => createAccountDataClient({ network: context.network }),
+  const source = useMemo(
+    () => createPortfolioQuerySource(context.network),
     [context.network],
   );
-  const backendSource = useMemo<{
-    readonly client: PortfolioBackendClient | null;
-    readonly configured: boolean;
-  }>(() => {
-    const origin =
-      process.env.EXPO_PUBLIC_BACKEND_ORIGIN ??
-      process.env.EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN ??
-      Constants.expoConfig?.extra?.backendOrigin ??
-      Constants.expoConfig?.extra?.notificationServiceOrigin;
-    if (typeof origin !== "string" || origin.length === 0) {
-      return { client: null, configured: false };
-    }
-    try {
-      return {
-        client: createPortfolioBackendClient({ origin }),
-        configured: true,
-      };
-    } catch {
-      return { client: null, configured: true };
-    }
-  }, []);
-  const backend = backendSource.client;
   const catalogFingerprint = useMemo(
     () => portfolioCatalogCacheKey(markets),
     [markets],
@@ -155,112 +285,43 @@ export function usePortfolioData(
     () => [...baseQueryKey, "history"],
     [baseQueryKey],
   );
+  const accountOptions = useMemo(
+    () =>
+      target === null || markets === undefined
+        ? null
+        : portfolioAccountQueryOptions({ context, target, markets, source }),
+    [context, markets, source, target],
+  );
   const query = useQuery<PortfolioAccountSnapshot>({
-    queryKey: accountQueryKey,
-    enabled: target !== null && markets !== undefined,
-    queryFn: ({ signal }) => {
-      if (
-        target === null ||
-        markets === undefined ||
-        context.masterAccount === null ||
-        context.targetAccount === null
-      ) {
+    ...(accountOptions ?? {
+      queryKey: accountQueryKey,
+      queryFn: async () => {
         throw new Error("An exact account target and catalog are required.");
-      }
-      const masterAccount = context.masterAccount;
-      if (backend) {
-        return backend
-          .readLive(context.network, target.address.toLowerCase(), signal)
-          .then((snapshot) => ({
-            owner: {
-              network: context.network,
-              masterAccount,
-              target,
-            },
-            markets,
-            perpStates: snapshot.dexes.map((source) => {
-              const market = markets.find(
-                (candidate) =>
-                  candidate.family === "perp" &&
-                  candidate.dexName === source.dex,
-              );
-              return {
-                dexName: source.dex,
-                dexFullName:
-                  market?.family === "perp" ? market.dexFullName : null,
-                state: source.clearinghouse,
-                openOrders: source.openOrders,
-              };
-            }),
-            spotState: snapshot.spot,
-            observedAtMs: snapshot.generatedAtMs,
-            sourceGaps: snapshot.sourceGaps,
-          }));
-      }
-      if (
-        !backendSource.configured &&
-        typeof __DEV__ !== "undefined" &&
-        __DEV__
-      ) {
-        return loadPortfolioAccountSnapshot({
-          accounts,
-          network: context.network,
-          masterAccount,
-          target,
-          markets,
-          signal,
-          now: Date.now(),
-        });
-      }
-      throw new Error("The Portfolio backend is not configured.");
-    },
-    refetchOnMount: "always",
-    staleTime: mobileDataPolicies.portfolioLive.staleTimeMs,
+      },
+      staleTime: mobileDataPolicies.portfolioLive.staleTimeMs,
+    }),
+    enabled: accountOptions !== null,
+    refetchOnMount: true,
+    refetchInterval: mobileDataPolicies.portfolioLive.reconcileIntervalMs,
     subscribed: isFocused,
   });
+  const historyOptions = useMemo(
+    () =>
+      target === null || markets === undefined
+        ? null
+        : portfolioHistoryQueryOptions({ context, target, markets, source }),
+    [context, markets, source, target],
+  );
   const historyQuery = useQuery<PortfolioHistorySnapshot>({
-    queryKey: historyQueryKey,
-    enabled:
-      target !== null && markets !== undefined && query.data !== undefined,
-    queryFn: ({ signal }) => {
-      if (
-        target === null ||
-        markets === undefined ||
-        context.masterAccount === null ||
-        context.targetAccount === null
-      ) {
+    ...(historyOptions ?? {
+      queryKey: historyQueryKey,
+      queryFn: async () => {
         throw new Error("An exact account target and catalog are required.");
-      }
-      const masterAccount = context.masterAccount;
-      if (backend) {
-        return backend
-          .readHistory(context.network, target.address.toLowerCase(), signal)
-          .then((snapshot) => ({
-            fills: snapshot.fills,
-            funding: snapshot.funding,
-            periods: snapshot.periods,
-            sourceGaps: snapshot.sourceGaps,
-          }));
-      }
-      if (
-        !backendSource.configured &&
-        typeof __DEV__ !== "undefined" &&
-        __DEV__
-      ) {
-        return loadPortfolioHistorySnapshot({
-          accounts,
-          network: context.network,
-          masterAccount,
-          target,
-          markets,
-          signal,
-          now: Date.now(),
-        });
-      }
-      throw new Error("The Portfolio backend is not configured.");
-    },
-    refetchOnMount: "always",
-    staleTime: mobileDataPolicies.portfolioHistory.staleTimeMs,
+      },
+      staleTime: mobileDataPolicies.portfolioHistory.staleTimeMs,
+    }),
+    enabled: historyOptions !== null && query.data !== undefined,
+    refetchOnMount: true,
     subscribed: isFocused,
   });
   useEffect(() => {

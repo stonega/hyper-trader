@@ -12,6 +12,7 @@ import {
   type ActionReviewSnapshot,
   createActionReview,
 } from "../actions/orchestrator";
+import { marketPairLabel } from "../markets/discovery";
 import { signerBindingForTradeContext } from "../trade/trade-model";
 import {
   buildCancelIntent,
@@ -248,6 +249,7 @@ function review(input: {
   return createActionReview({
     binding: scoped.binding,
     capturedContextEpoch: input.capturedContextEpoch,
+    marketLabel: marketPairLabel(input.market),
     validation: {
       context: scoped.context,
       market: marketRules(input.market),

@@ -23,6 +23,12 @@ describe("query ownership and public persistence", () => {
       "mainnet",
       "marketCatalog",
     ]);
+    expect(queryKeys.public.marketSummaries("mainnet", "default")).toEqual([
+      "public",
+      "mainnet",
+      "marketSummaries",
+      "default",
+    ]);
     expect(
       queryKeys.private.accountSnapshot({
         network: "testnet",
@@ -75,11 +81,14 @@ describe("query ownership and public persistence", () => {
     ).toEqual(["private", "testnet", "0xaaa", "0xbbb", "accountSnapshot"]);
   });
 
-  test("warm restore includes only the stable market catalog", async () => {
+  test("warm restore includes only the default market-summary page", async () => {
     const source = new QueryClient();
-    source.setQueryData(queryKeys.public.marketCatalog("mainnet"), {
-      markets: 4,
-    });
+    source.setQueryData(
+      queryKeys.public.marketSummaries("mainnet", "default"),
+      {
+        pages: [{ items: 4 }],
+      },
+    );
     source.setQueryData(queryKeys.public.midPrices("mainnet"), {
       BTC: "90000",
     });
@@ -97,10 +106,10 @@ describe("query ownership and public persistence", () => {
     hydrate(restored, persisted);
 
     expect(
-      restored.getQueryData<{ markets: number }>(
-        queryKeys.public.marketCatalog("mainnet"),
+      restored.getQueryData<{ pages: { items: number }[] }>(
+        queryKeys.public.marketSummaries("mainnet", "default"),
       ),
-    ).toEqual({ markets: 4 });
+    ).toEqual({ pages: [{ items: 4 }] });
     expect(
       restored.getQueryData<{ BTC: string }>(
         queryKeys.public.midPrices("mainnet"),
@@ -118,29 +127,35 @@ describe("query ownership and public persistence", () => {
     expect(PUBLIC_CACHE_MAX_AGE_MS).toBeGreaterThan(0);
   });
 
-  test("only catalog changes schedule a public-device cache write", () => {
+  test("only default summary changes schedule a public-device cache write", () => {
     const source = new QueryClient();
-    source.setQueryData(queryKeys.public.marketCatalog("mainnet"), {
-      markets: 4,
-    });
+    source.setQueryData(
+      queryKeys.public.marketSummaries("mainnet", "default"),
+      {
+        pages: [{ items: 4 }],
+      },
+    );
     source.setQueryData(queryKeys.public.marketContext("mainnet", "perp:0:0"), {
       markPx: "90000",
     });
-    const catalog = source.getQueryCache().find({
-      queryKey: queryKeys.public.marketCatalog("mainnet"),
+    const summaries = source.getQueryCache().find({
+      queryKey: queryKeys.public.marketSummaries("mainnet", "default"),
     });
     const context = source.getQueryCache().find({
       queryKey: queryKeys.public.marketContext("mainnet", "perp:0:0"),
     });
 
     expect(
-      shouldPersistPublicCacheEvent({ type: "updated", query: catalog }),
+      shouldPersistPublicCacheEvent({ type: "updated", query: summaries }),
     ).toBe(true);
     expect(
       shouldPersistPublicCacheEvent({ type: "updated", query: context }),
     ).toBe(false);
     expect(
-      shouldPersistPublicCacheEvent({ type: "observerAdded", query: catalog }),
+      shouldPersistPublicCacheEvent({
+        type: "observerAdded",
+        query: summaries,
+      }),
     ).toBe(false);
   });
 
@@ -154,6 +169,14 @@ describe("query ownership and public persistence", () => {
     expect(
       isAllowlistedPublicQuery(
         queryKeys.public.marketCatalogBootstrap("testnet"),
+      ),
+    ).toBe(false);
+    expect(
+      isAllowlistedPublicQuery(queryKeys.public.marketCatalog("testnet")),
+    ).toBe(false);
+    expect(
+      isAllowlistedPublicQuery(
+        queryKeys.public.marketSummaries("testnet", "search:btc"),
       ),
     ).toBe(false);
   });

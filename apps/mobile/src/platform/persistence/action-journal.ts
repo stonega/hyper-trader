@@ -466,6 +466,16 @@ export class SqliteActionJournalRepository implements ActionJournalRepository {
     return row === null ? null : fromRow(row);
   }
 
+  listReconcilableActions(): readonly PreparedActionRecord[] {
+    return this.database
+      .getAllSync<ActionJournalRow>(
+        `SELECT * FROM action_journal
+         WHERE state IN ('submission_started', 'unresolved')
+         ORDER BY next_reconciliation_at, prepared_at, journal_id`,
+      )
+      .map(fromRow);
+  }
+
   markSubmissionStarted(
     journalId: string,
     now: number,

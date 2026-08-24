@@ -1,4 +1,4 @@
-import type { Market } from "@hyper-trader/hyperliquid/public";
+import type { MarketSummary } from "@hyper-trader/hyperliquid/public";
 import type { JSX } from "react";
 import { useState } from "react";
 import { Image, View } from "react-native";
@@ -6,7 +6,7 @@ import { Image, View } from "react-native";
 import { AppText as Text } from "../../components/app-text";
 import { marketIconSymbol, marketIconUri } from "./market-icon-model";
 
-function fallbackLabel(market: Market): string {
+function fallbackLabel(market: MarketSummary): string {
   const symbol = marketIconSymbol(market) ?? market.displaySymbol;
   const normalized = symbol.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
   return normalized.slice(0, 2) || "?";
@@ -15,7 +15,7 @@ function fallbackLabel(market: Market): string {
 export function MarketIcon({
   market,
 }: {
-  readonly market: Market;
+  readonly market: MarketSummary;
 }): JSX.Element {
   const uri = marketIconUri(market);
   const [failed, setFailed] = useState(false);

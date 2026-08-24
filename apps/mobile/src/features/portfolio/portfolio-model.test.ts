@@ -11,6 +11,7 @@ import {
   normalizePortfolioHistorySnapshot,
   normalizePortfolioLiveSnapshot,
   normalizePortfolioSnapshot,
+  portfolioFundingId,
   portfolioMarketClosePrice,
   portfolioOwnerKey,
 } from "./portfolio-model";
@@ -61,7 +62,37 @@ describe("portfolio normalization", () => {
       "funding",
       "fill",
     ]);
+    expect(
+      portfolio.activity.find((item) => item.kind === "fill"),
+    ).toMatchObject({
+      side: "B",
+      detail: "Size 1 · Price 10",
+    });
+    expect(
+      portfolio.activity.find((item) => item.kind === "funding"),
+    ).toMatchObject({
+      side: null,
+      detail: "Rate 0.0001 · Position size 2.5",
+    });
     expect(portfolio.gaps).toContain("Performance range 30d was not returned.");
+  });
+
+  test("omits spot assets with a zero total balance", () => {
+    const balance = PORTFOLIO_FIXTURE.spotState.balances[0];
+    if (!balance) throw new Error("fixture spot balance missing");
+    const portfolio = normalizePortfolioSnapshot({
+      ...PORTFOLIO_FIXTURE,
+      spotState: {
+        balances: [
+          { ...balance, coin: "ZERO", token: 1, total: "0" },
+          { ...balance, coin: "PADDED_ZERO", token: 2, total: "0.000000" },
+          { ...balance, coin: "NEGATIVE_ZERO", token: 3, total: "-0.0" },
+          { ...balance, coin: "DUST", token: 4, total: "0.00000001" },
+        ],
+      },
+    });
+
+    expect(portfolio.spotBalances.map((item) => item.coin)).toEqual(["DUST"]);
   });
 
   test("reuses normalized history when only the live account snapshot changes", () => {
@@ -88,6 +119,31 @@ describe("portfolio normalization", () => {
     expect(second.fills).toBe(first.fills);
     expect(second.funding).toBe(first.funding);
     expect(second.activity).toBe(first.activity);
+  });
+
+  test("gives recurring zero-hash funding settlements unique stable IDs", () => {
+    const funding = PORTFOLIO_FIXTURE.funding[0];
+    if (!funding) throw new Error("fixture funding missing");
+    const zeroHash = `0x${"0".repeat(64)}`;
+    const records = [
+      { ...funding, hash: zeroHash, coin: "BTC", time: 1_720_000_000_000 },
+      { ...funding, hash: zeroHash, coin: "BTC", time: 1_720_003_600_000 },
+      { ...funding, hash: zeroHash, coin: "ETH", time: 1_720_003_600_000 },
+    ];
+
+    const history = normalizePortfolioHistorySnapshot({
+      fills: [],
+      funding: records,
+      periods: [],
+    });
+    const ids = history.activity.map((activity) => activity.id);
+
+    expect(ids).toEqual(
+      [...records]
+        .sort((left, right) => right.time - left.time)
+        .map(portfolioFundingId),
+    );
+    expect(new Set(ids).size).toBe(records.length);
   });
 
   test("reports unknown market rows instead of guessing canonical identity", () => {

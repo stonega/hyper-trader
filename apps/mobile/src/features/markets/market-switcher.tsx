@@ -7,16 +7,10 @@ import { Input } from "heroui-native/input";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
-import {
-  FlatList,
-  Keyboard,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  View,
-} from "react-native";
+import { FlatList, Keyboard, Modal, Platform, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
+import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   discoverMarkets,
@@ -52,6 +46,7 @@ export function MarketSwitcher({
         ? discoverMarkets(markets, {
             query,
             families: [],
+            includeHip3: true,
             availability: "all",
             lifecycle: "all",
             favoritesOnly: false,
@@ -83,10 +78,7 @@ export function MarketSwitcher({
       visible={visible}
     >
       <View className="flex-1 bg-background" testID="market-switcher-surface">
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          className="flex-1"
-        >
+        <KeyboardAwareView className="flex-1">
           <FlatList
             className="flex-1 bg-background"
             contentContainerClassName="gap-1 px-5"
@@ -241,7 +233,7 @@ export function MarketSwitcher({
             }}
             showsVerticalScrollIndicator={false}
           />
-        </KeyboardAvoidingView>
+        </KeyboardAwareView>
       </View>
     </Modal>
   );

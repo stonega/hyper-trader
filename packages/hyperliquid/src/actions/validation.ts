@@ -9,6 +9,7 @@ import {
 } from "../numbers/precision";
 import { assertTestnetSigningCapability } from "../signing/boundary";
 import { parseCloid } from "./builders";
+import { MINIMUM_ORDER_NOTIONAL_MESSAGE } from "./constants";
 import type {
   CancelIntent,
   LimitOrderIntent,
@@ -477,7 +478,7 @@ function assertMargin(
       ),
     ) < 0
   ) {
-    invalid("intent.notional", "order is below the current minimum notional");
+    invalid("intent.notional", MINIMUM_ORDER_NOTIONAL_MESSAGE);
   }
   const leverage = input.market.family === "spot" ? 1 : input.account.leverage;
   if (!Number.isSafeInteger(leverage) || leverage == null || leverage < 1) {

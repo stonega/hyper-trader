@@ -25,6 +25,7 @@ import {
   DevelopmentSignerSessionProvider,
 } from "../features/actions/development-trading-runtime";
 import { NotificationRuntimeProvider } from "../features/notifications/provider";
+import { PortfolioStartupLoader } from "../features/portfolio/portfolio-startup-loader";
 import { AppearancePreferenceProvider } from "../features/settings/appearance-provider";
 import { ScopedTradingPreferencesProvider } from "../features/settings/preferences-provider";
 
@@ -60,6 +61,7 @@ export default function RootLayout(): JSX.Element {
                     <DraftRegistryProvider>
                       <TradingContextProvider>
                         <ActiveAccountContextRestorer />
+                        <PortfolioStartupLoader />
                         <ScopedTradingPreferencesProvider>
                           <DevelopmentActionRuntimeProvider>
                             <NativeLifecycleProvider>

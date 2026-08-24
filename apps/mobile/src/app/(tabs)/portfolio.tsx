@@ -5,7 +5,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   RefreshControl,
   ScrollView,
@@ -14,10 +13,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
 import { PerformanceChart } from "../../components/chart/performance-chart";
+import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
-import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { runManualRefresh } from "../../core/query/manual-refresh";
@@ -25,7 +24,12 @@ import { useSignerSession } from "../../core/session/provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
+import {
+  portfolioEditorOwnerScopeKey,
+  portfolioEditorPositionExists,
+} from "../../features/portfolio/portfolio-editor-state";
 import { portfolioEvidenceAllowsReview } from "../../features/portfolio/portfolio-freshness";
+import { portfolioLoadingSections } from "../../features/portfolio/portfolio-loading";
 import type {
   CloseDraft,
   PortfolioFilter,
@@ -33,6 +37,10 @@ import type {
   PortfolioPositionRow,
   PortfolioRange,
 } from "../../features/portfolio/portfolio-model";
+import {
+  PortfolioRowsPlaceholder,
+  PortfolioSummaryCard,
+} from "../../features/portfolio/portfolio-overview";
 import {
   resolvePortfolioTarget,
   usePortfolioData,
@@ -44,7 +52,6 @@ import {
 import {
   buildPortfolioCancelReview,
   buildPortfolioCloseReview,
-  buildPortfolioLeverageReview,
   portfolioCloseScopeKey,
 } from "../../features/portfolio/portfolio-review";
 import {
@@ -81,17 +88,6 @@ const FILTERS: readonly {
   { value: "funding", label: "Funding" },
   { value: "activity", label: "Activity" },
 ];
-const PORTFOLIO_LOADING_ITEMS = ["headline", "chart", "rows"] as const;
-
-function LoadingPortfolio(): JSX.Element {
-  return (
-    <LoadingSkeletons
-      accessibilityLabel="Loading private portfolio"
-      items={PORTFOLIO_LOADING_ITEMS}
-    />
-  );
-}
-
 export default function PortfolioScreen(): JSX.Element {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -186,11 +182,21 @@ export default function PortfolioScreen(): JSX.Element {
   const reviewScopeRef = useRef(reviewScope);
   reviewScopeRef.current = reviewScope;
   const previousReviewScope = useRef(reviewScope);
+  const editorOwnerScope = portfolioEditorOwnerScopeKey({
+    network: current.network,
+    masterAccount: current.masterAccount,
+    target: targetResolution.target,
+  });
+  const previousEditorOwnerScope = useRef(editorOwnerScope);
   const closeOperationFence = useRef(createTradeOperationFence());
+  const cancelInFlight = useRef(false);
   const closeInFlight = useRef<ReturnType<
     ReturnType<typeof createTradeOperationFence>["begin"]
   > | null>(null);
   const setEditor = (next: PortfolioEditor | null) => {
+    if (closeInFlight.current !== null) {
+      closeOperationFence.current.invalidate();
+    }
     setActionError(null);
     setInteraction({ editor: next, invalidationMessage: null });
   };
@@ -199,16 +205,35 @@ export default function PortfolioScreen(): JSX.Element {
     if (previousReviewScope.current === reviewScope) return;
     previousReviewScope.current = reviewScope;
     closeOperationFence.current.invalidate();
+    setActionError(null);
+  }, [reviewScope]);
+
+  useEffect(() => {
+    if (previousEditorOwnerScope.current === editorOwnerScope) return;
+    previousEditorOwnerScope.current = editorOwnerScope;
+    closeOperationFence.current.invalidate();
     setInteraction((active) => {
       if (active.editor === null) return active;
       return {
         editor: null,
         invalidationMessage:
-          "Account or market data changed. Reopen the position action to use current values.",
+          "The selected account changed. Reopen the position action for the current account.",
       };
     });
     setActionError(null);
-  }, [reviewScope]);
+  }, [editorOwnerScope]);
+
+  const editorPositionExists = portfolioEditorPositionExists(editor, portfolio);
+  useEffect(() => {
+    if (editor === null || editorPositionExists) return;
+    closeOperationFence.current.invalidate();
+    setInteraction({
+      editor: null,
+      invalidationMessage:
+        "This position is no longer open. The Limit close draft was cleared.",
+    });
+    setActionError(null);
+  }, [editor, editorPositionExists]);
 
   const editorOpen = editor !== null;
   useEffect(() => {
@@ -249,25 +274,7 @@ export default function PortfolioScreen(): JSX.Element {
       );
     }
   };
-  const openReview = (
-    capture: ReturnType<typeof tradingContext.capture>,
-    capturedScope: string,
-    review: Parameters<typeof actionRuntime.openReview>[0],
-  ) => {
-    if (
-      capturedScope !== reviewScopeRef.current ||
-      !tradingContext.canCommit(capture)
-    ) {
-      throw new Error(
-        "The account or market snapshot changed before review opened.",
-      );
-    }
-    actionRuntime.openReview(review);
-    setInteraction({ editor: null, invalidationMessage: null });
-    setActionError(null);
-  };
-
-  const reviewCancel = (order: PortfolioOpenOrderRow) => {
+  const reviewCancel = async (order: PortfolioOpenOrderRow) => {
     try {
       if (
         !actionsEnabled ||
@@ -276,6 +283,10 @@ export default function PortfolioScreen(): JSX.Element {
       ) {
         throw new Error(actionGate ?? "Current account evidence is required.");
       }
+      if (cancelInFlight.current || closeInFlight.current !== null) {
+        throw new Error("Another Portfolio action is already being prepared.");
+      }
+      cancelInFlight.current = true;
       assertActionCurrent();
       Keyboard.dismiss();
       const capturedScope = reviewScopeRef.current;
@@ -288,9 +299,26 @@ export default function PortfolioScreen(): JSX.Element {
         capturedContextEpoch: capture.epoch,
         nowMs: Date.now(),
       });
-      openReview(capture, capturedScope, review);
+      if (
+        capturedScope !== reviewScopeRef.current ||
+        !tradingContext.canCommit(capture)
+      ) {
+        throw new Error(
+          "The account or market snapshot changed before cancellation review.",
+        );
+      }
+      setActionError(null);
+      const result = await actionRuntime.reviewAndSubmit(review);
+      if (result.phase === "failed_before_submission") {
+        throw new Error(
+          result.message ??
+            "The cancellation could not be reviewed with current market and account details.",
+        );
+      }
     } catch (error) {
       reportActionError(error);
+    } finally {
+      cancelInFlight.current = false;
     }
   };
 
@@ -309,8 +337,8 @@ export default function PortfolioScreen(): JSX.Element {
       ) {
         throw new Error(actionGate ?? "Current account evidence is required.");
       }
-      if (closeInFlight.current !== null) {
-        throw new Error("A close review is already being prepared.");
+      if (cancelInFlight.current || closeInFlight.current !== null) {
+        throw new Error("Another Portfolio action is already being prepared.");
       }
       assertActionCurrent();
       Keyboard.dismiss();
@@ -351,52 +379,29 @@ export default function PortfolioScreen(): JSX.Element {
         nowMs: Date.now(),
       });
       if (
-        !closeOperationFence.current.canCommit(operation, capturedCloseScope)
+        !closeOperationFence.current.canCommit(operation, capturedCloseScope) ||
+        capturedScope !== reviewScopeRef.current ||
+        !tradingContext.canCommit(capture)
       ) {
         throw new Error(
           "The close details changed while review was prepared. Try again with current values.",
         );
       }
-      openReview(capture, capturedScope, review);
+      setInteraction({ editor: null, invalidationMessage: null });
+      setActionError(null);
+      const result = await actionRuntime.reviewAndSubmit(review);
+      if (result.phase === "failed_before_submission") {
+        throw new Error(
+          result.message ??
+            "The close could not be reviewed with current market and account details.",
+        );
+      }
     } catch (error) {
       reportActionError(error);
     } finally {
       if (operation !== null && closeInFlight.current === operation) {
         closeInFlight.current = null;
       }
-    }
-  };
-
-  const reviewMargin = (
-    position: PortfolioPositionRow,
-    leverage: number,
-    marginMode: "cross" | "isolated",
-  ) => {
-    try {
-      if (
-        !actionsEnabled ||
-        portfolio === null ||
-        targetResolution.target === null
-      ) {
-        throw new Error(actionGate ?? "Current account evidence is required.");
-      }
-      assertActionCurrent();
-      Keyboard.dismiss();
-      const capturedScope = reviewScopeRef.current;
-      const capture = tradingContext.capture();
-      const review = buildPortfolioLeverageReview({
-        portfolio,
-        position,
-        leverage,
-        marginMode,
-        target: targetResolution.target,
-        context: current,
-        capturedContextEpoch: capture.epoch,
-        nowMs: Date.now(),
-      });
-      openReview(capture, capturedScope, review);
-    } catch (error) {
-      reportActionError(error);
     }
   };
 
@@ -407,13 +412,15 @@ export default function PortfolioScreen(): JSX.Element {
       void scopedPreferences.update({ defaultChartRange: nextRange });
     }
   };
-  const loading =
-    targetResolution.target !== null &&
-    portfolio === null &&
-    (catalogQuery.isPending || query.isPending);
   const failed =
     portfolio === null &&
     (catalogQuery.isError || query.isError || query.isRefetchError);
+  const loadingSections = portfolioLoadingSections({
+    filter,
+    hasPortfolio: portfolio !== null,
+    hasSelectedRange: selectedRange !== null,
+    historyPending: historyQuery.isPending,
+  });
   const refetchCatalog = catalogQuery.refetch;
   const refetchPortfolio = query.refetch;
   const refetchPortfolioHistory = historyQuery.refetch;
@@ -445,10 +452,7 @@ export default function PortfolioScreen(): JSX.Element {
   );
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      className="flex-1 bg-background"
-    >
+    <KeyboardAwareView className="flex-1 bg-background">
       <ScrollView
         className="flex-1 bg-background"
         contentContainerClassName="gap-5 px-5"
@@ -488,8 +492,6 @@ export default function PortfolioScreen(): JSX.Element {
               </Card.Body>
             </Card>
           )
-        ) : loading ? (
-          <LoadingPortfolio />
         ) : failed ? (
           <Card variant="tertiary" className="gap-4">
             <Card.Body className="gap-2">
@@ -509,26 +511,9 @@ export default function PortfolioScreen(): JSX.Element {
               </Button>
             </Card.Footer>
           </Card>
-        ) : portfolio !== null ? (
+        ) : (
           <>
-            {freshness === "refreshing" &&
-            presentation.freshness === "fresh" ? (
-              <Text
-                accessibilityLiveRegion="polite"
-                className="text-sm leading-5 text-muted"
-              >
-                Syncing latest account changes… You can keep reviewing current
-                data.
-              </Text>
-            ) : freshness !== "fresh" || presentation.freshness !== "fresh" ? (
-              <Text
-                accessibilityRole="alert"
-                className="text-sm leading-5 text-warning"
-              >
-                Some portfolio data may be out of date. Pull to refresh.
-              </Text>
-            ) : null}
-            {interaction.invalidationMessage ? (
+            {portfolio !== null && interaction.invalidationMessage ? (
               <Text
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-warning"
@@ -537,25 +522,12 @@ export default function PortfolioScreen(): JSX.Element {
               </Text>
             ) : null}
 
-            <Card variant="default">
-              <Card.Body className="gap-3">
-                <Card.Description>Total account value</Card.Description>
-                <Card.Title className="text-4xl tabular-nums">
-                  {selectedRange?.accountValue ?? "Unavailable"}
-                </Card.Title>
-                <View className="flex-row flex-wrap gap-x-5 gap-y-2">
-                  <Text className="text-base tabular-nums text-foreground">
-                    PnL {selectedRange?.absolutePnl ?? "Unavailable"}
-                  </Text>
-                  <Text className="text-base tabular-nums text-muted">
-                    {selectedRange?.percentagePnl === null ||
-                    selectedRange?.percentagePnl === undefined
-                      ? "Percentage unavailable"
-                      : `${selectedRange.percentagePnl}%`}
-                  </Text>
-                </View>
-              </Card.Body>
-            </Card>
+            <PortfolioSummaryCard
+              data={selectedRange}
+              loading={loadingSections.summary}
+              marketFreshness={presentation.freshness}
+              portfolioFreshness={freshness}
+            />
 
             <ScrollView
               accessibilityLabel="Performance range"
@@ -572,7 +544,11 @@ export default function PortfolioScreen(): JSX.Element {
                 />
               ))}
             </ScrollView>
-            <PerformanceChart data={selectedRange} />
+            <PerformanceChart
+              data={selectedRange}
+              loading={loadingSections.performance}
+              range={range}
+            />
 
             <View className="gap-2">
               <Text className="text-lg font-medium text-foreground">
@@ -608,22 +584,24 @@ export default function PortfolioScreen(): JSX.Element {
               </Text>
             ) : null}
 
-            <PortfolioRows
-              actionAccess={actionAccess}
-              editor={editor}
-              error={actionError}
-              filter={filter}
-              onCancel={reviewCancel}
-              onReviewClose={(position, draft) =>
-                void reviewClose(position, draft)
-              }
-              onReviewMargin={reviewMargin}
-              portfolio={portfolio}
-              setEditor={setEditor}
-            />
+            {loadingSections.rows ? (
+              <PortfolioRowsPlaceholder />
+            ) : portfolio !== null ? (
+              <PortfolioRows
+                actionAccess={actionAccess}
+                editor={editor}
+                error={actionError}
+                filter={filter}
+                markets={catalog?.markets ?? []}
+                onCancel={reviewCancel}
+                onReviewClose={reviewClose}
+                portfolio={portfolio}
+                setEditor={setEditor}
+              />
+            ) : null}
           </>
-        ) : null}
+        )}
       </ScrollView>
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   );
 }

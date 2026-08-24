@@ -4,7 +4,11 @@ import type {
   ActiveAssetData,
   ClearinghouseState,
   HyperliquidClient,
+  Market,
+  MarketCatalogRequestOptions,
+  OpenOrder,
   SignerBinding,
+  TradingActionIntent,
 } from "@hyper-trader/hyperliquid";
 import { validateTradingAction } from "@hyper-trader/hyperliquid";
 
@@ -28,7 +32,19 @@ const binding: SignerBinding = {
   generation: 1,
 };
 
-function review() {
+function review(
+  intent: TradingActionIntent = {
+    type: "limit_order",
+    assetId: NATIVE_DUPLICATE.orderAssetId,
+    side: "buy",
+    size: "1",
+    limitPrice: "10",
+    timeInForce: "Gtc",
+    reduceOnly: false,
+    cloid: "0x00000000000000000000000000000001",
+  },
+  slippageBps: number | null = null,
+) {
   return createActionReview({
     binding,
     capturedContextEpoch: 4,
@@ -65,18 +81,18 @@ function review() {
         marginMode: "cross",
         positionSize: "2.5",
         version: 1_720_000_030_000,
+        ...(intent.type === "cancel"
+          ? {
+              openOrders: [
+                intent.target.kind === "oid"
+                  ? { assetId: intent.assetId, oid: intent.target.oid }
+                  : { assetId: intent.assetId, cloid: intent.target.cloid },
+              ],
+            }
+          : {}),
       },
-      controls: { slippageBps: null, trigger: null },
-      intent: {
-        type: "limit_order",
-        assetId: NATIVE_DUPLICATE.orderAssetId,
-        side: "buy",
-        size: "1",
-        limitPrice: "10",
-        timeInForce: "Gtc",
-        reduceOnly: false,
-        cloid: "0x00000000000000000000000000000001",
-      },
+      controls: { slippageBps, trigger: null },
+      intent,
     },
   });
 }
@@ -84,12 +100,16 @@ function review() {
 function client(
   state: ClearinghouseState,
   availableToTrade: ActiveAssetData["availableToTrade"] = ["118", "117"],
+  catalogScopes?: string[],
+  market: Market = NATIVE_DUPLICATE,
+  openOrders: readonly OpenOrder[] = PORTFOLIO_FIXTURE.perpStates[0].openOrders,
 ): HyperliquidClient {
   return {
     network: "testnet",
-    async getMarketCatalog() {
+    async getMarketCatalog(options?: MarketCatalogRequestOptions) {
+      if (options?.scope !== undefined) catalogScopes?.push(options.scope);
       return {
-        markets: [NATIVE_DUPLICATE],
+        markets: [market],
         quarantined: [],
         sourceErrors: [],
       };
@@ -104,13 +124,16 @@ function client(
           sourceDex: null,
           data: {
             user: target.address,
-            coin: NATIVE_DUPLICATE.coin,
+            coin: market.coin,
             leverage: { type: "cross", value: 5 },
             maxTradeSizes: ["23", "22"],
             availableToTrade,
-            markPrice: "10",
+            markPrice: market.markPx ?? "10",
           },
         };
+      },
+      async getOpenOrders(target: AccountTarget, dex: string) {
+        return { target, sourceDex: dex, data: openOrders };
       },
     },
   } as unknown as HyperliquidClient;
@@ -199,6 +222,34 @@ describe("development authoritative order refresh", () => {
     );
   });
 
+  test("refreshes only native perpetual metadata for a perpetual order", async () => {
+    const scopes: string[] = [];
+    await refreshReviewedOrder({
+      review: review(),
+      clock: unusedClock,
+      client: client(
+        PORTFOLIO_FIXTURE.perpStates[0].state,
+        ["118", "117"],
+        scopes,
+      ),
+      readCurrentContext: () => ({
+        context: {
+          network: "testnet",
+          masterAccount: binding.masterAccount,
+          targetAccount: binding.targetAccount,
+          signer: {
+            agentAddress: binding.agentAddress,
+            generation: binding.generation,
+          },
+        },
+        epoch: 4,
+      }),
+      now: () => NOW + 1_000,
+    });
+
+    expect(scopes).toEqual(["native"]);
+  });
+
   test("changes the account version when a position field changes", async () => {
     const candidate = review();
     const current = {
@@ -229,6 +280,169 @@ describe("development authoritative order refresh", () => {
     expect(changed.account.version).not.toBe(
       candidate.validation.account.version,
     );
+  });
+
+  test("revalidates a full reduce-only close against the current position", async () => {
+    const candidate = review(
+      {
+        type: "reduce_only_close",
+        assetId: NATIVE_DUPLICATE.orderAssetId,
+        side: "sell",
+        size: "2.5",
+        aggressiveLimitPrice: "9.95",
+        cloid: "0x00000000000000000000000000000002",
+      },
+      50,
+    );
+    const current = {
+      context: {
+        network: "testnet" as const,
+        masterAccount: binding.masterAccount,
+        targetAccount: binding.targetAccount,
+        signer: {
+          agentAddress: binding.agentAddress,
+          generation: binding.generation,
+        },
+      },
+      epoch: 4,
+    };
+
+    const refreshed = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
+      client: client(PORTFOLIO_FIXTURE.perpStates[0].state),
+      readCurrentContext: () => current,
+      now: () => NOW + 1_000,
+    });
+
+    expect(validateTradingAction(refreshed)).toMatchObject({
+      intent: candidate.validated.intent,
+      accountStateVersion: candidate.validated.accountStateVersion,
+      marketCanonicalId: candidate.validated.marketCanonicalId,
+    });
+  });
+
+  test("rebases a full close IOC bound to the authoritative market price", async () => {
+    const candidate = review(
+      {
+        type: "reduce_only_close",
+        assetId: NATIVE_DUPLICATE.orderAssetId,
+        side: "sell",
+        size: "2.5",
+        aggressiveLimitPrice: "9.95",
+        cloid: "0x00000000000000000000000000000003",
+      },
+      50,
+    );
+    const movedMarket = {
+      ...NATIVE_DUPLICATE,
+      markPx: "10.1",
+    } satisfies Market;
+
+    const refreshed = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
+      client: client(
+        PORTFOLIO_FIXTURE.perpStates[0].state,
+        ["118", "117"],
+        undefined,
+        movedMarket,
+      ),
+      readCurrentContext: () => ({
+        context: {
+          network: "testnet",
+          masterAccount: binding.masterAccount,
+          targetAccount: binding.targetAccount,
+          signer: {
+            agentAddress: binding.agentAddress,
+            generation: binding.generation,
+          },
+        },
+        epoch: 4,
+      }),
+      now: () => NOW + 1_000,
+    });
+
+    expect(refreshed.market.referencePrice).toBe("10.1");
+    expect(refreshed.intent).toMatchObject({
+      type: "reduce_only_close",
+      aggressiveLimitPrice: "10.05",
+    });
+    expect(validateTradingAction(refreshed).intent).toEqual(refreshed.intent);
+  });
+
+  test("revalidates cancellation against the exact current open order", async () => {
+    const candidate = review({
+      type: "cancel",
+      assetId: NATIVE_DUPLICATE.orderAssetId,
+      target: { kind: "oid", oid: 71 },
+    });
+    const refreshed = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
+      client: client(PORTFOLIO_FIXTURE.perpStates[0].state),
+      readCurrentContext: () => ({
+        context: {
+          network: "testnet",
+          masterAccount: binding.masterAccount,
+          targetAccount: binding.targetAccount,
+          signer: {
+            agentAddress: binding.agentAddress,
+            generation: binding.generation,
+          },
+        },
+        epoch: 4,
+      }),
+      now: () => NOW + 1_000,
+    });
+
+    expect(refreshed.account).toEqual({
+      availableMargin: "118",
+      version: candidate.validation.account.version,
+      openOrders: [{ assetId: NATIVE_DUPLICATE.orderAssetId, oid: 71 }],
+    });
+    expect(validateTradingAction(refreshed)).toMatchObject({
+      intent: candidate.validated.intent,
+      accountStateVersion: candidate.validated.accountStateVersion,
+    });
+  });
+
+  test("stops a cancellation when the exact order is no longer open", async () => {
+    const candidate = review({
+      type: "cancel",
+      assetId: NATIVE_DUPLICATE.orderAssetId,
+      target: { kind: "oid", oid: 71 },
+    });
+
+    await expect(
+      refreshReviewedOrder({
+        review: candidate,
+        clock: unusedClock,
+        client: client(
+          PORTFOLIO_FIXTURE.perpStates[0].state,
+          ["118", "117"],
+          undefined,
+          NATIVE_DUPLICATE,
+          [],
+        ),
+        readCurrentContext: () => ({
+          context: {
+            network: "testnet",
+            masterAccount: binding.masterAccount,
+            targetAccount: binding.targetAccount,
+            signer: {
+              agentAddress: binding.agentAddress,
+              generation: binding.generation,
+            },
+          },
+          epoch: 4,
+        }),
+        now: () => NOW + 1_000,
+      }),
+    ).rejects.toMatchObject({
+      code: "cancel_target_not_open",
+      message: "The reviewed order is no longer open.",
+    });
   });
 
   test("rejects a review after the context epoch changes", () => {

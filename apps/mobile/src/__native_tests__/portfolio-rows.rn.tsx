@@ -1,0 +1,200 @@
+import { expect, jest, test } from "@jest/globals";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react-native";
+import { useState } from "react";
+
+import { MARKET_FIXTURE } from "../features/markets/fixture";
+import { PORTFOLIO_FIXTURE } from "../features/portfolio/portfolio.fixture";
+import {
+  type CloseDraft,
+  normalizePortfolioSnapshot,
+  type PortfolioOpenOrderRow,
+  type PortfolioPositionRow,
+} from "../features/portfolio/portfolio-model";
+import {
+  type PortfolioEditor,
+  PortfolioRows,
+} from "../features/portfolio/portfolio-rows";
+
+jest.mock("../components/use-reduced-motion", () => ({
+  useReducedMotion: () => true,
+}));
+
+const portfolio = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE);
+const noop = jest.fn();
+type ReviewCancel = (order: PortfolioOpenOrderRow) => Promise<void>;
+const cancelNoop = jest.fn<ReviewCancel>(async () => undefined);
+const reviewCloseNoop = jest.fn(async () => undefined);
+type ReviewClose = (
+  position: PortfolioPositionRow,
+  draft: CloseDraft,
+) => Promise<void>;
+
+function rows(
+  filter: "activity" | "fills" | "funding" | "open_orders" | "positions",
+) {
+  return (
+    <PortfolioRows
+      actionAccess={{ allowed: false, reason: "Read only" }}
+      editor={null}
+      error={null}
+      filter={filter}
+      markets={MARKET_FIXTURE}
+      onCancel={cancelNoop}
+      onReviewClose={reviewCloseNoop}
+      portfolio={portfolio}
+      setEditor={noop}
+    />
+  );
+}
+
+function InteractivePositionRows({
+  onReviewClose,
+}: {
+  readonly onReviewClose: ReviewClose;
+}) {
+  const [editor, setEditor] = useState<PortfolioEditor | null>(null);
+  return (
+    <PortfolioRows
+      actionAccess={{ allowed: true, message: "Ready to review." }}
+      editor={editor}
+      error={null}
+      filter="positions"
+      markets={MARKET_FIXTURE}
+      onCancel={cancelNoop}
+      onReviewClose={onReviewClose}
+      portfolio={portfolio}
+      setEditor={setEditor}
+    />
+  );
+}
+
+test("uses pair names and readable direction labels across portfolio records", () => {
+  const view = render(rows("positions"));
+
+  expect(screen.getAllByText("DUP-USDC")).toHaveLength(2);
+  expect(screen.getByText("Long")).toBeTruthy();
+  expect(screen.getByText("Short")).toBeTruthy();
+
+  view.rerender(rows("open_orders"));
+  expect(screen.getAllByText("Buy")).toHaveLength(2);
+  expect(screen.queryByText("B")).toBeNull();
+
+  view.rerender(rows("fills"));
+  expect(screen.getByText("DUP-USDC")).toBeTruthy();
+  expect(screen.getByText("Buy")).toBeTruthy();
+  expect(screen.getByText("Fill")).toBeTruthy();
+  expect(screen.getByText("Closed PnL")).toBeTruthy();
+
+  view.rerender(rows("funding"));
+  expect(screen.getByText("Funding")).toBeTruthy();
+  expect(screen.getByText("Payment")).toBeTruthy();
+
+  view.rerender(rows("activity"));
+  expect(screen.getByText("Buy")).toBeTruthy();
+  expect(screen.getByText("Fill")).toBeTruthy();
+  expect(screen.getByText("Funding")).toBeTruthy();
+  expect(screen.queryByText(/\bB\b/)).toBeNull();
+});
+
+test("keeps the pressed Cancel button in Reviewing during progressive confirmation", async () => {
+  let finishReview!: () => void;
+  const onCancel = jest.fn<ReviewCancel>(
+    () =>
+      new Promise<void>((resolve) => {
+        finishReview = resolve;
+      }),
+  );
+  render(
+    <PortfolioRows
+      actionAccess={{ allowed: true, message: "Ready to review." }}
+      editor={null}
+      error={null}
+      filter="open_orders"
+      markets={MARKET_FIXTURE}
+      onCancel={onCancel}
+      onReviewClose={reviewCloseNoop}
+      portfolio={portfolio}
+      setEditor={noop}
+    />,
+  );
+
+  fireEvent.press(screen.getAllByRole("button", { name: "Cancel" })[0]);
+
+  expect(await screen.findByText("Reviewing…")).toBeTruthy();
+  for (const cancel of screen.queryAllByRole("button", { name: "Cancel" })) {
+    expect(cancel.props.accessibilityState).toMatchObject({ disabled: true });
+  }
+  expect(onCancel).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("Review cancel")).toBeNull();
+
+  await act(async () => finishReview());
+  await waitFor(() => expect(screen.queryByText("Reviewing…")).toBeNull());
+});
+
+test("keeps the pressed Market button in Reviewing while preflight is pending", async () => {
+  let finishReview!: () => void;
+  const onReviewClose = jest.fn<ReviewClose>(
+    () =>
+      new Promise<void>((resolve) => {
+        finishReview = resolve;
+      }),
+  );
+  render(
+    <PortfolioRows
+      actionAccess={{ allowed: true, message: "Ready to review." }}
+      editor={null}
+      error={null}
+      filter="positions"
+      markets={MARKET_FIXTURE}
+      onCancel={cancelNoop}
+      onReviewClose={onReviewClose}
+      portfolio={portfolio}
+      setEditor={noop}
+    />,
+  );
+
+  fireEvent.press(screen.getByRole("button", { name: "Market" }));
+
+  expect(await screen.findByText("Reviewing…")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Limit" }).props.accessibilityState,
+  ).toMatchObject({ disabled: true });
+  expect(onReviewClose).toHaveBeenCalledTimes(1);
+  expect(onReviewClose.mock.calls[0]?.[1]).toMatchObject({
+    behavior: "market",
+    size: "2.5",
+  });
+
+  await act(async () => finishReview());
+  await waitFor(() => expect(screen.queryByText("Reviewing…")).toBeNull());
+});
+
+test("opens a reduce-only Limit form and removes the Margin action", async () => {
+  const onReviewClose = jest.fn<ReviewClose>(async () => undefined);
+  render(<InteractivePositionRows onReviewClose={onReviewClose} />);
+
+  expect(screen.getByRole("button", { name: "Market" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Limit" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Margin" })).toBeNull();
+
+  fireEvent.press(screen.getByRole("button", { name: "Limit" }));
+
+  expect(screen.getByLabelText("Limit close for DUP")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText("Limit price for DUP"), "10.25");
+  fireEvent.changeText(screen.getByLabelText("Close size for DUP"), "1.25");
+  fireEvent.press(screen.getByRole("button", { name: "Review limit close" }));
+
+  await waitFor(() => expect(onReviewClose).toHaveBeenCalledTimes(1));
+  expect(onReviewClose.mock.calls[0]?.[1]).toMatchObject({
+    behavior: "limit",
+    limitPrice: "10.25",
+    size: "1.25",
+    timeInForce: "Gtc",
+  });
+});

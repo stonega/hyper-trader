@@ -12,7 +12,7 @@ is not merged into a same-symbol perpetual.
 The root action runtime remains intentionally unavailable while the security
 review is conditional. Portfolio therefore renders current or safely cached
 private state when an exact account adapter is available, but it never invents
-signer or submission authority. Cancel, close, and margin controls fail closed
+signer or submission authority. Cancel and close controls fail closed
 at confirmation while the injected root runtime is unavailable; immutable
 review remains available. No screen-local signer, nonce, journal, exchange
 client, or reconciliation state machine exists.
@@ -36,6 +36,15 @@ a loading skeleton. Returning to the mounted tab shows cached rows immediately;
 when the snapshot is stale, the focused query refreshes it in the background.
 Lifecycle, order availability, precision, leverage, or isolation changes still
 select a new cache entry and preserve the existing fail-closed action boundary.
+
+App launch primes these same query keys after persisted active-account
+restoration. The root loader first loads or joins the full network catalog, then
+loads live Portfolio data followed by history. Opening Portfolio reuses a fresh
+startup snapshot without another mount fetch; a snapshot that has crossed its
+stale threshold still reconciles in the background. The one-shot loader owns no
+WebSocket subscription or interval, stops before starting private work if the
+active owner changes, and relies on query-key deduplication if Portfolio opens
+while startup loading is still in flight.
 
 The current context contract exposes addresses but not the semantic type of a
 different target. Portfolio can resolve a target as `master` only when master
@@ -61,6 +70,11 @@ catalog failure is also visible and retryable. Cached data remains on screen
 during a same-owner refresh, offline, stale, or error state. Review stays
 available through a background refresh only while that displayed snapshot is
 still current; stale and offline evidence remains browse-only.
+Background-sync, stale, and offline status uses the same compact dot-and-label
+treatment as Trade and is anchored in the Total account value card's top-right
+corner without affecting card height. The row remains visible as `Up to date`,
+`Updating`, or `Refresh needed`; assistive technology receives the complete
+status and refresh guidance while the visible label remains concise.
 
 The backend intersects the published DEX list with bounded global order, fill,
 and funding activity before issuing DEX-scoped account reads. Reaching an
@@ -84,10 +98,15 @@ background. An existing account or catalog fetch is reused instead of canceled
 and restarted. Catalog recovery joins the gesture only when metadata is
 missing, stale, or failed and no catalog refresh is already running. The pull
 indicator represents that bounded manual work alone. Continuous Portfolio
-polling is removed. While focused, account WebSocket events invalidate the live
-aggregate; fill and funding events also invalidate history. Event bursts use a
-fixed 250-millisecond coalescing window and never cancel an equivalent refresh
-already in flight. Event payloads are never copied into private query data.
+polling is limited to a focused 15-second safety reconciliation, with a
+30-second stale threshold so a healthy refresh completes before the UI warns.
+Unfocused screens do not retain an active query observer or polling timer.
+While focused, account WebSocket events invalidate the live aggregate sooner;
+fill and funding events also invalidate history. Event bursts use a fixed
+250-millisecond coalescing window and never cancel an equivalent refresh already
+in flight. Event payloads are never copied into private query data. A healthy
+account or catalog background refresh is presented as syncing; stale or offline
+evidence retains the warning state.
 
 ## Performance and source gaps
 
@@ -104,10 +123,31 @@ technology. Missing periods,
 unmatched markets, unavailable endpoints, and cadence gaps are disclosed; the
 screen does not interpolate account history.
 
+Portfolio has no page-level loading skeleton. The account summary, performance,
+and account-detail regions keep their final positions. Static titles, range and
+filter controls, summary labels, and performance labels render immediately;
+unresolved values use `-`, and the selected account-detail body remains empty
+until rows arrive. Once the live account snapshot arrives, positions, orders,
+and spot balances render immediately while summary and performance wait only for
+history. Selecting fills, funding, or activity keeps only the row body empty
+until that history arrives. Background refreshes retain all safe cached section
+content.
+
 Every Portfolio filter renders at most 24 rows initially. A deliberate
 `Show more` action exposes one additional bounded batch, so a large fill or
 activity response cannot synchronously mount an unbounded native card tree.
 Changing account or filter restores the first bounded window.
+
+Position, open-order, fill, funding, and combined-activity cards share one
+record hierarchy: the validated market pair leads (for example `BTC-USDC`),
+venue or local event time follows, and compact text chips identify record type
+and direction. Exchange side codes are presentation details only; `B` and `A`
+render as `Buy` and `Sell`. Numeric fields use explicit labels such as position
+size, limit price, fee, payment, funding rate, and closed PnL instead of being
+combined into an encoded summary line. Spot and HIP-3 pair labels resolve from
+the validated market catalog, preserving their canonical market identity. Spot
+balances omit assets whose exact total amount is zero, including decimal-padded
+zero values.
 
 ## Quick actions and review ownership
 
@@ -115,15 +155,35 @@ Portfolio constructs only typed inputs already owned by the shared reviewed
 action boundary:
 
 - Cancel binds the current canonical asset and exact open `oid`, includes the
-  current open-order evidence, and opens the shared confirmation review.
+  current open-order evidence, and starts progressive confirmation. The pressed
+  Cancel control shows `Reviewing…` while authoritative review reloads the
+  market's DEX-scoped open orders. Authentication and submission proceed only
+  when exactly one current order still matches that asset and `oid`. An order
+  that filled or disappeared during the handoff stops with refresh guidance.
+  The sending/status sheet appears only after target-bound device
+  authentication.
 - Close starts as a full-size reduce-only market draft with editable 50 basis
   point maximum slippage. Its aggressive limit bound is computed from the
   current reference price with exact decimal arithmetic and current market
-  precision. Full market close size is fixed to the current absolute position.
+  precision, then rebased to the authoritative pre-authentication price with
+  the same immutable slippage. A normal price tick therefore does not invalidate
+  the close, while changed position size, side, market rules, or slippage still
+  stops submission. Full market close size is fixed to the current absolute
+  position.
   A user may switch to a reduce-only GTC limit order and edit a partial size or
-  limit price before review.
-- Margin accepts a current-market-bounded leverage and applicable cross or
-  isolated mode, then opens the same confirmation review.
+  limit price before review. Pressing Market or Review limit close is the
+  explicit confirmation boundary. It shows `Reviewing…` while authoritative
+  review runs and requests exact target-bound device authentication only after
+  review succeeds. The sending/status sheet appears only after authentication;
+  no redundant review sheet opens first.
+- Position cards expose only Market and Limit close actions. Market retains the
+  primary action treatment and starts a full-position close. Limit expands an
+  inline reduce-only price and size form. Routine account snapshots and market
+  price updates keep that form expanded and preserve the user's entered price
+  and size. The form is cleared only when the user dismisses it, leaves the
+  Positions filter, selects another account, submits the close for review, or
+  the edited position is no longer open. Margin changes are not exposed from
+  Portfolio.
 
 Every review builder receives the current normalized Portfolio and explicit
 `AccountTarget`. It verifies their owner against the captured context, resolves
@@ -135,8 +195,9 @@ check at its final boundary.
 Review captures the exact testnet context epoch, signer binding, market safety
 fingerprint and reference price, account version, position or order identity,
 and current values. Cryptographic `cloid` generation for closes uses the same
-16-byte Expo Crypto boundary as Trade. One close preparation may be in flight.
-Its operation fence binds the owner, snapshot version and observation time,
+16-byte Expo Crypto boundary as Trade. Only one Portfolio cancel or close
+confirmation may be in flight. The close operation fence binds the owner,
+snapshot version and observation time,
 market fingerprint and price, every position field, and every draft field. A
 context, price, metadata, account, target, or editor change rejects the late
 result before review opens.
@@ -152,21 +213,24 @@ Actions require testnet, an exact target and API-wallet binding, current market
 metadata, current account evidence, and a valid credential state. A background
 refresh does not revoke review access to an otherwise current snapshot; it is
 shown as a quiet syncing state, and confirmation still owns the authoritative
-account refresh and immutable-review comparison. Locked
-sessions may reach review because confirmation owns the exact device-unlock and
-refresh sequence. An unavailable root confirmation runtime leaves review usable
-but omits confirmation and submission. Mainnet, stale, offline, invalidated,
-and unmatched states remain explicitly browse-only.
+account refresh and immutable-review comparison. Locked sessions may start
+Cancel or Close confirmation because the progressive path owns the exact
+device-unlock and refresh sequence. When the root confirmation runtime is
+unavailable, both actions stop safely before authentication or submission.
+Mainnet, stale, offline,
+invalidated, and unmatched states remain explicitly browse-only.
 
 Portfolio stays one mounted vertical `ScrollView`; range and filter controls are
 horizontal text chip rows, and each filter's rows use the bounded incremental
-window described above. Close and margin editors expand inline rather than
+window described above. The Limit close editor expands inline rather than
 creating a new signing phase. Android Back dismisses the keyboard first, then
-closes the inline editor, then falls through to normal navigation. Root review
-owns all subsequent Back consumption. HeroUI feedback and loading animation
-honor the system Reduced Motion preference. Controls are at least 48 points and
-status is always expressed in text rather than color alone. Action failures are
-announced at account level, and unavailable rows show their own durable reason.
+closes the inline editor, then falls through to normal navigation. The root
+action runtime owns Back after an explicit review opens or a progressive Close
+handoff authenticates and reveals the sheet. HeroUI feedback and loading
+animation honor the system Reduced Motion preference. Controls are at least 48
+points and status is always expressed in text rather than color alone. Action
+failures are announced at account level, and unavailable rows show their own
+durable reason.
 The shared account avatar sits at the top-right of the Portfolio heading, matching
 Markets and Trade; pressing it opens the same account-selection dialog. The
 former full-width account card is not duplicated in the content flow.

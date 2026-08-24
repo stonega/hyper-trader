@@ -2,6 +2,7 @@ import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { BottomSheet } from "heroui-native/bottom-sheet";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
+import { Spinner } from "heroui-native/spinner";
 import type { JSX } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, BackHandler, View } from "react-native";
@@ -61,8 +62,8 @@ const STATUS_COPY: Readonly<
     description: "Sending the action to Hyperliquid.",
   },
   reconciling: {
-    title: "Checking status",
-    description: "Confirming the result with Hyperliquid.",
+    title: "Checking result",
+    description: "Waiting for Hyperliquid to confirm the result.",
   },
   accepted: {
     title: "Action accepted",
@@ -93,6 +94,15 @@ const RESULT_PHASES: ReadonlySet<ActionFlowPhase> = new Set([
   "rejected",
   "expired",
   "ambiguous",
+]);
+const PENDING_PHASES: ReadonlySet<ActionFlowPhase> = new Set([
+  "unlocking",
+  "refreshing",
+  "reserving",
+  "signing",
+  "submission_start",
+  "submitting",
+  "reconciling",
 ]);
 const ACCEPTED_CLOSE_DELAY_MS = 900;
 const NOT_APPLICABLE = "Not applicable";
@@ -137,25 +147,53 @@ function confirmationLabel(
 function reviewDetails(
   actionType: ReviewActionType,
   presentation: ActionReviewPresentation,
+  compact: boolean,
 ): readonly (readonly [label: string, value: string])[] {
   if (!isOrderReview(actionType)) {
     return actionType === "update_leverage"
       ? [["Leverage / margin", presentation.leverageAndMargin]]
       : [];
   }
+  const priceLabel =
+    actionType === "limit_order" ? "Limit price" : "Price limit";
   const details: readonly (readonly [string, string])[] = [
-    ["Price", presentation.price],
-    ["Leverage / margin", presentation.leverageAndMargin],
-    ["Reduce only", presentation.reduceOnly],
-    ["Estimated fee", presentation.estimatedFee],
+    [priceLabel, presentation.price],
+    [
+      "Reduce only",
+      compact && presentation.reduceOnly === "No"
+        ? NOT_APPLICABLE
+        : presentation.reduceOnly,
+    ],
+    [
+      "Estimated fee",
+      compact && presentation.estimatedFee.startsWith("Unavailable")
+        ? NOT_APPLICABLE
+        : presentation.estimatedFee,
+    ],
     ["Max slippage", presentation.slippage],
   ];
   return details.filter((detail) => detail[1] !== NOT_APPLICABLE);
 }
 
+function orderMeta(
+  actionType: ReviewActionType,
+  presentation: ActionReviewPresentation,
+): string {
+  if (!isOrderReview(actionType)) return presentation.action;
+  if (
+    presentation.leverageAndMargin === NOT_APPLICABLE ||
+    presentation.leverageAndMargin === "Spot"
+  ) {
+    return presentation.action;
+  }
+  return `${presentation.action} · ${presentation.leverageAndMargin}`;
+}
+
 function ReviewTicket({
+  compact,
   review,
 }: {
+  readonly compact: boolean;
   readonly review: ActionReviewSnapshot;
 }): JSX.Element {
   const { presentation } = review;
@@ -180,68 +218,97 @@ function ReviewTicket({
             </Text>
           ) : null}
         </View>
-        <Text className="text-sm text-muted">{presentation.action}</Text>
+        <Text className="text-sm text-muted">
+          {orderMeta(actionType, presentation)}
+        </Text>
       </View>
 
       <View className="h-px bg-divider" />
 
       <View className="gap-2.5">
-        {reviewDetails(actionType, presentation).map(([label, value]) => (
-          <View className="flex-row justify-between gap-4" key={label}>
-            <Text className="flex-1 text-sm text-muted">{label}</Text>
+        {reviewDetails(actionType, presentation, compact).map(
+          ([label, value]) => (
+            <View className="flex-row justify-between gap-4" key={label}>
+              <Text className="flex-1 text-sm text-muted">{label}</Text>
+              <Text className="flex-1 text-right text-sm font-medium text-foreground">
+                {value}
+              </Text>
+            </View>
+          ),
+        )}
+        {compact ? null : (
+          <View className="flex-row justify-between gap-4">
+            <Text className="flex-1 text-sm text-muted">Account</Text>
             <Text className="flex-1 text-right text-sm font-medium text-foreground">
-              {value}
+              {accountLabel(presentation.account)}
             </Text>
           </View>
-        ))}
-        <View className="flex-row justify-between gap-4">
-          <Text className="flex-1 text-sm text-muted">Account</Text>
-          <Text className="flex-1 text-right text-sm font-medium text-foreground">
-            {accountLabel(presentation.account)}
-          </Text>
-        </View>
+        )}
       </View>
     </View>
   );
 }
 
-function ActionStage({
+function pendingStatusLabel({
   phase,
+  actionType,
 }: {
   readonly phase: ActionFlowPhase;
-}): JSX.Element {
-  const activeStage =
-    phase === "review"
-      ? 0
-      : phase === "failed_before_submission" || RESULT_PHASES.has(phase)
-        ? 2
-        : 1;
+  readonly actionType: ReviewActionType | null;
+}): string {
+  const noun =
+    actionType !== null && isOrderReview(actionType) ? "order" : "action";
+  if (phase === "unlocking") return "Authenticating…";
+  if (phase === "refreshing" || phase === "reconciling") {
+    return `Checking ${noun}…`;
+  }
+  if (phase === "reserving") return `Preparing ${noun}…`;
+  if (phase === "signing") return `Signing ${noun}…`;
+  return `Submitting ${noun}…`;
+}
+
+function FlowStatus({
+  actionType,
+  phase,
+  reducedMotion,
+}: {
+  readonly actionType: ReviewActionType | null;
+  readonly phase: ActionFlowPhase;
+  readonly reducedMotion: boolean;
+}): JSX.Element | null {
+  if (phase === "review") return null;
+
+  const isPending = PENDING_PHASES.has(phase);
+  const pendingLabel = isPending
+    ? pendingStatusLabel({ actionType, phase })
+    : null;
 
   return (
-    <View
-      accessibilityLabel={`Action progress: ${["review", "submit", "status"][activeStage]}`}
-      className="flex-row gap-2"
-    >
-      {["Review", "Submit", "Status"].map((label, index) => (
-        <View className="min-w-0 flex-1 gap-1.5" key={label}>
-          <View
-            className={
-              index <= activeStage
-                ? "h-1 rounded-full bg-accent"
-                : "h-1 rounded-full bg-surface-secondary"
-            }
-          />
-          <Text
-            className={
-              index === activeStage
-                ? "text-xs font-semibold text-foreground"
-                : "text-xs text-muted"
-            }
-          >
-            {label}
+    <View className="flex-row items-center gap-3">
+      {isPending ? (
+        <Spinner
+          accessibilityLabel={
+            phase === "reconciling"
+              ? `Checking ${actionType !== null && isOrderReview(actionType) ? "order" : "action"} status`
+              : (pendingLabel ?? undefined)
+          }
+          animation={reducedMotion ? "disable-all" : undefined}
+          size="sm"
+        />
+      ) : null}
+      <View className="min-w-0 flex-1 gap-0.5">
+        <Text
+          accessibilityRole={isPending ? undefined : "alert"}
+          className="text-sm font-semibold text-foreground"
+        >
+          {pendingLabel ?? STATUS_COPY[phase].title}
+        </Text>
+        {isPending ? null : (
+          <Text className="text-sm leading-5 text-muted">
+            {STATUS_COPY[phase].description}
           </Text>
-        </View>
-      ))}
+        )}
+      </View>
     </View>
   );
 }
@@ -365,16 +432,17 @@ export function ActionFlowSheet(): JSX.Element {
             showsVerticalScrollIndicator={false}
           >
             <View className="gap-4 pb-2">
-              <ActionStage phase={flow.phase} />
-              <View className="gap-1">
-                <Text className="text-xs font-medium uppercase tracking-wide text-accent">
-                  {review?.presentation.network ?? "Testnet action"}
-                </Text>
-                <BottomSheet.Title>{copy.title}</BottomSheet.Title>
-                <BottomSheet.Description>
-                  {copy.description}
-                </BottomSheet.Description>
-              </View>
+              {flow.phase === "review" ? (
+                <View className="gap-1">
+                  <Text className="text-xs font-medium uppercase tracking-wide text-accent">
+                    {review?.presentation.network ?? "Testnet action"}
+                  </Text>
+                  <BottomSheet.Title>{copy.title}</BottomSheet.Title>
+                  <BottomSheet.Description>
+                    {copy.description}
+                  </BottomSheet.Description>
+                </View>
+              ) : null}
 
               <Card className="gap-3" variant="secondary">
                 <Card.Body className="gap-3">
@@ -388,8 +456,18 @@ export function ActionFlowSheet(): JSX.Element {
                     ).reduceMotion(ReduceMotion.System)}
                     key={flow.phase}
                   >
-                    {review === null ? null : <ReviewTicket review={review} />}
-                    {flow.message !== null ? (
+                    <FlowStatus
+                      actionType={review?.validated.intent.type ?? null}
+                      phase={flow.phase}
+                      reducedMotion={reducedMotion}
+                    />
+                    {review === null ? null : (
+                      <ReviewTicket
+                        compact={flow.phase !== "review"}
+                        review={review}
+                      />
+                    )}
+                    {flow.message !== null && flow.phase !== "reconciling" ? (
                       <Text
                         accessibilityRole="alert"
                         className="text-sm leading-5 text-warning"
@@ -458,7 +536,11 @@ export function ActionFlowSheet(): JSX.Element {
                     onPress={dismiss}
                     variant="tertiary"
                   >
-                    {RESULT_PHASES.has(flow.phase) ? "Done" : "Cancel"}
+                    {flow.phase === "rejected"
+                      ? "Edit order"
+                      : RESULT_PHASES.has(flow.phase)
+                        ? "Done"
+                        : "Cancel"}
                   </Button>
                 ) : null}
               </View>

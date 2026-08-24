@@ -14,7 +14,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   RefreshControl,
   ScrollView,
@@ -23,12 +22,12 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
+import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { MarketActivity } from "../../components/order-book/market-activity";
 import { ScreenHeading } from "../../components/screen-heading";
 import { SetupResumeCard } from "../../components/setup-resume-card";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
-import { LoadingSkeletons } from "../../components/ui/loading-skeletons";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useDraftRegistry } from "../../core/actions/draft-provider";
 import { useTradingContext } from "../../core/context/provider";
@@ -63,7 +62,7 @@ import {
 import { useUsableTradeMarker } from "../../features/markets/use-usable-trade-marker";
 import { resolvePortfolioTarget } from "../../features/portfolio/portfolio-query";
 import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
-import { MarketCandlestickChart } from "../../features/trade/candlestick-chart";
+import { MarketKlinePriceChart } from "../../features/trade/kline-price-chart";
 import type { TradeChartInterval } from "../../features/trade/market-chart-config";
 import {
   useTradeCandleData,
@@ -79,7 +78,15 @@ import {
 import { buildTradeChartOverlays } from "../../features/trade/trade-chart-overlays";
 import { shouldSplitTradeWorkspace } from "../../features/trade/trade-layout";
 import {
+  TradeActivityPlaceholder,
+  TradeChartPlaceholder,
+  TradeMarketSummaryPlaceholder,
+  TradeOrderEntryPlaceholder,
+} from "../../features/trade/trade-loading-cards";
+import {
+  buildTradeLeverageReview,
   buildTradeReview,
+  canStartTradeReview,
   cloidFromRandomBytes,
   createTradeDraft,
   createTradeOperationFence,
@@ -97,8 +104,6 @@ import {
 } from "../../features/trade/trade-model";
 import { expoCryptographicRandomBytes } from "../../platform/security/agent-signer";
 
-const TRADE_LOADING_ITEMS = ["summary", "chart", "activity", "order"] as const;
-
 function MarketSummary({
   market,
   status,
@@ -112,11 +117,16 @@ function MarketSummary({
     market.family === "perp" && (market.dexIndex === 0 || market.dexName === "")
       ? null
       : marketVenueLabel(market);
+  const marketPrice = market.midPx ?? market.markPx;
+  const priceChangePercent = marketPriceChangePercent(market);
   return (
     <Card variant="default" className="gap-3">
       <Card.Header className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1 gap-1">
-          <Card.Title className="text-xl">{marketPairLabel(market)}</Card.Title>
+          <Card.Title className="text-xl">
+            {marketPairLabel(market)}
+            {market.family === "perp" ? ` x${market.maxLeverage}` : ""}
+          </Card.Title>
           {status}
           {venueLabel === null ? null : (
             <Card.Description>{venueLabel}</Card.Description>
@@ -128,10 +138,15 @@ function MarketSummary({
             className="font-mono text-2xl font-semibold text-foreground"
             numberOfLines={1}
           >
-            {formatMarketPrice(market)}
+            {marketPrice === null || marketPrice === undefined
+              ? "-"
+              : formatMarketPrice(market)}
           </Text>
           <Text className="text-sm tabular-nums text-muted">
-            {formatPercent(marketPriceChangePercent(market))} · 24h
+            {priceChangePercent === null
+              ? "-"
+              : formatPercent(priceChangePercent)}{" "}
+            · 24h
           </Text>
         </View>
       </Card.Header>
@@ -139,7 +154,11 @@ function MarketSummary({
         <View className="min-w-28 flex-1">
           <Stat
             label="24h volume"
-            value={formatCompactDecimal(market.dayNtlVlm)}
+            value={
+              market.dayNtlVlm === undefined
+                ? "-"
+                : formatCompactDecimal(market.dayNtlVlm)
+            }
           />
         </View>
         {market.family === "perp" ? (
@@ -147,13 +166,21 @@ function MarketSummary({
             <View className="min-w-24 flex-1">
               <Stat
                 label="Funding"
-                value={formatCompactDecimal(market.funding)}
+                value={
+                  market.funding === undefined
+                    ? "-"
+                    : formatCompactDecimal(market.funding)
+                }
               />
             </View>
             <View className="min-w-28 flex-1">
               <Stat
                 label="Open interest"
-                value={formatCompactDecimal(market.openInterest)}
+                value={
+                  market.openInterest === undefined
+                    ? "-"
+                    : formatCompactDecimal(market.openInterest)
+                }
               />
             </View>
           </>
@@ -201,15 +228,6 @@ function Stat({
   );
 }
 
-function TradeLoading(): JSX.Element {
-  return (
-    <LoadingSkeletons
-      accessibilityLabel="Loading selected Trade market"
-      items={TRADE_LOADING_ITEMS}
-    />
-  );
-}
-
 const LiveTradeChart = memo(function LiveTradeChart({
   context,
   target,
@@ -243,17 +261,15 @@ const LiveTradeChart = memo(function LiveTradeChart({
     [account, candles.data, draft, market, openOrders.data],
   );
   return (
-    <MarketCandlestickChart
+    <MarketKlinePriceChart
       candles={candles.data}
       canonicalMarketId={market.canonicalId}
       compact
       interval={interval}
-      canLoadOlder={candles.canFetchOlder}
+      key={`${network}:${market.canonicalId}`}
       historyError={candles.historyError}
       liveRange={candles.liveRange}
       loading={candles.isPending}
-      loadingOlder={candles.isFetchingOlder}
-      onLoadOlder={candles.fetchOlder}
       onIntervalChange={onIntervalChange}
       overlays={overlays}
       realtime
@@ -416,6 +432,18 @@ export default function TradeScreen(): JSX.Element {
         nowMs: Date.now(),
       })
     : null;
+  const reviewInputRef = useRef({
+    market,
+    context: current,
+    authority,
+    draftState,
+  });
+  reviewInputRef.current = {
+    market,
+    context: current,
+    authority,
+    draftState,
+  };
   const usable = isUsableTradeSelection(
     catalog?.markets ?? [],
     market?.canonicalId ?? null,
@@ -528,8 +556,13 @@ export default function TradeScreen(): JSX.Element {
 
   const invalidRestoredMarket =
     selection !== null &&
-    selection.source === "volume_fallback" &&
+    (selection.source === "default_market" ||
+      selection.source === "volume_fallback") &&
     (requestedMarket !== null || preferences.preferences.lastMarketId !== null);
+  const marketUnavailable =
+    market === null &&
+    presentation.content !== "loading" &&
+    preferences.status !== "loading";
   const refetchAccount = accountQuery.refetch;
   const refetchCatalog = catalogQuery.refetch;
   const refreshFromPullGesture = useCallback(
@@ -589,13 +622,83 @@ export default function TradeScreen(): JSX.Element {
   }, []);
 
   const openReview = async (requestedDraft: TradeDraft) => {
-    if (!market || !draftState.draft || !gate?.enabled) {
+    if (!market || !draftState.draft) {
       throw new Error(
         gate?.reason ?? "A current market and draft are required.",
       );
     }
-    const reviewDraft = {
+    const startGate = evaluateTradeGate({
+      market,
+      context: current,
+      authority,
+      nowMs: Date.now(),
+    });
+    if (!canStartTradeReview(startGate)) {
+      throw new Error(startGate.reason);
+    }
+    const initialReviewDraft = {
       ...draftState.draft,
+      side: requestedDraft.side,
+    };
+    if (
+      tradeDraftValueKey(initialReviewDraft) !==
+      tradeDraftValueKey(requestedDraft)
+    ) {
+      throw new Error("The order changed before review could start.");
+    }
+    Keyboard.dismiss();
+    const capture = tradingContext.capture();
+    let reviewMarket = market;
+    let reviewContext = current;
+    let reviewAuthority = authority;
+    if (startGate.code === "stale_account") {
+      const refreshed = await refetchAccount({ cancelRefetch: false });
+      if (!tradingContext.canCommit(capture)) {
+        throw new Error(
+          "Account context changed while account details were refreshed.",
+        );
+      }
+      const latest = reviewInputRef.current;
+      if (
+        latest.market === null ||
+        latest.market.canonicalId !== market.canonicalId
+      ) {
+        throw new Error("The selected market changed during account refresh.");
+      }
+      const refreshedAccount = refreshed.data;
+      if (
+        refreshed.isError ||
+        refreshedAccount === undefined ||
+        refreshedAccount === null
+      ) {
+        throw new Error(
+          "Current account details could not be refreshed. Check your connection and try again.",
+        );
+      }
+      reviewMarket = latest.market;
+      reviewContext = latest.context;
+      reviewAuthority = {
+        ...latest.authority,
+        account: refreshedAccount,
+      };
+      const refreshedGate = evaluateTradeGate({
+        market: reviewMarket,
+        context: reviewContext,
+        authority: reviewAuthority,
+        nowMs: Date.now(),
+      });
+      if (!refreshedGate.enabled) {
+        throw new Error(refreshedGate.reason);
+      }
+    }
+    const latestDraft = reviewInputRef.current.draftState.draft;
+    if (latestDraft === null) {
+      throw new Error(
+        "The order changed while account details were refreshed.",
+      );
+    }
+    const reviewDraft = {
+      ...latestDraft,
       side: requestedDraft.side,
     };
     if (
@@ -603,13 +706,16 @@ export default function TradeScreen(): JSX.Element {
     ) {
       throw new Error("The order changed before review could start.");
     }
-    const requestedReviewScope = `${authorityScope}:${tradeDraftValueKey(reviewDraft)}`;
+    const reviewAuthorityScope = tradeReviewScopeKey({
+      market: reviewMarket,
+      context: reviewContext,
+      authority: reviewAuthority,
+    });
+    const requestedReviewScope = `${reviewAuthorityScope}:${tradeDraftValueKey(reviewDraft)}`;
     setDraftState({ draft: reviewDraft, invalidationMessage: null });
     reviewScopeRef.current = requestedReviewScope;
-    Keyboard.dismiss();
-    const capture = tradingContext.capture();
     const operation = operationFence.current.begin(
-      market.canonicalId,
+      reviewMarket.canonicalId,
       requestedReviewScope,
     );
     const cloid = cloidFromRandomBytes(await expoCryptographicRandomBytes(16));
@@ -622,10 +728,10 @@ export default function TradeScreen(): JSX.Element {
       );
     }
     const review = buildTradeReview({
-      market,
-      context: current,
+      market: reviewMarket,
+      context: reviewContext,
       capturedContextEpoch: capture.epoch,
-      authority,
+      authority: reviewAuthority,
       draft: reviewDraft,
       cloid,
       nowMs: Date.now(),
@@ -647,11 +753,95 @@ export default function TradeScreen(): JSX.Element {
     }
   };
 
+  const changeLeverage = async (leverage: number) => {
+    if (!market) throw new Error("A current perpetual market is required.");
+    const startGate = evaluateTradeGate({
+      market,
+      context: current,
+      authority,
+      nowMs: Date.now(),
+    });
+    if (!canStartTradeReview(startGate)) throw new Error(startGate.reason);
+    Keyboard.dismiss();
+    const capture = tradingContext.capture();
+    let reviewMarket = market;
+    let reviewContext = current;
+    let reviewAuthority = authority;
+    if (startGate.code === "stale_account") {
+      const refreshed = await refetchAccount({ cancelRefetch: false });
+      if (!tradingContext.canCommit(capture)) {
+        throw new Error(
+          "Account context changed while account details were refreshed.",
+        );
+      }
+      const latest = reviewInputRef.current;
+      if (
+        latest.market === null ||
+        latest.market.canonicalId !== market.canonicalId
+      ) {
+        throw new Error("The selected market changed during account refresh.");
+      }
+      const refreshedAccount = refreshed.data;
+      if (
+        refreshed.isError ||
+        refreshedAccount === undefined ||
+        refreshedAccount === null
+      ) {
+        throw new Error(
+          "Current account details could not be refreshed. Check your connection and try again.",
+        );
+      }
+      reviewMarket = latest.market;
+      reviewContext = latest.context;
+      reviewAuthority = { ...latest.authority, account: refreshedAccount };
+      const refreshedGate = evaluateTradeGate({
+        market: reviewMarket,
+        context: reviewContext,
+        authority: reviewAuthority,
+        nowMs: Date.now(),
+      });
+      if (!refreshedGate.enabled) throw new Error(refreshedGate.reason);
+    }
+    const leverageReviewScope = `${tradeReviewScopeKey({
+      market: reviewMarket,
+      context: reviewContext,
+      authority: reviewAuthority,
+    })}:leverage:${leverage}`;
+    reviewScopeRef.current = leverageReviewScope;
+    const operation = operationFence.current.begin(
+      reviewMarket.canonicalId,
+      leverageReviewScope,
+    );
+    const review = buildTradeLeverageReview({
+      market: reviewMarket,
+      context: reviewContext,
+      capturedContextEpoch: capture.epoch,
+      authority: reviewAuthority,
+      leverage,
+      nowMs: Date.now(),
+    });
+    if (
+      !operationFence.current.canCommit(operation, leverageReviewScope) ||
+      !tradingContext.canCommit(capture)
+    ) {
+      throw new Error(
+        "Market or account context changed before leverage review opened.",
+      );
+    }
+    const result = await actionRuntime.reviewAndSubmit(review);
+    if (result.phase === "failed_before_submission") {
+      throw new Error(
+        result.message ??
+          "The leverage change could not be reviewed with current account details.",
+      );
+    }
+    if (result.phase === "accepted") {
+      await refetchAccount({ cancelRefetch: false });
+    }
+  };
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      className="flex-1 bg-background"
-    >
+    <KeyboardAwareView className="flex-1 bg-background">
       <ScrollView
         className="flex-1 bg-background"
         contentContainerClassName="gap-3 px-3"
@@ -714,98 +904,106 @@ export default function TradeScreen(): JSX.Element {
             accessibilityRole="alert"
             className="text-sm leading-5 text-warning"
           >
-            The requested or last market is no longer in the catalog. Trade
-            selected the highest-volume current market.
+            {selection?.source === "default_market"
+              ? "The requested or last market is no longer available. Trade selected BTC-USDC."
+              : "The requested or last market and BTC-USDC are unavailable. Trade selected the highest-volume current market."}
           </Text>
         ) : null}
 
         {market && catalogMarket ? (
-          <>
-            <MarketSummary
-              market={market}
-              status={
-                showCatalogStatus ? (
-                  <CatalogStatus
-                    compact
-                    onRetry={() => void catalogQuery.refetch()}
-                    state={presentation}
-                  />
-                ) : undefined
-              }
-            />
-            {presentation.freshness === "offline" ||
-            presentation.freshness === "stale" ? (
-              <Text
-                accessibilityRole="alert"
-                className="text-sm leading-5 text-warning"
-              >
-                Some market data may be out of date. Pull to refresh.
-              </Text>
-            ) : null}
-            <LiveTradeChart
-              account={authority.account}
-              context={current}
-              draft={draftState.draft}
-              network={current.network}
-              market={market}
-              interval={candleInterval}
-              onIntervalChange={setCandleInterval}
-              target={accountTarget}
-            />
-            <View
-              className={
-                splitWorkspace ? "flex-row items-stretch gap-2" : "gap-3"
-              }
-            >
-              {draftState.draft && gate ? (
-                <OrderPanel
-                  authority={authority}
-                  compact={splitWorkspace}
-                  draft={draftState.draft}
-                  gate={gate}
-                  invalidationMessage={draftState.invalidationMessage}
-                  key={`${draftState.draft.binding.contextKey}:${draftState.draft.binding.marketCanonicalId}:${draftState.draft.binding.metadataFingerprint}`}
-                  market={market}
-                  onDraftChange={(draft) =>
-                    setDraftState({ draft, invalidationMessage: null })
-                  }
-                  onReview={openReview}
-                  style={splitWorkspace ? { flex: 1.35 } : undefined}
+          <MarketSummary
+            market={market}
+            status={
+              showCatalogStatus ? (
+                <CatalogStatus
+                  compact
+                  onRetry={() => void catalogQuery.refetch()}
+                  state={presentation}
                 />
-              ) : (
-                <View
-                  className="min-w-0"
-                  style={splitWorkspace ? { flex: 1.35 } : undefined}
-                >
-                  <TradeLoading />
-                </View>
-              )}
-              <LiveTradeActivity
-                compact={splitWorkspace}
-                market={catalogMarket}
-                network={current.network}
-                onSelectPrice={selectOrderBookPrice}
-              />
-            </View>
-            {gate?.code === "read_only" || gate?.code === "expired_agent" ? (
-              <SetupResumeCard />
-            ) : null}
-          </>
+              ) : undefined
+            }
+          />
         ) : presentation.content === "loading" ||
           preferences.status === "loading" ? (
-          <TradeLoading />
+          <TradeMarketSummaryPlaceholder />
         ) : (
-          <Card variant="secondary">
-            <Card.Body className="gap-2">
-              <Card.Title>No valid market selected</Card.Title>
-              <Card.Description>
-                {presentation.content === "unavailable"
-                  ? "Markets could not be loaded. Pull to refresh."
-                  : "No markets are available. Pull to refresh."}
-              </Card.Description>
-            </Card.Body>
-          </Card>
+          <TradeMarketSummaryPlaceholder unavailable />
         )}
+
+        {market &&
+        (presentation.freshness === "offline" ||
+          presentation.freshness === "stale") ? (
+          <Text
+            accessibilityRole="alert"
+            className="text-sm leading-5 text-warning"
+          >
+            Some market data may be out of date. Pull to refresh.
+          </Text>
+        ) : null}
+
+        {market ? (
+          <LiveTradeChart
+            account={authority.account}
+            context={current}
+            draft={draftState.draft}
+            network={current.network}
+            market={market}
+            interval={candleInterval}
+            onIntervalChange={setCandleInterval}
+            target={accountTarget}
+          />
+        ) : (
+          <TradeChartPlaceholder
+            interval={candleInterval}
+            onIntervalChange={setCandleInterval}
+            unavailable={marketUnavailable}
+          />
+        )}
+
+        <View
+          className={splitWorkspace ? "flex-row items-stretch gap-2" : "gap-3"}
+        >
+          {market && draftState.draft && gate ? (
+            <OrderPanel
+              authority={authority}
+              compact={splitWorkspace}
+              draft={draftState.draft}
+              gate={gate}
+              invalidationMessage={draftState.invalidationMessage}
+              key={`${draftState.draft.binding.contextKey}:${draftState.draft.binding.marketCanonicalId}:${draftState.draft.binding.metadataFingerprint}`}
+              market={market}
+              onDraftChange={(draft) =>
+                setDraftState({ draft, invalidationMessage: null })
+              }
+              onLeverageChange={changeLeverage}
+              onReview={openReview}
+              style={splitWorkspace ? { flex: 1.35 } : undefined}
+            />
+          ) : (
+            <TradeOrderEntryPlaceholder
+              splitWorkspace={splitWorkspace}
+              unavailable={marketUnavailable}
+            />
+          )}
+          {catalogMarket ? (
+            <LiveTradeActivity
+              compact={splitWorkspace}
+              market={catalogMarket}
+              network={current.network}
+              onSelectPrice={selectOrderBookPrice}
+            />
+          ) : (
+            <TradeActivityPlaceholder
+              splitWorkspace={splitWorkspace}
+              unavailable={marketUnavailable}
+            />
+          )}
+        </View>
+
+        {market &&
+        (gate?.code === "read_only" || gate?.code === "expired_agent") ? (
+          <SetupResumeCard />
+        ) : null}
       </ScrollView>
       <MarketSwitcher
         markets={catalog?.markets ?? []}
@@ -814,6 +1012,6 @@ export default function TradeScreen(): JSX.Element {
         selectedCanonicalId={market?.canonicalId ?? null}
         visible={switcherOpen}
       />
-    </KeyboardAvoidingView>
+    </KeyboardAwareView>
   );
 }

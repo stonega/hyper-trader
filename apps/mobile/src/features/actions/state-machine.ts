@@ -53,6 +53,7 @@ export type ActionFlowAction =
       readonly generation: number;
       readonly journalId: string;
       readonly phase: "accepted" | "rejected" | "expired" | "ambiguous";
+      readonly message?: string;
     }
   | {
       readonly type: "FAIL_BEFORE_SUBMISSION";
@@ -139,7 +140,7 @@ export function reduceActionFlow(
         ...state,
         phase: action.phase,
         journalId: action.journalId,
-        message: null,
+        message: action.message ?? null,
       };
     case "FAIL_BEFORE_SUBMISSION":
       if (

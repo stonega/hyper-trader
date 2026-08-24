@@ -24,6 +24,40 @@ function memoryStorage(initial?: string) {
   };
 }
 
+function marketSummaryPage(canonicalId: string, nextCursor: string | null) {
+  const symbol = canonicalId.endsWith(":0") ? "BTC" : "ETH";
+  return {
+    schemaVersion: 1 as const,
+    network: "mainnet" as const,
+    generation: 3,
+    publishedAtMs: 1_800_000_000_000,
+    items: [
+      {
+        family: "perp" as const,
+        canonicalId,
+        displaySymbol: symbol,
+        coin: symbol,
+        lifecycle: "active" as const,
+        orderAvailability: "enabled" as const,
+        pricePrecision: {
+          maxSignificantFigures: 5 as const,
+          maxDecimalPlaces: 4,
+        },
+        dayNtlVlm: "100",
+        markPx: "1",
+        dexIndex: 0,
+        dexName: "",
+        dexFullName: null,
+        maxLeverage: 20,
+      },
+    ],
+    total: 2,
+    nextCursor,
+    quarantinedCount: 0,
+    sourceErrorCount: 0,
+  };
+}
+
 describe("safe public cache persister", () => {
   test("keeps restoration pending until asynchronous storage resolves", async () => {
     let release: (value: string | null) => void = () => undefined;
@@ -74,6 +108,10 @@ describe("safe public cache persister", () => {
       "hyper-trader.public-query-cache.v2",
       "{possibly-empty-catalog",
     );
+    storage.values.set(
+      "hyper-trader.public-query-cache.v3",
+      "{obsolete-full-catalog",
+    );
     const persister = createSafePublicCachePersister(storage);
 
     expect(await persister.restoreClient()).toBeUndefined();
@@ -81,6 +119,9 @@ describe("safe public cache persister", () => {
       false,
     );
     expect(storage.values.has("hyper-trader.public-query-cache.v2")).toBe(
+      false,
+    );
+    expect(storage.values.has("hyper-trader.public-query-cache.v3")).toBe(
       false,
     );
   });
@@ -112,12 +153,17 @@ describe("safe public cache persister", () => {
           {
             dehydratedAt: 1,
             queryHash: "public",
-            queryKey: ["public", "mainnet", "marketCatalog"],
+            queryKey: ["public", "mainnet", "marketSummaries", "default"],
             state: {
               data: {
-                markets: [{ canonicalId: "perp:0:0" }],
-                quarantined: [],
-                sourceErrors: [],
+                pages: [
+                  marketSummaryPage("perp:0:0", "g3o1"),
+                  marketSummaryPage("perp:0:1", null),
+                ],
+                pageParams: [
+                  { cursor: null, idOffset: 0 },
+                  { cursor: "g3o1", idOffset: 0 },
+                ],
               },
               dataUpdateCount: 1,
               dataUpdatedAt: 1,
@@ -177,6 +223,8 @@ describe("safe public cache persister", () => {
 
     expect(raw).not.toContain("accountValue");
     expect(raw).not.toContain("never");
+    expect(raw).toContain("perp:0:0");
+    expect(raw).not.toContain("perp:0:1");
 
     const restored = await persister.restoreClient();
 
@@ -186,5 +234,6 @@ describe("safe public cache persister", () => {
     ).toEqual(["public"]);
     expect(JSON.stringify(restored)).not.toContain("accountValue");
     expect(JSON.stringify(restored)).not.toContain("never");
+    expect(JSON.stringify(restored)).not.toContain("perp:0:1");
   });
 });

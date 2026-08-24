@@ -80,6 +80,7 @@ function deferred<T>() {
 function harness(
   providerResponse: unknown,
   reviewValidation: TradingActionValidationInput = validation(),
+  reconciledPhase?: "accepted" | "rejected" | "expired" | "ambiguous",
 ) {
   const calls: string[] = [];
   let record: PreparedActionRecord | null = null;
@@ -90,6 +91,7 @@ function harness(
   let raceTerminalTransition = false;
   let throwDuringTransport = false;
   let unlockFailure: unknown = null;
+  let refreshFailure: unknown = null;
   let unlockGate: Promise<unknown> | null = null;
   let refreshGate: Promise<unknown> | null = null;
   const repository: Parameters<
@@ -202,9 +204,28 @@ function harness(
         });
       }) as unknown as typeof fetch,
     }),
+    ...(reconciledPhase === undefined
+      ? {}
+      : {
+          reconciliation: {
+            async reconcile(journalId: string) {
+              calls.push("reconcile");
+              repository.transitionAction(
+                journalId,
+                reconciledPhase === "ambiguous"
+                  ? "reconciled_ambiguous"
+                  : reconciledPhase,
+                reconciledPhase,
+                NOW + 2,
+              );
+              return reconciledPhase;
+            },
+          },
+        }),
     refresh: async () => {
       calls.push("refresh");
       if (refreshGate !== null) await refreshGate;
+      if (refreshFailure !== null) throw refreshFailure;
       return refreshedValidation;
     },
     isContextCurrent: () => contextCurrent,
@@ -246,6 +267,9 @@ function harness(
     },
     failUnlock: (error: unknown) => {
       unlockFailure = error;
+    },
+    failRefresh: (error: unknown) => {
+      refreshFailure = error;
     },
     pauseUnlockUntil: (gate: Promise<unknown>) => {
       unlockGate = gate;
@@ -306,6 +330,72 @@ describe("shared action orchestrator", () => {
     expect(h.calls.filter((call) => call === "submit")).toHaveLength(1);
   });
 
+  test("submits and presents the authoritative IOC bound after a price move", async () => {
+    const base = validation();
+    const closeIntent = {
+      type: "reduce_only_close",
+      assetId: 0,
+      side: "sell",
+      size: "2.5",
+      aggressiveLimitPrice: "99.5",
+      cloid: "0x00000000000000000000000000000002",
+    } as const;
+    const reviewed: TradingActionValidationInput = {
+      ...base,
+      controls: { slippageBps: 50, trigger: null },
+      account: { ...base.account, positionSize: "2.5" },
+      intent: closeIntent,
+    };
+    const h = harness(
+      {
+        status: "ok",
+        response: {
+          type: "order",
+          data: {
+            statuses: [{ filled: { totalSz: "2.5", avgPx: "101", oid: 43 } }],
+          },
+        },
+      },
+      reviewed,
+    );
+    h.setRefreshedValidation({
+      ...reviewed,
+      market: { ...reviewed.market, referencePrice: "101" },
+      intent: { ...closeIntent, aggressiveLimitPrice: "100.5" },
+    });
+    const authenticatedReviews: ReturnType<typeof createActionReview>[] = [];
+
+    const result = await h.orchestrator.confirm(h.review, {
+      onAuthenticated: (review) => {
+        authenticatedReviews.push(review);
+      },
+    });
+
+    expect(result.phase).toBe("accepted");
+    expect(
+      h.currentRecord()?.normalizedSecretFreeIntent.aggressiveLimitPrice,
+    ).toBe("100.5");
+    expect(authenticatedReviews[0]?.validated.intent).toMatchObject({
+      type: "reduce_only_close",
+      aggressiveLimitPrice: "100.5",
+    });
+    expect(authenticatedReviews[0]?.presentation.price).toBe("100.5");
+
+    const nonDerived = harness(
+      { status: "ok", response: { type: "default" } },
+      reviewed,
+    );
+    nonDerived.setRefreshedValidation({
+      ...reviewed,
+      market: { ...reviewed.market, referencePrice: "101" },
+      intent: { ...closeIntent, aggressiveLimitPrice: "100.6" },
+    });
+    expect(
+      (await nonDerived.orchestrator.confirm(nonDerived.review)).phase,
+    ).toBe("failed_before_submission");
+    expect(nonDerived.calls).not.toContain("unlock");
+  });
+
   test("runs every U7 action family through the same write-once pipeline", async () => {
     const base = validation();
     const workflows: readonly {
@@ -322,7 +412,7 @@ describe("shared action orchestrator", () => {
             assetId: 0,
             side: "buy",
             size: "0.1",
-            aggressiveLimitPrice: "100",
+            aggressiveLimitPrice: "101",
             cloid: "0x00000000000000000000000000000010",
           },
         },
@@ -422,6 +512,101 @@ describe("shared action orchestrator", () => {
       expect(h.calls.filter((call) => call === "submit")).toHaveLength(1);
     },
   );
+
+  test("presents the allowlisted minimum-notional rejection", async () => {
+    const h = harness({
+      status: "ok",
+      response: {
+        type: "order",
+        data: {
+          statuses: [{ error: "Order must have minimum value of $10." }],
+        },
+      },
+    });
+
+    expect(await h.orchestrator.confirm(h.review)).toMatchObject({
+      phase: "rejected",
+      message: "Order must have minimum value of $10.",
+    });
+    expect(h.calls.filter((call) => call === "submit")).toHaveLength(1);
+    expect(h.currentRecord()?.lastResultClass).toBe("rejected");
+  });
+
+  test("gives a full close an actionable provider-rejection message", async () => {
+    const base = validation();
+    const close: TradingActionValidationInput = {
+      ...base,
+      account: { ...base.account, positionSize: "2" },
+      controls: { slippageBps: 100, trigger: null },
+      intent: {
+        type: "reduce_only_close",
+        assetId: 0,
+        side: "sell",
+        size: "2",
+        aggressiveLimitPrice: "99",
+        cloid: "0x00000000000000000000000000000012",
+      },
+    };
+    const h = harness({ status: "err", response: "bad order" }, close);
+    h.setRefreshedValidation(close);
+
+    expect(await h.orchestrator.confirm(h.review)).toMatchObject({
+      phase: "rejected",
+      message:
+        "Hyperliquid did not execute this close. The position or market may have changed. Refresh and try again.",
+    });
+  });
+
+  test("gives cancellation races and rejections actionable messages", async () => {
+    const base = validation();
+    const cancel: TradingActionValidationInput = {
+      ...base,
+      account: {
+        ...base.account,
+        openOrders: [{ assetId: 0, oid: 77 }],
+      },
+      intent: {
+        type: "cancel",
+        assetId: 0,
+        target: { kind: "oid", oid: 77 },
+      },
+    };
+    const noLongerOpen = harness(
+      { status: "ok", response: { type: "default" } },
+      cancel,
+    );
+    noLongerOpen.failRefresh(
+      Object.assign(new Error("provider detail is not presented"), {
+        code: "cancel_target_not_open",
+      }),
+    );
+
+    expect(
+      await noLongerOpen.orchestrator.confirm(noLongerOpen.review),
+    ).toMatchObject({
+      phase: "failed_before_submission",
+      message:
+        "This order is no longer open. Refresh open orders before trying again.",
+    });
+    expect(noLongerOpen.calls).not.toContain("unlock");
+
+    const rejected = harness({ status: "err", response: "bad cancel" }, cancel);
+    rejected.setRefreshedValidation(cancel);
+    expect(await rejected.orchestrator.confirm(rejected.review)).toMatchObject({
+      phase: "rejected",
+      message:
+        "Hyperliquid did not cancel this order. Refresh open orders before trying again.",
+    });
+  });
+
+  test("resolves an uncertain response through authoritative reconciliation", async () => {
+    const h = harness({ status: "wat" }, validation(), "accepted");
+
+    expect((await h.orchestrator.confirm(h.review)).phase).toBe("accepted");
+    expect(h.currentRecord()?.state).toBe("accepted");
+    expect(h.calls).toContain("reconcile");
+    expect(h.calls.filter((call) => call === "submit")).toHaveLength(1);
+  });
 
   test("abandons a reserved action when context changes before signing completes", async () => {
     const h = harness({ status: "ok", response: { type: "default" } });

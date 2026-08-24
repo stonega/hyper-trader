@@ -30,6 +30,7 @@ export type MarketCatalogRequestOptions = InfoRequestOptions &
     | { readonly scope?: "complete" }
     | { readonly scope: "core" }
     | { readonly scope: "native" }
+    | { readonly scope: "spot" }
     | {
         readonly scope: "incremental";
         readonly builderDexOffset: number;
@@ -647,7 +648,11 @@ export async function discoverMarketCatalog(
   const sourceErrors: CatalogSourceError[] = [];
   const nativeDex: DexDescriptor = { index: 0, name: "", fullName: null };
   let dexes: readonly DexDescriptor[] = [nativeDex];
-  if (options.scope !== "core" && options.scope !== "native") {
+  if (
+    options.scope !== "core" &&
+    options.scope !== "native" &&
+    options.scope !== "spot"
+  ) {
     try {
       dexes = [
         nativeDex,
@@ -660,7 +665,13 @@ export async function discoverMarketCatalog(
   }
 
   const builderDexes = (() => {
-    if (options.scope === "core" || options.scope === "native") return [];
+    if (
+      options.scope === "core" ||
+      options.scope === "native" ||
+      options.scope === "spot"
+    ) {
+      return [];
+    }
     if (options.scope !== "incremental") return dexes.slice(1);
     return dexes.slice(
       1 + options.builderDexOffset,
@@ -669,18 +680,22 @@ export async function discoverMarketCatalog(
   })();
 
   const requests = [
-    {
-      source: "metaAndAssetCtxs:native",
-      kind: "perp" as const,
-      dex: nativeDex,
-      load: () =>
-        transport.request(
+    ...(options.scope === "spot"
+      ? []
+      : [
           {
-            type: "metaAndAssetCtxs",
+            source: "metaAndAssetCtxs:native",
+            kind: "perp" as const,
+            dex: nativeDex,
+            load: () =>
+              transport.request(
+                {
+                  type: "metaAndAssetCtxs",
+                },
+                options,
+              ),
           },
-          options,
-        ),
-    },
+        ]),
     ...(options.scope === "native"
       ? []
       : [
@@ -691,7 +706,7 @@ export async function discoverMarketCatalog(
             load: () =>
               transport.request({ type: "spotMetaAndAssetCtxs" }, options),
           },
-          ...(transport.network === "testnet"
+          ...(transport.network === "testnet" && options.scope !== "spot"
             ? [
                 {
                   source: "outcomeMeta",

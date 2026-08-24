@@ -1,8 +1,8 @@
 import type {
-  Market,
   MarketFamily,
   MarketLifecycle,
   MarketOrderAvailability,
+  MarketSummary,
 } from "@hyper-trader/hyperliquid/public";
 
 export type MarketSort =
@@ -15,6 +15,7 @@ export type MarketSort =
 export interface MarketDiscoveryOptions {
   readonly query: string;
   readonly families: readonly MarketFamily[];
+  readonly includeHip3: boolean;
   readonly availability: MarketOrderAvailability | "all";
   readonly lifecycle: MarketLifecycle | "all";
   readonly favoritesOnly: boolean;
@@ -33,7 +34,7 @@ interface MarketDiscoveryProjection {
   readonly volume: number | null;
 }
 
-const projectionCache = new WeakMap<Market, MarketDiscoveryProjection>();
+const projectionCache = new WeakMap<MarketSummary, MarketDiscoveryProjection>();
 
 function compareText(left: string, right: string): number {
   if (left === right) {
@@ -42,7 +43,7 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : 1;
 }
 
-function searchableValues(market: Market): readonly string[] {
+function searchableValues(market: MarketSummary): readonly string[] {
   const common = [
     market.displaySymbol,
     market.canonicalId,
@@ -83,7 +84,10 @@ function normalizeSearch(value: string): string {
   return value.normalize("NFKC").trim().toLocaleLowerCase("en-US");
 }
 
-function matchesSearch(market: Market, tokens: readonly string[]): boolean {
+function matchesSearch(
+  market: MarketSummary,
+  tokens: readonly string[],
+): boolean {
   if (tokens.length === 0) {
     return true;
   }
@@ -99,7 +103,9 @@ function decimalMetric(value: string | null | undefined): number | null {
   return Number.isFinite(number) ? number : null;
 }
 
-function calculateMarketPriceChangePercent(market: Market): number | null {
+function calculateMarketPriceChangePercent(
+  market: MarketSummary,
+): number | null {
   const current = decimalMetric(market.midPx ?? market.markPx);
   const previous = decimalMetric(market.prevDayPx);
   if (current === null || previous === null || previous === 0) {
@@ -108,7 +114,7 @@ function calculateMarketPriceChangePercent(market: Market): number | null {
   return ((current - previous) / Math.abs(previous)) * 100;
 }
 
-function marketProjection(market: Market): MarketDiscoveryProjection {
+function marketProjection(market: MarketSummary): MarketDiscoveryProjection {
   const cached = projectionCache.get(market);
   if (cached) return cached;
   const projection = {
@@ -124,12 +130,12 @@ function marketProjection(market: Market): MarketDiscoveryProjection {
   return projection;
 }
 
-export function marketPriceChangePercent(market: Market): number | null {
+export function marketPriceChangePercent(market: MarketSummary): number | null {
   return marketProjection(market).priceChange;
 }
 
 function marketNumericMetric(
-  market: Market,
+  market: MarketSummary,
   sort: Exclude<MarketSort, "symbol">,
 ): number | null {
   const projection = marketProjection(market);
@@ -145,7 +151,7 @@ function marketNumericMetric(
   }
 }
 
-export function marketVenueLabel(market: Market): string {
+export function marketVenueLabel(market: MarketSummary): string {
   if (market.family === "perp") {
     return market.dexIndex === 0 || market.dexName === ""
       ? "Native"
@@ -157,7 +163,7 @@ export function marketVenueLabel(market: Market): string {
   return market.outcomeName;
 }
 
-export function marketDisplayLabel(market: Market): string {
+export function marketDisplayLabel(market: MarketSummary): string {
   if (market.family === "spot") {
     return `${market.baseToken.name}/${market.quoteToken.name}`;
   }
@@ -167,7 +173,7 @@ export function marketDisplayLabel(market: Market): string {
   return market.displaySymbol;
 }
 
-export function marketPairLabel(market: Market): string {
+export function marketPairLabel(market: MarketSummary): string {
   if (market.family === "spot") {
     return `${market.baseToken.name}-${market.quoteToken.name}`;
   }
@@ -178,8 +184,8 @@ export function marketPairLabel(market: Market): string {
 }
 
 export function compareMarkets(
-  left: Market,
-  right: Market,
+  left: MarketSummary,
+  right: MarketSummary,
   sort: MarketSort,
 ): number {
   if (sort !== "symbol") {
@@ -209,10 +215,10 @@ export function compareMarkets(
     : symbolOrder;
 }
 
-export function discoverMarkets(
-  markets: readonly Market[],
+export function discoverMarkets<T extends MarketSummary>(
+  markets: readonly T[],
   options: MarketDiscoveryOptions,
-): Market[] {
+): T[] {
   const families =
     options.families.length === 0 ? null : new Set(options.families);
   const favorites = options.favoritesOnly ? new Set(options.favoriteIds) : null;
@@ -225,6 +231,9 @@ export function discoverMarkets(
     .filter(
       (market) =>
         (families === null || families.has(market.family)) &&
+        (options.includeHip3 ||
+          market.family !== "perp" ||
+          market.dexIndex === 0) &&
         (options.availability === "all" ||
           market.orderAvailability === options.availability) &&
         (options.lifecycle === "all" ||

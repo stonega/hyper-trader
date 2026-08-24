@@ -9,6 +9,7 @@ import {
   type Eip712Signature,
   type ExchangeClient,
   encodeL1Action,
+  MINIMUM_ORDER_NOTIONAL_MESSAGE,
   type NonceAndJournalRepository,
   normalizeSignerBinding,
   type PreparedActionRecord,
@@ -21,13 +22,19 @@ import {
   validateTradingAction,
 } from "@hyper-trader/hyperliquid";
 import { keccak256, toBytes } from "viem";
-
+import { aggressiveOrderPrice } from "./aggressive-order-price";
+import type { ActionReconciliationPort } from "./reconciler";
 import {
   type ActionFlowPhase,
   type ActionFlowState,
   INITIAL_ACTION_FLOW,
   reduceActionFlow,
 } from "./state-machine";
+
+const CLOSE_REJECTED_MESSAGE =
+  "Hyperliquid did not execute this close. The position or market may have changed. Refresh and try again.";
+const CANCEL_REJECTED_MESSAGE =
+  "Hyperliquid did not cancel this order. Refresh open orders before trying again.";
 
 export interface ActionReviewSnapshot {
   readonly binding: SignerBinding;
@@ -76,7 +83,7 @@ export interface ActionOrchestrator {
   confirm(
     review: ActionReviewSnapshot,
     lifecycle?: {
-      readonly onAuthenticated?: () => void;
+      readonly onAuthenticated?: (review: ActionReviewSnapshot) => void;
     },
   ): Promise<ActionFlowState>;
   reset(): void;
@@ -108,6 +115,7 @@ function reviewPresentation(
   validation: TradingActionValidationInput,
   validated: ValidatedTradingAction,
   estimatedFee: string | null | undefined,
+  marketLabel: string | undefined,
 ): ActionReviewPresentation {
   const intent = validated.intent;
   const isOrder =
@@ -131,7 +139,7 @@ function reviewPresentation(
         ? `${validation.account.leverage ?? "—"}× · ${validation.account.marginMode ?? "—"}`
         : "Spot";
   return {
-    market: validated.marketCanonicalId,
+    market: marketLabel?.trim() || validated.marketCanonicalId,
     account: validation.context.targetAccount,
     network: "Hyperliquid testnet",
     action,
@@ -226,6 +234,7 @@ export function createActionReview(input: {
   readonly validation: TradingActionValidationInput;
   readonly vaultAddress?: `0x${string}` | null;
   readonly estimatedFee?: string | null;
+  readonly marketLabel?: string;
 }): ActionReviewSnapshot {
   assertTestnetSigningCapability(input.validation.context.network);
   const binding = normalizeSignerBinding(input.binding);
@@ -273,6 +282,7 @@ export function createActionReview(input: {
     validation,
     validated,
     input.estimatedFee,
+    input.marketLabel,
   );
   return freezeDeep({
     binding,
@@ -364,11 +374,53 @@ function identityFields(intent: TradingActionIntent): {
   }
 }
 
-function sameIntent(
+function sameReviewedIntent(
   left: TradingActionIntent,
   right: TradingActionIntent,
+  refreshedInput: TradingActionValidationInput,
 ): boolean {
+  if (left.type !== right.type) return false;
+  if (
+    (left.type === "market_order" || left.type === "reduce_only_close") &&
+    (right.type === "market_order" || right.type === "reduce_only_close")
+  ) {
+    const slippageBps = refreshedInput.controls.slippageBps;
+    const precision = refreshedInput.market.pricePrecision;
+    const referencePrice = refreshedInput.market.referencePrice;
+    if (
+      slippageBps === null ||
+      precision === null ||
+      typeof referencePrice !== "string"
+    ) {
+      return false;
+    }
+    try {
+      return (
+        serializeSecretFreeIntent({
+          ...left,
+          aggressiveLimitPrice: aggressiveOrderPrice({
+            referencePrice,
+            side: left.side,
+            slippageBps,
+            precision,
+          }),
+        }) === serializeSecretFreeIntent(right)
+      );
+    } catch {
+      return false;
+    }
+  }
   return serializeSecretFreeIntent(left) === serializeSecretFreeIntent(right);
+}
+
+function sameReviewedControls(
+  review: ActionReviewSnapshot,
+  refreshedInput: TradingActionValidationInput,
+): boolean {
+  return (
+    serializeSecretFreeIntent(review.validation.controls) ===
+    serializeSecretFreeIntent(refreshedInput.controls)
+  );
 }
 
 function failureCode(error: unknown): string | null {
@@ -384,8 +436,8 @@ function preSubmissionFailureMessage(
   phase: ActionFlowPhase,
   error: unknown,
 ): string {
+  const code = failureCode(error);
   if (phase === "unlocking") {
-    const code = failureCode(error);
     if (code === "missing_or_invalidated" || code === "malformed_record") {
       return "The protected API wallet is no longer available. Set up a new testnet API wallet before trading.";
     }
@@ -402,6 +454,9 @@ function preSubmissionFailureMessage(
   }
   switch (phase) {
     case "refreshing":
+      if (code === "cancel_target_not_open") {
+        return "This order is no longer open. Refresh open orders before trying again.";
+      }
       return "The latest market or account details could not be confirmed for this order. Return to the order, refresh, and try again.";
     case "reserving":
       return "The order could not be prepared safely. Return to the order and try again.";
@@ -418,6 +473,7 @@ export function createActionOrchestrator(options: {
   readonly repository: ActionRepository;
   readonly session: ActionSessionPort;
   readonly exchange: ExchangeClient;
+  readonly reconciliation?: ActionReconciliationPort;
   readonly refresh: (
     review: ActionReviewSnapshot,
   ) => Promise<TradingActionValidationInput>;
@@ -467,6 +523,23 @@ export function createActionOrchestrator(options: {
     >,
     journalId?: string,
   ) => dispatch({ type: "ADVANCE", generation, phase, journalId });
+
+  const reconcileUnresolved = async (
+    generation: number,
+    journalId: string,
+  ): Promise<ActionFlowState> => {
+    if (options.reconciliation === undefined) return state;
+    try {
+      const phase = await options.reconciliation.reconcile(journalId);
+      if (phase !== null) {
+        dispatch({ type: "TERMINAL", generation, journalId, phase });
+      }
+    } catch {
+      // Durable unresolved state remains authoritative. The result sheet can be
+      // dismissed while a later restart-safe worker retries without signing.
+    }
+    return state;
+  };
 
   const reconcileFailure = (
     generation: number,
@@ -600,7 +673,14 @@ export function createActionOrchestrator(options: {
         ) {
           throw new Error("The reviewed market or account snapshot is stale.");
         }
-        if (!sameIntent(review.validated.intent, refreshed.intent)) {
+        if (
+          !sameReviewedControls(review, refreshedInput) ||
+          !sameReviewedIntent(
+            review.validated.intent,
+            refreshed.intent,
+            refreshedInput,
+          )
+        ) {
           throw new Error(
             "Market or account rules changed the reviewed action.",
           );
@@ -616,7 +696,17 @@ export function createActionOrchestrator(options: {
 
         advance(generation, "reserving");
         try {
-          lifecycle?.onAuthenticated?.();
+          lifecycle?.onAuthenticated?.(
+            createActionReview({
+              binding: review.binding,
+              capturedContextEpoch:
+                review.validation.context.capturedContextEpoch,
+              validation: refreshedInput,
+              vaultAddress: review.vaultAddress,
+              estimatedFee: review.presentation.estimatedFee,
+              marketLabel: review.presentation.market,
+            }),
+          );
         } catch {
           // Presentation observers never own action correctness.
         }
@@ -689,7 +779,7 @@ export function createActionOrchestrator(options: {
             generation,
             journalId: prepared.journalId,
           });
-          return state;
+          return reconcileUnresolved(generation, prepared.journalId);
         }
         const phase = result.kind;
         options.repository.transitionAction(
@@ -703,10 +793,21 @@ export function createActionOrchestrator(options: {
           generation,
           journalId: prepared.journalId,
           phase,
+          ...(result.kind === "rejected" && result.reason === "minimum_notional"
+            ? { message: MINIMUM_ORDER_NOTIONAL_MESSAGE }
+            : result.kind === "rejected" &&
+                refreshed.intent.type === "reduce_only_close"
+              ? { message: CLOSE_REJECTED_MESSAGE }
+              : result.kind === "rejected" && refreshed.intent.type === "cancel"
+                ? { message: CANCEL_REJECTED_MESSAGE }
+                : {}),
         });
         return state;
       } catch (error) {
-        return reconcileFailure(generation, journalId, error);
+        const recovered = reconcileFailure(generation, journalId, error);
+        return recovered.phase === "reconciling" && recovered.journalId !== null
+          ? reconcileUnresolved(generation, recovered.journalId)
+          : recovered;
       }
     },
   };

@@ -22,6 +22,7 @@ function deferred<T>() {
 }
 
 const REVIEW = {} as ActionReviewSnapshot;
+const REFRESHED_REVIEW = { refreshed: true } as unknown as ActionReviewSnapshot;
 let runtime!: ActionRuntimeValue;
 
 function RuntimeProbe(): JSX.Element {
@@ -33,7 +34,7 @@ function RuntimeProbe(): JSX.Element {
 
 test("reveals an inline-started order only after authentication", async () => {
   let state = INITIAL_ACTION_FLOW;
-  let onAuthenticated: (() => void) | undefined;
+  let onAuthenticated: ((review: ActionReviewSnapshot) => void) | undefined;
   const result = deferred<ActionFlowState>();
   const orchestrator = {
     read: () => state,
@@ -43,7 +44,9 @@ test("reveals an inline-started order only after authentication", async () => {
     },
     confirm: async (
       _review: ActionReviewSnapshot,
-      lifecycle?: { readonly onAuthenticated?: () => void },
+      lifecycle?: {
+        readonly onAuthenticated?: (review: ActionReviewSnapshot) => void;
+      },
     ) => {
       state = { ...INITIAL_ACTION_FLOW, phase: "refreshing", generation: 1 };
       onAuthenticated = lifecycle?.onAuthenticated;
@@ -66,8 +69,9 @@ test("reveals an inline-started order only after authentication", async () => {
     "An order review is already in progress.",
   );
 
-  act(() => onAuthenticated?.());
+  act(() => onAuthenticated?.(REFRESHED_REVIEW));
   expect(screen.getByText("Sheet ready")).toBeTruthy();
+  expect(runtime.review).toBe(REFRESHED_REVIEW);
 
   const accepted: ActionFlowState = {
     phase: "accepted",
@@ -77,4 +81,47 @@ test("reveals an inline-started order only after authentication", async () => {
   };
   result.resolve(accepted);
   await expect(submission).resolves.toEqual(accepted);
+});
+
+test("starts a fresh order after an authoritative rejection", async () => {
+  let state: ActionFlowState = {
+    phase: "rejected",
+    generation: 1,
+    journalId: "journal-1",
+    message: "Order must have minimum value of $10.",
+  };
+  let resets = 0;
+  let confirmations = 0;
+  const orchestrator = {
+    read: () => state,
+    subscribe: () => () => undefined,
+    reset: () => {
+      resets += 1;
+      state = { ...INITIAL_ACTION_FLOW, generation: state.generation + 1 };
+    },
+    confirm: async () => {
+      confirmations += 1;
+      state = {
+        phase: "accepted",
+        generation: state.generation + 1,
+        journalId: "journal-2",
+        message: null,
+      };
+      return state;
+    },
+  };
+  render(
+    <ActionRuntimeProvider orchestrator={orchestrator}>
+      <RuntimeProbe />
+    </ActionRuntimeProvider>,
+  );
+
+  let result!: ActionFlowState;
+  await act(async () => {
+    result = await runtime.reviewAndSubmit(REVIEW);
+  });
+
+  expect(result.phase).toBe("accepted");
+  expect(resets).toBe(1);
+  expect(confirmations).toBe(1);
 });

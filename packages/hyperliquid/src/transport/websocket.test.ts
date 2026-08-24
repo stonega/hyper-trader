@@ -179,6 +179,56 @@ describe("public WebSocket boundary", () => {
     session.close();
   });
 
+  test("routes active asset and spot state subscriptions by exact account scope", async () => {
+    let receive: (data: unknown) => void = () => undefined;
+    const session = await openPublicWebSocketSession({
+      network: "testnet",
+      open: () => ({
+        send() {},
+        close() {},
+        addMessageListener(listener) {
+          receive = listener;
+          return () => undefined;
+        },
+      }),
+    });
+    const userA = `0x${"11".repeat(20)}`;
+    const userB = `0x${"22".repeat(20)}`;
+    const activeAssets: string[] = [];
+    const spotUsers: string[] = [];
+    session.subscribe(
+      { type: "activeAssetData", user: userA, coin: "BTC" },
+      ({ data }) => activeAssets.push((data as { coin: string }).coin),
+    );
+    session.subscribe(
+      { type: "spotState", user: userB, isPortfolioMargin: false },
+      ({ data }) => spotUsers.push((data as { user: string }).user),
+    );
+    expect(() =>
+      session.subscribe(
+        {
+          type: "activeAssetData",
+          user: userA.toUpperCase(),
+          coin: "BTC",
+        },
+        () => undefined,
+      ),
+    ).toThrow("lowercase");
+
+    receive({
+      channel: "activeAssetData",
+      data: { user: userA, coin: "BTC" },
+    });
+    receive({
+      channel: "spotState",
+      data: { user: userB, balances: [] },
+    });
+
+    expect(activeAssets).toEqual(["BTC"]);
+    expect(spotUsers).toEqual([userB]);
+    session.close();
+  });
+
   test("sends the documented heartbeat and bounds subscriptions below seventy percent", async () => {
     const sent: string[] = [];
     let heartbeat: (() => void) | undefined;

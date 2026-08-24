@@ -55,8 +55,10 @@ const gate: TradeGate = {
 };
 
 function renderPanel(market: Market): {
+  readonly onLeverageChange: jest.Mock<(leverage: number) => Promise<void>>;
   readonly onReview: jest.Mock<(draft: TradeDraft) => Promise<void>>;
 } {
+  const onLeverageChange = jest.fn(async (_leverage: number) => undefined);
   const onReview = jest.fn(async (_draft: TradeDraft) => undefined);
   render(
     <OrderPanel
@@ -69,10 +71,11 @@ function renderPanel(market: Market): {
       invalidationMessage={null}
       market={market}
       onDraftChange={jest.fn()}
+      onLeverageChange={onLeverageChange}
       onReview={onReview}
     />,
   );
-  return { onReview };
+  return { onLeverageChange, onReview };
 }
 
 describe("order panel directional review actions", () => {
@@ -87,6 +90,32 @@ describe("order panel directional review actions", () => {
       within(availableFundsRow).getByText("Available margin"),
     ).toBeTruthy();
     expect(within(availableFundsRow).getByText("1000")).toBeTruthy();
+  });
+
+  test("shows a dash while available margin is unresolved", () => {
+    render(
+      <OrderPanel
+        authority={{ ...authority, account: null }}
+        draft={createTradeDraft({
+          account: null,
+          context,
+          market: NATIVE_DUPLICATE,
+        })}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
+        onReview={jest.fn(async () => undefined)}
+      />,
+    );
+
+    const availableFundsRow = screen.getByTestId("available-funds-row");
+    expect(
+      within(availableFundsRow).getByText("Available margin"),
+    ).toBeTruthy();
+    expect(within(availableFundsRow).getByText("-")).toBeTruthy();
+    expect(within(availableFundsRow).queryByText("Unavailable")).toBeNull();
   });
 
   test("uses a stacked execution rail and binds the pressed side into review", async () => {
@@ -119,6 +148,39 @@ describe("order panel directional review actions", () => {
     expect(screen.queryByText(/Long|Short/)).toBeNull();
   });
 
+  test("lets a stale account start the automatic review preflight", async () => {
+    const onReview = jest.fn(async (_draft: TradeDraft) => undefined);
+    render(
+      <OrderPanel
+        authority={authority}
+        draft={{
+          ...createTradeDraft({
+            account,
+            context,
+            market: NATIVE_DUPLICATE,
+          }),
+          size: "1",
+        }}
+        gate={{
+          code: "stale_account",
+          enabled: false,
+          reason: "Account details will refresh before review.",
+        }}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
+        onReview={onReview}
+      />,
+    );
+
+    const buy = screen.getByRole("button", { name: "Buy / Long" });
+    expect(buy.props.accessibilityState).toMatchObject({ disabled: false });
+    fireEvent.press(buy);
+
+    await waitFor(() => expect(onReview).toHaveBeenCalledTimes(1));
+  });
+
   test("keeps the pressed side in Reviewing while the order review is pending", async () => {
     let finishReview!: () => void;
     const onReview = jest.fn(
@@ -142,6 +204,7 @@ describe("order panel directional review actions", () => {
         invalidationMessage={null}
         market={NATIVE_DUPLICATE}
         onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
         onReview={onReview}
       />,
     );
@@ -156,6 +219,37 @@ describe("order panel directional review actions", () => {
 
     await act(async () => finishReview());
     await waitFor(() => expect(screen.queryByText("Reviewing…")).toBeNull());
+  });
+
+  test("shows the minimum-notional review error inline", async () => {
+    const onReview = jest.fn(async () => {
+      throw new Error("Order must have minimum value of $10.");
+    });
+    render(
+      <OrderPanel
+        authority={authority}
+        draft={{
+          ...createTradeDraft({
+            account,
+            context,
+            market: NATIVE_DUPLICATE,
+          }),
+          size: "0.0001",
+        }}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
+        onReview={onReview}
+      />,
+    );
+
+    fireEvent.press(screen.getByRole("button", { name: "Buy / Long" }));
+
+    expect(
+      await screen.findByText("Order must have minimum value of $10."),
+    ).toBeTruthy();
   });
 
   test("opens leverage and advanced controls in the settings dialog", () => {
@@ -179,13 +273,38 @@ describe("order panel directional review actions", () => {
         .accessibilityState,
     ).toEqual({ expanded: true });
     expect(screen.getByText("Leverage")).toBeTruthy();
-    expect(screen.getByText("5× current")).toBeTruthy();
+    expect(screen.getByText("5×")).toBeTruthy();
+    expect(screen.getByText("20× max")).toBeTruthy();
     expect(
-      screen.getByText("20× maximum · Changes require a separate review."),
-    ).toBeTruthy();
+      screen.getByRole("button", { name: "Review leverage change to 5×" }).props
+        .accessibilityState,
+    ).toMatchObject({ disabled: true });
     expect(screen.getByText("Maximum slippage · 0.5%")).toBeTruthy();
 
     fireEvent.press(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText("Leverage")).toBeNull();
+  });
+
+  test("selects a bounded leverage and starts its separate review", async () => {
+    const { onLeverageChange } = renderPanel(NATIVE_DUPLICATE);
+    fireEvent.press(
+      screen.getByRole("button", {
+        name: "Order settings, 5× · 0.5%",
+      }),
+    );
+
+    fireEvent(
+      screen.getByLabelText("Leverage 5×, maximum 20×"),
+      "onChange",
+      10,
+    );
+    fireEvent.press(
+      screen.getByRole("button", {
+        name: "Review leverage change to 10×",
+      }),
+    );
+
+    await waitFor(() => expect(onLeverageChange).toHaveBeenCalledWith(10));
     expect(screen.queryByText("Leverage")).toBeNull();
   });
 
@@ -205,6 +324,7 @@ describe("order panel directional review actions", () => {
         invalidationMessage={null}
         market={NATIVE_DUPLICATE}
         onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
         onReview={onReview}
       />,
     );
@@ -221,6 +341,7 @@ describe("order panel directional review actions", () => {
         invalidationMessage={null}
         market={NATIVE_DUPLICATE}
         onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
         onReview={onReview}
       />,
     );

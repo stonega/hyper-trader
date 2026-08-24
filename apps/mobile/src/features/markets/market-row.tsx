@@ -1,8 +1,11 @@
-import type { Market } from "@hyper-trader/hyperliquid/public";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import type { MarketSummary } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
+import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
+import { memo } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
@@ -20,27 +23,34 @@ import {
 } from "./format";
 import { MarketIcon } from "./market-icon";
 
-function familyLabel(market: Market): string {
+function familyLabel(market: MarketSummary): string {
   if (market.family === "perp") {
-    return market.dexIndex === 0 ? "Perpetual" : "HIP-3 perpetual";
+    return `x${market.maxLeverage}`;
   }
   return market.family === "spot" ? "Spot" : "Outcome";
 }
 
-export function MarketRow({
+function familyAccessibilityLabel(market: MarketSummary): string {
+  return market.family === "perp"
+    ? `Maximum leverage x${market.maxLeverage}`
+    : `${familyLabel(market)} market`;
+}
+
+export const MarketRow = memo(function MarketRow({
   market,
   isFavorite,
   preferencesReady,
   onToggleFavorite,
   onOpen,
 }: {
-  readonly market: Market;
+  readonly market: MarketSummary;
   readonly isFavorite: boolean;
   readonly preferencesReady: boolean;
-  readonly onToggleFavorite: () => void;
-  readonly onOpen: () => void;
+  readonly onToggleFavorite: (canonicalId: string) => void;
+  readonly onOpen: (market: MarketSummary) => void;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
+  const warning = useThemeColor("warning");
   const label =
     market.family === "outcome"
       ? marketDisplayLabel(market)
@@ -61,7 +71,7 @@ export function MarketRow({
           </View>
         </View>
         <Chip
-          accessibilityLabel={`${familyLabel(market)} market`}
+          accessibilityLabel={familyAccessibilityLabel(market)}
           color="accent"
           size="sm"
           variant="soft"
@@ -101,20 +111,29 @@ export function MarketRow({
           }
           accessibilityState={{ selected: isFavorite }}
           animation={reducedMotion ? "disable-all" : undefined}
-          className="min-h-11 flex-1"
+          className="min-h-11 flex-1 gap-2"
           isDisabled={!preferencesReady}
-          onPress={onToggleFavorite}
+          onPress={() => onToggleFavorite(market.canonicalId)}
           size="sm"
           variant="ghost"
         >
-          {isFavorite ? "Favorited" : "Favorite"}
+          <Ionicons
+            accessibilityElementsHidden
+            color={warning}
+            importantForAccessibility="no-hide-descendants"
+            name={isFavorite ? "star" : "star-outline"}
+            size={18}
+          />
+          <Button.Label className="text-warning">
+            {isFavorite ? "Favorited" : "Favorite"}
+          </Button.Label>
         </Button>
         <Button
           accessibilityHint="Opens this market in Trade."
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-11 flex-1"
           isDisabled={!preferencesReady || market.lifecycle !== "active"}
-          onPress={onOpen}
+          onPress={() => onOpen(market)}
           size="sm"
           variant="secondary"
         >
@@ -123,4 +142,4 @@ export function MarketRow({
       </Card.Footer>
     </Card>
   );
-}
+});

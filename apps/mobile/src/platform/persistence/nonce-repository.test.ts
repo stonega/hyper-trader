@@ -229,6 +229,36 @@ describe("SQLite nonce and journal reservation", () => {
     store.database.close();
   });
 
+  test("releases an equivalent intent after an authoritative rejection", () => {
+    const store = open(databasePath());
+    store.repository.registerActiveSignerScope({ binding, activatedAt: 1 });
+    const first = store.repository.reservePreparedAction(reservation(1));
+    const start = store.repository.markSubmissionStarted(
+      first.journalId,
+      first.preparedAt + 1,
+    );
+    expect(start.transportPermit.consume(() => "written")).toBe("written");
+    store.repository.transitionAction(
+      first.journalId,
+      "rejected",
+      "rejected",
+      first.preparedAt + 2,
+    );
+
+    const replacement = store.repository.reservePreparedAction(
+      reservation(2, {
+        preparedAction: {
+          ...reservation(2).preparedAction,
+          equivalenceFingerprint: first.equivalenceFingerprint,
+        },
+      }),
+    );
+
+    expect(replacement.state).toBe("prepared");
+    expect(replacement.journalId).not.toBe(first.journalId);
+    store.database.close();
+  });
+
   test("blocks clock rollback and cross-target or mainnet scope misuse before mutation", () => {
     const store = open(databasePath());
     store.repository.registerActiveSignerScope({ binding, activatedAt: 1 });

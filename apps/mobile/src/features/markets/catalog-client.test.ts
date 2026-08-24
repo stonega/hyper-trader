@@ -118,7 +118,7 @@ describe("mobile market catalog backend", () => {
     await expect(client.read("mainnet")).rejects.toThrow("testnet-only");
   });
 
-  test("reuses a validated generation after a conditional 304", async () => {
+  test("normalizes a weak edge ETag before a conditional 304", async () => {
     const headers: (string | null)[] = [];
     let requests = 0;
     const client = createMarketCatalogBackendClient({
@@ -138,7 +138,7 @@ describe("mobile market catalog backend", () => {
             quarantined: [],
             sourceErrors: [],
           },
-          { headers: { etag: '"market-catalog-testnet-3"' } },
+          { headers: { etag: 'W/"market-catalog-testnet-3"' } },
         );
       }) as typeof globalThis.fetch,
     });

@@ -10,7 +10,12 @@ import { Pressable, Text, TextInput, View } from "react-native";
 type CommonProps = PropsWithChildren<{
   readonly accessibilityHint?: string;
   readonly accessibilityLabel?: string;
-  readonly accessibilityRole?: "alert" | "button" | "header" | "text";
+  readonly accessibilityRole?:
+    | "adjustable"
+    | "alert"
+    | "button"
+    | "header"
+    | "text";
   readonly isDisabled?: boolean;
   readonly onPress?: () => void;
   readonly testID?: string;
@@ -89,9 +94,13 @@ export const Button = Object.assign(ButtonRoot, {
   Label: Copy,
 });
 
-export function Chip({ children, ...props }: CommonProps): ReactNode {
+function ChipRoot({ children, ...props }: CommonProps): ReactNode {
   return <Text {...props}>{children}</Text>;
 }
+
+export const Chip = Object.assign(ChipRoot, {
+  Label: Copy,
+});
 
 export const Card = Object.assign(Container, {
   Header: Container,
@@ -167,6 +176,51 @@ export const BottomSheet = Object.assign(DialogRoot, {
 export function Skeleton({ accessibilityLabel }: CommonProps): ReactNode {
   return <View accessibilityLabel={accessibilityLabel} />;
 }
+
+export function Spinner({ accessibilityLabel }: CommonProps): ReactNode {
+  return (
+    <View
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="progressbar"
+    />
+  );
+}
+
+function SliderRoot({
+  accessibilityLabel,
+  children,
+  isDisabled,
+  maxValue,
+  minValue,
+  onChange,
+  step,
+  value,
+}: CommonProps & {
+  readonly maxValue?: number;
+  readonly minValue?: number;
+  readonly onChange?: (value: number | number[]) => void;
+  readonly step?: number;
+  readonly value?: number | number[];
+}): ReactNode {
+  const props = {
+    accessibilityLabel,
+    accessibilityRole: "adjustable",
+    accessibilityState: { disabled: isDisabled },
+    maxValue,
+    minValue,
+    onChange,
+    step,
+    value,
+  } as unknown as ComponentProps<typeof View>;
+  return <View {...props}>{children}</View>;
+}
+
+export const Slider = Object.assign(SliderRoot, {
+  Track: Container,
+  Fill: Container,
+  Thumb: Container,
+  Output: Container,
+});
 
 export const TextField = Container;
 export const Description = Copy;
