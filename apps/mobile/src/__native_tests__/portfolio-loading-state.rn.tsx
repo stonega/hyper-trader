@@ -33,6 +33,11 @@ test("Portfolio keeps summary and performance labels visible while data loads", 
   expect(screen.getByText("Low")).toBeTruthy();
   expect(screen.getByText("End")).toBeTruthy();
   expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(7);
+  expect(
+    screen.getByTestId("account-performance-chart", {
+      includeHiddenElements: true,
+    }),
+  ).toHaveStyle({ height: 128 });
   expect(screen.queryByText("History unavailable")).toBeNull();
   expect(screen.queryByText(/No performance history/)).toBeNull();
 
