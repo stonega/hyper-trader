@@ -1,9 +1,10 @@
+import FontAwesome6 from "@expo/vector-icons/FontAwesome6";
 import Octicons from "@expo/vector-icons/Octicons";
 import * as Clipboard from "expo-clipboard";
 import { Button } from "heroui-native/button";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Linking, View } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
@@ -16,8 +17,22 @@ const DONATION_WALLET_ADDRESS = "0x065699fda5db01cdbffd1625aeed8e6f5ba7efdf";
 
 export function AboutCard(): JSX.Element {
   const reducedMotion = useReducedMotion();
-  const accent = useThemeColor("accent");
+  const [heartColor, telegramIconColor, githubIconColor] = useThemeColor([
+    "danger",
+    "accent-soft-foreground",
+    "default-foreground",
+  ]);
+  const [copyConfirmation, setCopyConfirmation] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (copyConfirmation === 0) {
+      return;
+    }
+
+    const timeout = setTimeout(() => setCopyConfirmation(0), 2_000);
+    return () => clearTimeout(timeout);
+  }, [copyConfirmation]);
 
   const openExternalLink = async (url: string, label: string) => {
     try {
@@ -33,8 +48,10 @@ export function AboutCard(): JSX.Element {
   const copyDonationAddress = async () => {
     try {
       await Clipboard.setStringAsync(DONATION_WALLET_ADDRESS);
-      setNotice("Donation address copied.");
+      setNotice(null);
+      setCopyConfirmation((confirmation) => confirmation + 1);
     } catch {
+      setCopyConfirmation(0);
       setNotice("Donation address could not be copied. Select it manually.");
     }
   };
@@ -44,24 +61,47 @@ export function AboutCard(): JSX.Element {
       title="About"
       description="Community, source code, and ways to support Hyper Trader."
     >
+      <Text className="text-sm leading-5 text-muted">
+        Hyper Trader is an unofficial, independent community project. It is not
+        affiliated with or endorsed by Hyperliquid.
+      </Text>
+
       <View className="flex-row gap-2">
         <Button
           accessibilityHint="Opens the Hyper Trader Telegram group."
+          accessibilityLabel="Telegram"
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 flex-1"
           onPress={() => void openExternalLink(TELEGRAM_GROUP_URL, "Telegram")}
           variant="secondary"
         >
-          Telegram
+          <FontAwesome6
+            accessibilityElementsHidden
+            color={telegramIconColor}
+            iconStyle="brand"
+            importantForAccessibility="no-hide-descendants"
+            name="telegram"
+            size={18}
+          />
+          <Button.Label>Telegram</Button.Label>
         </Button>
         <Button
           accessibilityHint="Opens the Hyper Trader source code on GitHub."
+          accessibilityLabel="GitHub"
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 flex-1"
           onPress={() => void openExternalLink(GITHUB_REPOSITORY_URL, "GitHub")}
           variant="outline"
         >
-          GitHub
+          <FontAwesome6
+            accessibilityElementsHidden
+            color={githubIconColor}
+            iconStyle="brand"
+            importantForAccessibility="no-hide-descendants"
+            name="github"
+            size={18}
+          />
+          <Button.Label>GitHub</Button.Label>
         </Button>
       </View>
 
@@ -70,13 +110,13 @@ export function AboutCard(): JSX.Element {
           <View className="flex-row items-center gap-2">
             <Octicons
               accessibilityElementsHidden
-              color={accent}
+              color={heartColor}
               importantForAccessibility="no-hide-descendants"
-              name="star"
+              name="heart-fill"
               size={18}
             />
             <Text className="text-sm font-medium text-foreground">
-              Donation wallet
+              Support our work
             </Text>
           </View>
           <Text
@@ -94,7 +134,7 @@ export function AboutCard(): JSX.Element {
           onPress={() => void copyDonationAddress()}
           variant="ghost"
         >
-          Copy address
+          {copyConfirmation > 0 ? "Thank you!" : "Copy address"}
         </Button>
       </View>
 

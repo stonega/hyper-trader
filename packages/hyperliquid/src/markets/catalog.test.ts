@@ -70,6 +70,138 @@ describe("market catalog discovery", () => {
     expect(catalog.markets.every(({ family }) => family === "spot")).toBe(true);
   });
 
+  test("matches spot contexts by sparse universe index instead of universe position", async () => {
+    const catalog = await createPublicHyperliquidClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json([
+          {
+            tokens: [
+              {
+                name: "USDC",
+                szDecimals: 8,
+                weiDecimals: 8,
+                index: 0,
+                tokenId: "0xusdc",
+                isCanonical: true,
+              },
+              {
+                name: "HYPE",
+                szDecimals: 2,
+                weiDecimals: 8,
+                index: 10,
+                tokenId: "0xhype",
+                isCanonical: false,
+              },
+              {
+                name: "PUCKY",
+                szDecimals: 0,
+                weiDecimals: 5,
+                index: 11,
+                tokenId: "0xpucky",
+                isCanonical: false,
+              },
+            ],
+            universe: [
+              {
+                name: "@2",
+                tokens: [10, 0],
+                index: 2,
+                isCanonical: false,
+              },
+              {
+                name: "@4",
+                tokens: [11, 0],
+                index: 4,
+                isCanonical: false,
+              },
+            ],
+          },
+          [
+            {
+              coin: "@0",
+              dayNtlVlm: "0",
+              markPx: "0.01",
+              midPx: "0.01",
+              prevDayPx: "0.01",
+            },
+            {
+              coin: "@1",
+              dayNtlVlm: "7187.484",
+              markPx: "30.096",
+              midPx: "27.6745",
+              prevDayPx: "31",
+            },
+            {
+              coin: "@2",
+              dayNtlVlm: "7187.484",
+              markPx: "30.096",
+              midPx: "27.6745",
+              prevDayPx: "31",
+            },
+            {
+              coin: "@3",
+              dayNtlVlm: "0",
+              markPx: "1",
+              midPx: null,
+              prevDayPx: "1",
+            },
+            {
+              coin: "@4",
+              dayNtlVlm: "0",
+              markPx: "0.0006",
+              midPx: null,
+              prevDayPx: "0.0006",
+            },
+          ],
+        ]),
+    }).getMarketCatalog({ scope: "spot" });
+
+    expect(catalog.markets).toEqual([
+      expect.objectContaining({
+        canonicalId: "spot:2",
+        displaySymbol: "HYPE",
+        coin: "@2",
+        dayNtlVlm: "7187.484",
+        markPx: "30.096",
+        midPx: "27.6745",
+      }),
+      expect.objectContaining({
+        canonicalId: "spot:4",
+        displaySymbol: "PUCKY",
+        coin: "@4",
+        dayNtlVlm: "0",
+        markPx: "0.0006",
+        midPx: null,
+      }),
+    ]);
+    expect(catalog.quarantined).toEqual([]);
+    expect(catalog.sourceErrors).toEqual([]);
+  });
+
+  test("quarantines a spot market whose indexed context names another coin", async () => {
+    const [metadata, contexts] = CATALOG_RESPONSES.spot;
+    const catalog = await createPublicHyperliquidClient({
+      network: "testnet",
+      fetch: async () =>
+        Response.json([
+          metadata,
+          contexts.map((context, index) =>
+            index === 7 ? { ...context, coin: "@8" } : context,
+          ),
+        ]),
+    }).getMarketCatalog({ scope: "spot" });
+
+    expect(catalog.markets).toEqual([]);
+    expect(catalog.quarantined).toEqual([
+      expect.objectContaining({
+        canonicalId: "spot:7",
+        reasons: [expect.stringContaining("expected context for @7")],
+      }),
+    ]);
+    expect(catalog.sourceErrors).toEqual([]);
+  });
+
   test("preserves canonical identities and quarantines unsafe records", async () => {
     const catalog = await createPublicHyperliquidClient({
       network: "testnet",

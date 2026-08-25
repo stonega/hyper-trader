@@ -377,6 +377,29 @@ function parseEvmContract(
   return { address: address.toLowerCase(), extraWeiDecimals };
 }
 
+function parseSpotMarketContext(
+  contexts: readonly unknown[],
+  universeIndex: number,
+  coin: string,
+): MarketContext {
+  const path = `spotContext[${universeIndex}]`;
+  const value = contexts[universeIndex];
+  if (value === undefined) {
+    throw new HyperliquidValidationError(path, "missing_asset_context");
+  }
+  const source = record(value, path);
+  if (
+    source.coin !== undefined &&
+    string(source.coin, `${path}.coin`) !== coin
+  ) {
+    throw new HyperliquidValidationError(
+      `${path}.coin`,
+      `expected context for ${coin}`,
+    );
+  }
+  return parseMarketContext(value, path);
+}
+
 function parseSpotSource(payload: unknown): {
   readonly markets: SpotMarket[];
   readonly quarantined: QuarantinedMarket[];
@@ -442,12 +465,7 @@ function parseSpotSource(payload: unknown): {
           "invalid_sz_decimals",
         );
       }
-      if (contexts[fallbackIndex] === undefined) {
-        throw new HyperliquidValidationError(
-          `spotContext[${fallbackIndex}]`,
-          "missing_asset_context",
-        );
-      }
+      const context = parseSpotMarketContext(contexts, universeIndex, coin);
       markets.push({
         family: "spot",
         canonicalId: `spot:${universeIndex}`,
@@ -468,10 +486,7 @@ function parseSpotSource(payload: unknown): {
         lifecycle: "active",
         orderAvailability: "enabled",
         validationReasons: [],
-        ...parseMarketContext(
-          contexts[fallbackIndex],
-          `spotContext[${fallbackIndex}]`,
-        ),
+        ...context,
       });
     } catch (error) {
       quarantined.push({
