@@ -71,6 +71,12 @@ export interface PublicPortfolioHistorySnapshot {
   readonly sourceGaps: readonly string[];
 }
 
+export function parsePublicPortfolioSpotState(
+  value: unknown,
+): SpotClearinghouseState {
+  return parseSpotClearinghouseState(value);
+}
+
 function object(
   value: unknown,
   path: string,

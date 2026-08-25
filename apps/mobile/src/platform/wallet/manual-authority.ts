@@ -1,12 +1,19 @@
 import {
   createAccountDataClient,
+  type HyperliquidNetwork,
   type NamedApiWalletRegistration,
 } from "@hyper-trader/hyperliquid";
 
 import type { AgentRegistrationAuthority } from "../../features/accounts/setup-coordinator";
 
+export const HYPERLIQUID_API_WALLET_URLS = Object.freeze({
+  mainnet: "https://app.hyperliquid.xyz/API",
+  testnet: "https://app.hyperliquid-testnet.xyz/API",
+}) satisfies Readonly<Record<HyperliquidNetwork, string>>;
+
+/** @deprecated Use HYPERLIQUID_API_WALLET_URLS with the selected network. */
 export const HYPERLIQUID_TESTNET_API_WALLET_URL =
-  "https://app.hyperliquid-testnet.xyz/API";
+  HYPERLIQUID_API_WALLET_URLS.testnet;
 
 type AuthorityFetch = (
   input: Parameters<typeof globalThis.fetch>[0],
@@ -26,6 +33,7 @@ export function createManualAgentRegistrationAuthority(options: {
   readonly fetch: AuthorityFetch;
 }): AgentRegistrationAuthority {
   const readNamedAgents = async (
+    network: HyperliquidNetwork,
     masterAccount: string,
   ): Promise<{
     readonly authoritativeTime: number;
@@ -33,7 +41,7 @@ export function createManualAgentRegistrationAuthority(options: {
   }> => {
     let authoritativeTime: number | null = null;
     const client = createAccountDataClient({
-      network: "testnet",
+      network,
       fetch: (async (input, init) => {
         const response = await options.fetch(input, init);
         authoritativeTime = responseTime(response);
@@ -54,7 +62,7 @@ export function createManualAgentRegistrationAuthority(options: {
   return {
     async inspect(input) {
       const targetAuthorized = input.masterAccount === input.targetAccount;
-      const result = await readNamedAgents(input.masterAccount);
+      const result = await readNamedAgents(input.network, input.masterAccount);
       return {
         authoritativeTime: result.authoritativeTime,
         targetAuthorized,
@@ -63,7 +71,7 @@ export function createManualAgentRegistrationAuthority(options: {
     },
     async verify(input) {
       const targetAuthorized = input.masterAccount === input.targetAccount;
-      const result = await readNamedAgents(input.masterAccount);
+      const result = await readNamedAgents(input.network, input.masterAccount);
       const registration = result.agents.find(
         (agent) => agent.address === input.agentAddress,
       );

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { MAINNET_TRADING_RELEASE_STAGE } from "@hyper-trader/hyperliquid";
 import type { Market } from "@hyper-trader/hyperliquid/public";
 
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
@@ -20,6 +21,7 @@ import {
   hasSupportedOrderMetadata,
   reconcileTradeDraft,
   resolveCanonicalMarketSwitch,
+  shouldShowTradeSetupCard,
   signerBindingForTradeContext,
   sizeForPreset,
   type TradeAccountSnapshot,
@@ -234,6 +236,11 @@ describe("Trade draft ownership", () => {
     expect(changedMarket).toMatchObject({
       preserved: false,
       reason: "market_changed",
+      message: null,
+      draft: {
+        binding: { marketCanonicalId: HIP3_DUPLICATE.canonicalId },
+        size: "",
+      },
     });
 
     const changedAccount = reconcileTradeDraft(draft, {
@@ -265,7 +272,6 @@ describe("Trade fail-closed gates", () => {
   });
 
   test.each([
-    ["mainnet", { ...context, network: "mainnet" }, readyAuthority],
     ["stale_metadata", context, { ...readyAuthority, connectivity: "stale" }],
     ["offline", context, { ...readyAuthority, connectivity: "offline" }],
     [
@@ -283,6 +289,20 @@ describe("Trade fail-closed gates", () => {
     });
     expect(gate).toMatchObject({ enabled: false, code });
     expect(gate.reason.length).toBeGreaterThan(12);
+  });
+
+  test("applies the compile-owned mainnet stage to an otherwise ready account", () => {
+    const gate = evaluateTradeGate({
+      market: NATIVE_DUPLICATE,
+      context: { ...context, network: "mainnet" },
+      authority: readyAuthority,
+      nowMs: NOW,
+    });
+    expect(gate).toMatchObject(
+      MAINNET_TRADING_RELEASE_STAGE === "preactivation"
+        ? { enabled: false, code: "mainnet" }
+        : { enabled: true, code: "ready" },
+    );
   });
 
   test("allows review while device authentication waits for confirmation", () => {
@@ -339,7 +359,24 @@ describe("Trade fail-closed gates", () => {
         authority: { ...readyAuthority, account: null, signerState: "missing" },
         nowMs: NOW,
       }),
-    ).toMatchObject({ enabled: false, code: "read_only" });
+    ).toMatchObject({
+      enabled: false,
+      code: "read_only",
+      reason: "Select a Testnet account to review this order.",
+    });
+    expect(
+      evaluateTradeGate({
+        market: NATIVE_DUPLICATE,
+        context: { ...context, network: "mainnet", signer: null },
+        authority: { ...readyAuthority, signerState: "missing" },
+        nowMs: NOW,
+      }),
+    ).toMatchObject({
+      enabled: false,
+      code: "read_only",
+      reason:
+        "The selected Mainnet API wallet is unavailable on this device. Repair it in Settings.",
+    });
     expect(
       evaluateTradeGate({
         market: { ...NATIVE_DUPLICATE, lifecycle: "delisted" },
@@ -394,6 +431,36 @@ describe("Trade fail-closed gates", () => {
       ),
     ).toBe(false);
   });
+
+  test("offers setup only when the selected network has no saved account", () => {
+    const readOnlyGate = evaluateTradeGate({
+      market: NATIVE_DUPLICATE,
+      context: {
+        ...context,
+        masterAccount: null,
+        targetAccount: null,
+        signer: null,
+      },
+      authority: { ...readyAuthority, account: null, signerState: "missing" },
+      nowMs: NOW,
+    });
+    expect(
+      shouldShowTradeSetupCard({
+        hasMarket: true,
+        accountDirectoryReady: true,
+        hasSavedAccountForNetwork: false,
+        gate: readOnlyGate,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowTradeSetupCard({
+        hasMarket: true,
+        accountDirectoryReady: true,
+        hasSavedAccountForNetwork: true,
+        gate: readOnlyGate,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("canonical switching and review handoff", () => {
@@ -403,19 +470,27 @@ describe("canonical switching and review handoff", () => {
     ).toBe("0x000102030405060708090a0b0c0d0e0f");
     expect(() => cloidFromRandomBytes(new Uint8Array(15))).toThrow("16-byte");
     expect(() => cloidFromRandomBytes(new Uint8Array(17))).toThrow("16-byte");
-    expect(signerBindingForTradeContext(context)).toEqual({
+    const testnetBinding = signerBindingForTradeContext(context);
+    expect(testnetBinding).toEqual({
       network: "testnet",
       masterAccount: "0x1111111111111111111111111111111111111111",
       targetAccount: "0x2222222222222222222222222222222222222222",
       agentAddress: "0x3333333333333333333333333333333333333333",
       generation: 2,
     });
-    expect(() =>
-      signerBindingForTradeContext({ ...context, network: "mainnet" }),
-    ).toThrow("testnet signer binding");
+    const mainnetBinding = () =>
+      signerBindingForTradeContext({ ...context, network: "mainnet" });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(mainnetBinding).toThrow("enabled trading network");
+    } else {
+      expect(mainnetBinding()).toEqual({
+        ...testnetBinding,
+        network: "mainnet",
+      });
+    }
     expect(() =>
       signerBindingForTradeContext({ ...context, signer: null }),
-    ).toThrow("testnet signer binding");
+    ).toThrow("enabled trading network");
   });
 
   test("switches repeated display symbols only by canonical identity", () => {
@@ -631,6 +706,7 @@ describe("canonical switching and review handoff", () => {
       reduceOnly: false,
     });
     expect(review.presentation.leverageAndMargin).toBe("Spot");
+    expect(review.presentation.market).toBe("DUP/USDC");
     expect(review.presentation.slippage).toBe("Not applicable");
   });
 

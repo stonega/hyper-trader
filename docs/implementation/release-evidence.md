@@ -36,6 +36,7 @@ approve a later commit automatically.
 | Expo project health | `(cd apps/mobile && bunx expo-doctor)` | pending |
 | Notification integration | `bun run test:notifications` | pending; requires Docker or `NOTIFICATION_TEST_DATABASE_URL` |
 | Maestro contract lint | `bun run test:e2e:mobile` | pending; static only |
+| Mainnet source contract | `bun run check:mainnet-source` | pending |
 | Secret boundary | `bun run check:secrets` | pending |
 | Production aggregate | `./scripts/check.sh` | pending |
 | iOS bundle export | `OUT=$(mktemp -d); (cd apps/mobile && bunx expo export --platform ios --output-dir "$OUT/ios")` | pending; record resolved output path |
@@ -63,7 +64,7 @@ adapter/build described in `apps/mobile/e2e/README.md` is reviewed and installed
 | OTA disabled | `scripts/release-contract.test.ts` and `apps/mobile/app.json` | native-only platforms; `updates` is exactly `{ "enabled": false }`; generated native checks remain external |
 | Compile-owned origins | `packages/hyperliquid/src/transport/http.test.ts` | exact HTTPS/WSS values are deeply frozen; requests use only the selected constant |
 | Redirect rejection | info, exchange, notification-service, and Expo-push client tests | every fetch uses `redirect: "error"`; no alternate response location is accepted |
-| Mainnet denial | signer boundary, exchange client, orchestrator, credential vault, nonce repository, and reconciler tests | rejection happens before SecureStore/key access, nonce mutation, signing, or transport |
+| Mainnet pre-activation | capability, signer, exchange client, orchestrator, credential vault, nonce repository, and reconciler tests | new authority use rejects before SecureStore/key access, nonce mutation, signing, or transport; already-started same-network records retain signer-free reconciliation |
 | Target binding | signer, session, vault, setup, nonce, and action tests | network/master/target/agent/generation mismatch rejects before authority use |
 | Unknown outcome | action orchestrator, journal, and reconciler tests | `submission_started` is write-once; unresolved work reconciles and cannot resubmit |
 | Notification privacy | import-boundary, mobile-contract, payload, service, DB, and outbox tests | public-only dependency graph; opaque minimal payload; no provider call after committed revoke |
@@ -131,6 +132,7 @@ must announce once and remain readable as text.
 | Provider uncertainty/revoke race | staged synthetic token and injected timeout | permit/marker timestamps, provider calls before/after commit, outbox/receipt terminal state, no-token logs | PENDING EXTERNAL |
 | Credential rotations | use inventory in `security-review.md` | owner, old/new version, disable time, staged probe, rollback, retirement evidence | PENDING EXTERNAL |
 | Live testnet actions | requires explicit operator approval and unconditional security review | disposable agent, testnet account/target, market+limit+cancel+fill+position+close IDs in restricted evidence, zero-sensitive-log review | BLOCKED BY SECURITY GATE |
+| Mainnet bounded canary | requires completed testnet sequence, independent mainnet approvals, bounded funds/exposure, and named stop/rollback owners | exact commit/build IDs, network/target, permitted action set and limit, reconciliation result, external agent revocation, rollback receipt, zero-sensitive-log review | BLOCKED BY MAINNET GATE |
 
 The guarded command below must continue to stop while the security gate is
 conditional. Its nonzero exit is a safety result, not live evidence:
@@ -140,8 +142,109 @@ HYPER_TRADER_TESTNET_ORDER_WORKFLOW=live \
 bun examples/testnet-order-workflow.ts
 ```
 
-No mainnet action command exists. Mainnet submission is out of scope and must
-remain impossible.
+No command-line mainnet submission command exists. After prerequisite evidence
+is complete, the operator creates the one-line private mobile candidate and
+runs `bun run mainnet:preflight candidate /restricted/mainnet-release.json`.
+The canary uses that reviewed mobile artifact so it exercises real custody,
+confirmation, journal, and recovery behavior. Public distribution requires the
+later `release` preflight for the exact same binaries. See
+[`mainnet-release-preflight.md`](mainnet-release-preflight.md). Ordinary
+development and automated tests must not submit a mainnet action.
+
+## 2026-08-24 mainnet pre-activation observations
+
+The network-generic implementation passed local deterministic verification in a
+dirty working tree. These are implementation observations, not immutable-release
+receipts and not mainnet activation approval.
+
+| Command | Observed result |
+|---|---|
+| `bun install --frozen-lockfile` | PASS with Bun 1.3.14; 1,691 installs checked, no changes |
+| `bun run check` | PASS; 468 files |
+| `bun run typecheck` | PASS; all workspaces and examples |
+| `bun test` | PASS; 645 passed, 42 PostgreSQL cases skipped by the default offline suite, 0 failed |
+| `bun run test:mobile` | PASS; 23 Jest Expo/RNTL suites, 65 tests |
+| `bun run test:notifications` | PASS; 3 migration + 3 catalog + 18 foundation + 10 worker PostgreSQL tests |
+| `bun run test:e2e:mobile` | PASS static contract; 9 flows; no device contacted |
+| `bun run check:secrets` | PASS; 541 tracked/unignored files |
+| `./scripts/check.sh` | PASS; formatting, types, 645 Bun tests, 65 native tests, 34 PostgreSQL tests, 9 fixture contracts, and secret scan |
+| `(cd apps/mobile && bunx expo install --check)` | PASS after SDK 57 patch alignment |
+| `(cd apps/mobile && bunx expo-doctor)` | PASS; 21/21 checks |
+| iOS Expo export | PASS to `/tmp/hyper-trader-mainnet-exports.KSQsge/final-ios` |
+| Android Expo export | PASS to `/tmp/hyper-trader-mainnet-exports.KSQsge/final-android` |
+
+At the time, both exports emitted the known Metro fallback warning because
+`@noble/hashes` does not export its requested `./crypto.js` spelling. The
+resolved graph contains `@noble/hashes 1.8.0`; dependency provenance/release
+review was required to resolve or explicitly accept this warning. The later
+2026-08-25 export-map correction below resolves it for the working tree.
+
+## 2026-08-25 one-line candidate rehearsal
+
+The only mainnet source stage was temporarily changed from `preactivation` to
+`candidate` in the dirty working tree, candidate checks were run, and the stage
+was restored to `preactivation`. This proves the authorized candidate does not
+need a second capability or test rewrite. It is not immutable-release, device,
+reviewer, or live-exchange evidence.
+
+| Candidate-stage check | Observed result |
+|---|---|
+| Source consistency | PASS; release runtime, signer access, and transport all derived `candidate` |
+| Default Bun suite | PASS; 654 passed, 42 external PostgreSQL cases skipped, 0 failed |
+| Native Jest Expo/RNTL suite | PASS; 23 suites and 65 tests |
+| Strict typecheck | PASS; every workspace and examples |
+| iOS candidate export | PASS to `/tmp/hyper-trader-candidate-rehearsal.Qy1Lvr/ios` |
+| Android candidate export | PASS to `/tmp/hyper-trader-candidate-rehearsal.Qy1Lvr/android` |
+| Restored preactivation | PASS through `bun run mainnet:preflight preactivation` |
+| Restored production aggregate | PASS; 470-file formatting, strict types, 655 default tests, 65 native tests, 34 PostgreSQL tests, 9 fixture contracts, source-stage consistency, and 544-file secret scan |
+
+At the time, both candidate exports emitted the same known
+`@noble/hashes/crypto.js` Metro
+fallback warning as the preactivation exports. No warning was silently promoted
+to a clean release receipt. The later export-map correction was retested in the
+candidate stage as recorded below.
+
+### 2026-08-25 Metro export-map correction
+
+The resolved `@noble/hashes@1.8.0` browser redirect was patched only to expose
+its existing `./crypto.js` target. The patch changes package metadata and no
+cryptographic runtime file; its rationale and removal gate are documented in
+[`mobile-crypto-dependency-patch.md`](mobile-crypto-dependency-patch.md).
+
+| Check | Observed result |
+|---|---|
+| Bun patched-dependency commit | PASS; one `package.json` export-map hunk |
+| `bun install --frozen-lockfile` | PASS with Bun 1.3.14; 1,691 installs checked, no changes |
+| `(cd apps/mobile && bunx expo install --check)` | PASS; dependencies are up to date |
+| `(cd apps/mobile && bunx expo-doctor)` | PASS; 21/21 checks |
+| iOS production export | PASS to `/tmp/hyper-trader-patched-ios.jMV16m`; no noble-hashes export warning |
+| Android production export | PASS to `/tmp/hyper-trader-patched-android.kXyKoo`; no noble-hashes export warning |
+| iOS candidate export | PASS to `/tmp/hyper-trader-patched-candidate-ios.jkuiIf`; no noble-hashes export warning |
+| Android candidate export | PASS to `/tmp/hyper-trader-patched-candidate-android.8FB28R`; no noble-hashes export warning |
+| Restored production aggregate | PASS; 470-file formatting, strict types, 656 default tests, 65 native tests, 34 PostgreSQL tests, 9 fixture contracts, source-stage consistency, and 546-file secret scan |
+
+These are dirty-working-tree implementation observations. M8 remains pending
+until reviewers reproduce the frozen install and warning-free exports on the
+immutable release revision and approve the dependency provenance.
+
+### 2026-08-25 private mainnet functional-testing stage
+
+At the user's direction, the working tree now keeps
+`MAINNET_TRADING_RELEASE_STAGE` at `candidate` so every currently implemented
+mainnet action path can be exercised in a private build. Targeted candidate
+tests passed for capability derivation, validation, credential access, nonce
+reservation, signing, orchestration, exchange transport, and Trade gating.
+
+| Functional-testing check | Observed result |
+|---|---|
+| Mainnet source capability | PASS; `candidate` is consistent across runtime, signer, and transport |
+| Production aggregate | PASS; strict types, 656 Bun tests, 65 native tests, 34 PostgreSQL tests, 9 fixture contracts, and secret scan |
+| iOS candidate export | PASS to `/tmp/hyper-trader-mainnet-functional-ios.EyGrQc` |
+| Android candidate export | PASS to `/tmp/hyper-trader-mainnet-functional-android.P4BXfB` |
+
+No live exchange action was executed while recording this observation. This
+dirty working tree is not the immutable direct-child candidate required by the
+release preflight, and public distribution remains **stop**.
 
 ## U13 working-tree observations
 
@@ -167,10 +270,11 @@ commit.
 | iOS Expo export | PASS to `/tmp/hyper-trader-final-ios.iKnz45` |
 | Android Expo export | PASS to `/tmp/hyper-trader-final-android.MNiESu` |
 
-Both exports emitted a Metro fallback warning because a dependency imports
+At the time, both exports emitted a Metro fallback warning because a dependency imports
 `@noble/hashes/crypto.js` outside that package's declared exports. Bundles were
-created, but dependency provenance/release review must resolve or explicitly
-accept this warning; it is not silently promoted to a clean release receipt.
+created, but the warning was not silently promoted to a clean release receipt.
+The 2026-08-25 export-map correction above resolves it for the current working
+tree.
 
 ## Review decision
 

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { HYPERLIQUID_NETWORK_ORIGINS } from "@hyper-trader/hyperliquid";
 
-import { createManualAgentRegistrationAuthority } from "./manual-authority";
+import {
+  createManualAgentRegistrationAuthority,
+  HYPERLIQUID_API_WALLET_URLS,
+} from "./manual-authority";
 
 const MASTER = "0x1111111111111111111111111111111111111111";
 const AGENT = "0x2222222222222222222222222222222222222222";
@@ -71,5 +75,27 @@ describe("manual Hyperliquid agent authority", () => {
         targetAccount: MASTER,
       }),
     ).rejects.toThrow("trustworthy server time");
+  });
+
+  test("uses the exact selected mainnet origins without weakening setup activation", async () => {
+    const urls: string[] = [];
+    const authority = createManualAgentRegistrationAuthority({
+      fetch: async (input) => {
+        urls.push(String(input));
+        return response([]);
+      },
+    });
+
+    await authority.inspect({
+      network: "mainnet",
+      masterAccount: MASTER,
+      targetAccount: MASTER,
+    });
+    expect(urls).toEqual([HYPERLIQUID_NETWORK_ORIGINS.mainnet.http]);
+    expect(HYPERLIQUID_API_WALLET_URLS).toEqual({
+      mainnet: "https://app.hyperliquid.xyz/API",
+      testnet: "https://app.hyperliquid-testnet.xyz/API",
+    });
+    expect(Object.isFrozen(HYPERLIQUID_API_WALLET_URLS)).toBe(true);
   });
 });

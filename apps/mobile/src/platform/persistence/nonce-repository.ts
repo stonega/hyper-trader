@@ -2,8 +2,9 @@ import {
   type AtomicActionReservationInput,
   agentAddressFingerprint,
   allocateNonce,
+  assertKnownActionNetwork,
   assertSignerBinding,
-  assertTestnetSigningCapability,
+  assertTradingActionCapability,
   type ContextEpochAuthority,
   createRetiredSignerTombstone,
   EMPTY_RETIREMENT_CHAIN_ROOT,
@@ -112,7 +113,7 @@ export class SqliteNonceAndJournalRepository
 
   registerActiveSignerScope(input: SignerScopeRegistration): void {
     const binding = normalizeSignerBinding(input.binding);
-    assertTestnetSigningCapability(binding.network);
+    assertTradingActionCapability(binding.network);
     assertTime(input.activatedAt, "activatedAt");
     this.immediate(() => {
       const fingerprint = agentAddressFingerprint(binding.agentAddress);
@@ -157,7 +158,7 @@ export class SqliteNonceAndJournalRepository
     input: AtomicActionReservationInput,
   ): PreparedActionRecord {
     const binding = normalizeSignerBinding(input.binding);
-    assertTestnetSigningCapability(binding.network);
+    assertTradingActionCapability(binding.network);
     if (
       !Number.isSafeInteger(input.capturedContextEpoch) ||
       input.capturedContextEpoch < 0
@@ -259,7 +260,7 @@ export class SqliteNonceAndJournalRepository
 
   markSignerRetiring(bindingInput: SignerBinding, now: number): void {
     const binding = normalizeSignerBinding(bindingInput);
-    assertTestnetSigningCapability(binding.network);
+    assertKnownActionNetwork(binding.network);
     assertTime(now, "now");
     this.immediate(() => {
       const scope = this.scope(binding.network, binding.agentAddress);
@@ -286,7 +287,7 @@ export class SqliteNonceAndJournalRepository
     input: RetiredSignerTombstoneInput,
   ): RetiredSignerTombstone {
     const binding = normalizeSignerBinding(bindingInput);
-    assertTestnetSigningCapability(binding.network);
+    assertKnownActionNetwork(binding.network);
     return this.immediate(() => {
       const scope = this.scope(binding.network, binding.agentAddress);
       if (scope === null) {

@@ -5,6 +5,7 @@ import {
   type AccountDirectoryStorage,
   createAccountDirectory,
   resolveDirectoryAccount,
+  resolveNetworkAccountSelection,
 } from "./account-directory";
 import { accountMutationGate } from "./account-lifecycle";
 import {
@@ -132,6 +133,30 @@ describe("saved account directory", () => {
         .accounts.map((entry) => entry.network)
         .sort(),
     ).toEqual(["mainnet", "testnet"]);
+  });
+
+  test("restores a unique account for the selected network without guessing between accounts", () => {
+    const testnet = account("testnet-account");
+    const mainnet = {
+      ...account("mainnet-account"),
+      network: "mainnet" as const,
+    };
+
+    expect(
+      resolveNetworkAccountSelection([testnet, mainnet], "mainnet"),
+    ).toEqual({
+      kind: "unique",
+      account: mainnet,
+    });
+    expect(
+      resolveNetworkAccountSelection(
+        [mainnet, { ...mainnet, id: "second-mainnet-account" }],
+        "mainnet",
+      ),
+    ).toEqual({ kind: "ambiguous" });
+    expect(resolveNetworkAccountSelection([testnet], "mainnet")).toEqual({
+      kind: "none",
+    });
   });
 
   test("preserves the explicit target kind when core address context is ambiguous", () => {

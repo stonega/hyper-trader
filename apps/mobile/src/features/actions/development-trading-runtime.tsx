@@ -1,7 +1,7 @@
 import {
   assertSignerBinding,
   createExchangeClient,
-  createHyperliquidClient,
+  hasTradingActionCapability,
   type SignerBinding,
 } from "@hyper-trader/hyperliquid";
 import { randomUUID } from "expo-crypto";
@@ -26,13 +26,16 @@ import {
   type ManualSetupRuntime,
 } from "../accounts/manual-setup-runtime";
 import {
-  createTestnetServerClock,
+  type AuthoritativeServerClock,
+  createAuthoritativeServerClock,
   isActionReviewContextCurrent,
   refreshReviewedOrder,
-  type TestnetServerClock,
 } from "./authoritative-order-refresh";
 import { createHyperliquidReconciliationEvidenceSource } from "./authoritative-reconciliation";
-import { developmentTestnetSubmissionEnabled } from "./development-capability";
+import {
+  signingRuntimeEnabled,
+  tradingRuntimeEnabled,
+} from "./development-capability";
 import { createActionOrchestrator } from "./orchestrator";
 import {
   createActionReconciler,
@@ -40,16 +43,14 @@ import {
 } from "./reconciler";
 import { ActionRuntimeProvider } from "./runtime-provider";
 
-function developmentBuild(): boolean {
-  return developmentTestnetSubmissionEnabled(
-    typeof __DEV__ !== "undefined" && __DEV__,
-  );
+function isDevelopmentBuild(): boolean {
+  return typeof __DEV__ !== "undefined" && __DEV__;
 }
 
-export function DevelopmentSignerSessionProvider({
+export function TradingSignerSessionProvider({
   children,
 }: PropsWithChildren): JSX.Element {
-  const enabled = developmentBuild();
+  const enabled = signingRuntimeEnabled(isDevelopmentBuild());
   const activityGateRef = useRef<ReturnType<
     typeof createSignerActivityGate
   > | null>(null);
@@ -116,28 +117,23 @@ export function DevelopmentSignerSessionProvider({
   );
 }
 
-interface DevelopmentActionInfrastructure {
+interface ActionInfrastructure {
   readonly manual: ManualSetupRuntime;
   readonly repository: SqliteNonceAndJournalRepository;
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
 }
 
-function createDevelopmentReconciliationPort(input: {
-  readonly infrastructure: DevelopmentActionInfrastructure;
+function createReconciliationPort(input: {
+  readonly infrastructure: ActionInfrastructure;
   readonly owner: string;
   readonly shouldContinue?: () => boolean;
 }) {
-  const client = createHyperliquidClient({
-    network: "testnet",
-    fetch: input.infrastructure.clock.fetch,
-  });
   const reconciler = createActionReconciler({
     owner: input.owner,
     now: Date.now,
     repository: input.infrastructure.repository,
     evidence: createHyperliquidReconciliationEvidenceSource({
       clock: input.infrastructure.clock,
-      client,
     }),
     isActiveContext: () => false,
     publishToActiveContext: () => undefined,
@@ -156,7 +152,7 @@ function bindingForContext(
   context: NormalizedTradingContext,
 ): SignerBinding | null {
   if (
-    context.network !== "testnet" ||
+    !hasTradingActionCapability(context.network) ||
     context.masterAccount === null ||
     context.targetAccount === null ||
     context.signer === null
@@ -164,7 +160,7 @@ function bindingForContext(
     return null;
   }
   return {
-    network: "testnet",
+    network: context.network,
     masterAccount: context.masterAccount,
     targetAccount: context.targetAccount,
     agentAddress: context.signer.agentAddress,
@@ -193,12 +189,15 @@ function readCurrentActionContext(trading: TradingContextValue) {
   return { context: trading.current, epoch: capture.epoch };
 }
 
-export function DevelopmentActionRuntimeProvider({
+export function TradingActionRuntimeProvider({
   children,
 }: PropsWithChildren): JSX.Element {
-  const enabled = developmentBuild();
   const signerSession = useSignerSession();
   const trading = useTradingContext();
+  const enabled = tradingRuntimeEnabled({
+    isDevelopmentBuild: isDevelopmentBuild(),
+    network: trading.current.network,
+  });
   const tradingRef = useRef(trading);
   tradingRef.current = trading;
   const reconciliationOwnerRef = useRef<string | null>(null);
@@ -209,7 +208,7 @@ export function DevelopmentActionRuntimeProvider({
   }
   const reconciliationOwner = reconciliationOwnerRef.current;
   const [infrastructure, setInfrastructure] =
-    useState<DevelopmentActionInfrastructure | null>(null);
+    useState<ActionInfrastructure | null>(null);
   const currentBinding = useMemo(
     () => bindingForContext(trading.current),
     [trading.current],
@@ -220,14 +219,10 @@ export function DevelopmentActionRuntimeProvider({
   >(null);
 
   useEffect(() => {
-    if (!enabled || signerSession.manager === null) {
-      setInfrastructure(null);
-      return;
-    }
     let mounted = true;
     void getManualSetupRuntime()
       .then((manual) => {
-        if (!mounted || signerSession.manager === null) return;
+        if (!mounted) return;
         const repository = manual.createActionRepository({
           commitIfCurrent(input, commit) {
             const live = tradingRef.current;
@@ -250,7 +245,7 @@ export function DevelopmentActionRuntimeProvider({
         setInfrastructure({
           manual,
           repository,
-          clock: createTestnetServerClock(),
+          clock: createAuthoritativeServerClock(),
         });
       })
       .catch(() => {
@@ -259,7 +254,7 @@ export function DevelopmentActionRuntimeProvider({
     return () => {
       mounted = false;
     };
-  }, [enabled, signerSession.manager]);
+  }, []);
 
   useEffect(() => {
     setRegisteredBindingKey(null);
@@ -285,7 +280,7 @@ export function DevelopmentActionRuntimeProvider({
   useEffect(() => {
     if (infrastructure === null) return;
     let active = true;
-    const reconciliation = createDevelopmentReconciliationPort({
+    const reconciliation = createReconciliationPort({
       infrastructure,
       owner: reconciliationOwner,
       shouldContinue: () => active,
@@ -308,6 +303,7 @@ export function DevelopmentActionRuntimeProvider({
       !enabled ||
       infrastructure === null ||
       signerSession.manager === null ||
+      currentBinding === null ||
       currentBindingKey === null ||
       registeredBindingKey !== currentBindingKey
     ) {
@@ -319,10 +315,10 @@ export function DevelopmentActionRuntimeProvider({
       repository: infrastructure.repository,
       session: manager,
       exchange: createExchangeClient({
-        network: "testnet",
+        network: currentBinding.network,
         fetch: clock.fetch,
       }),
-      reconciliation: createDevelopmentReconciliationPort({
+      reconciliation: createReconciliationPort({
         infrastructure,
         owner: reconciliationOwner,
       }),
@@ -346,6 +342,7 @@ export function DevelopmentActionRuntimeProvider({
       },
     });
   }, [
+    currentBinding,
     currentBindingKey,
     enabled,
     infrastructure,
@@ -360,3 +357,9 @@ export function DevelopmentActionRuntimeProvider({
     </ActionRuntimeProvider>
   );
 }
+
+/** @deprecated Use TradingSignerSessionProvider. */
+export const DevelopmentSignerSessionProvider = TradingSignerSessionProvider;
+
+/** @deprecated Use TradingActionRuntimeProvider. */
+export const DevelopmentActionRuntimeProvider = TradingActionRuntimeProvider;

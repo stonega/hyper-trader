@@ -5,8 +5,9 @@ import {
   screen,
   within,
 } from "@testing-library/react-native";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
+import { TRADE_CHART_FRAME_HEIGHT } from "../features/trade/market-chart-config";
 import {
   TradeActivityPlaceholder,
   TradeChartPlaceholder,
@@ -32,14 +33,21 @@ test("Trade renders the final card layout while market data loads", () => {
     </View>,
   );
 
-  expect(screen.getByText("24h volume")).toBeTruthy();
-  expect(screen.getByText("Funding")).toBeTruthy();
-  expect(screen.getByText("Open interest")).toBeTruthy();
-  expect(screen.getByText("- · 24h")).toBeTruthy();
-  expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(7);
+  expect(screen.getByText("Volume -")).toBeTruthy();
+  expect(screen.getByText("Funding -")).toBeTruthy();
+  expect(screen.getByText("Open interest -")).toBeTruthy();
+  expect(screen.getByText("24h -")).toBeTruthy();
+  expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(3);
 
   expect(screen.getByText("Price chart")).toBeTruthy();
   expect(screen.getByText("24 hours · 15m · Live")).toBeTruthy();
+  expect(
+    StyleSheet.flatten(
+      screen.getByTestId("trade-chart-placeholder-frame", {
+        includeHiddenElements: true,
+      }).props.style,
+    ).height,
+  ).toBe(TRADE_CHART_FRAME_HEIGHT.compact);
   expect(screen.getByRole("button", { name: "1m" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "15m" })).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "1H" }));

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import { NATIVE_DUPLICATE, SPOT_DUPLICATE } from "./fixture";
-import { formatMarketPrice } from "./format";
+import { formatFundingRate, formatMarketPrice } from "./format";
 
-describe("market price formatting", () => {
+describe("market formatting", () => {
   test("uses validated market precision instead of magnitude buckets", () => {
     expect(
       formatMarketPrice({
@@ -31,5 +31,21 @@ describe("market price formatting", () => {
         },
       }),
     ).toBe("$0.00001234");
+  });
+
+  test("presents Hyperliquid funding decimals as precise percentages", () => {
+    expect(formatFundingRate("0.0000125")).toBe("0.00125%");
+    expect(formatFundingRate("-0.0000125")).toBe("-0.00125%");
+    expect(formatFundingRate("0.0")).toBe("0.0000%");
+  });
+
+  test("does not round small non-zero mainnet funding rates to zero", () => {
+    expect(formatFundingRate("0.0000000001")).toBe("0.00000001%");
+  });
+
+  test("keeps unavailable and malformed values distinguishable", () => {
+    expect(formatFundingRate(undefined)).toBe("Unavailable");
+    expect(formatFundingRate(null)).toBe("Unavailable");
+    expect(formatFundingRate("invalid")).toBe("invalid");
   });
 });

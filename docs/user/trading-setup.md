@@ -1,16 +1,19 @@
 # Trading setup
 
 Hyper Trader lets you browse markets without connecting a wallet. Trading setup
-is optional and always uses Hyperliquid testnet in the current signing-capable
-build.
+is optional. The implementation isolates setup by network. The current private
+`candidate` build enables setup and every currently implemented action on both
+testnet and mainnet. Mainnet setup and actions use real funds; the candidate is
+not approved for public distribution.
 
 ## What setup authorizes
 
 Hyper Trader creates a dedicated API wallet on your device. Enter only your
 public master-wallet address; Hyper Trader never asks for or stores your seed
 phrase or master private key. After system authentication, copy the generated
-public API-wallet address to the official Hyperliquid testnet API page, connect
-the same master wallet there, and add it with the `Hyper Trader` name.
+public API-wallet address to the official Hyperliquid API page shown for the
+selected network, connect the same master wallet there, and add it with the
+`Hyper Trader` name.
 
 Choose the API-wallet expiry you want on Hyperliquid. Hyper Trader stores the
 actual finite expiry reported by Hyperliquid. It is bound to the shown network, master
@@ -19,7 +22,7 @@ needs a different API wallet.
 
 Before approving, check:
 
-- the network says Hyperliquid testnet;
+- the network is exactly the one you intended to authorize;
 - the connected master account is the one you intended;
 - the selected target is correct;
 - any named-agent slot or replacement warning shown by Hyperliquid is expected;
@@ -56,9 +59,11 @@ or a registration mismatch never enables trading. After 24 hours the staged key
 is removed and setup must generate a fresh address; do not reuse the expired
 agent address.
 
-Manual authorization is available on Hyperliquid testnet. The optional in-app
-Reown wallet connection remains disabled until its release security and
-physical-device checks are approved.
+Manual authorization is available on both Hyperliquid testnet and mainnet in
+the current `candidate` functional-testing build. Mainnet authorization and
+actions use real funds and remain bound to the exact selected account and
+network. The optional in-app Reown wallet connection remains disabled until its
+release security and physical-device checks are approved.
 
 ## Loss, expiry, or device change
 

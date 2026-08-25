@@ -56,6 +56,11 @@ grid, label, moving-average, and crosshair colors are also derived from HeroUI
 semantic tokens and normalized to React Native RGBA colors before entering
 Skia.
 
+The compact Trade chart keeps the same 210-pixel drawing frame while candle
+data is loading, unavailable, or ready. Its OHLC and price-overlay rails also
+remain mounted, using placeholder values until validated candles arrive, so a
+K-line response does not resize the card or move the controls below it.
+
 The Skia surface is hidden from the accessibility tree because its drawn text
 is not a reliable native accessibility surface. Native controls retain interval
 selection, direction labels, an exact OHLC summary, and exact price-overlay

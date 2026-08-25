@@ -5,6 +5,7 @@ import {
   type PublicPortfolioLiveEnvelope,
   parsePublicPortfolioHistorySnapshot,
   parsePublicPortfolioLiveSnapshot,
+  parsePublicPortfolioSpotState,
 } from "@hyper-trader/hyperliquid/public";
 
 import type { MarketCatalogReader } from "../server";
@@ -179,6 +180,7 @@ export class HyperliquidPortfolioSnapshotReader
         { type: "spotClearinghouseState", user },
         { signal: request.signal },
       )
+      .then(parsePublicPortfolioSpotState)
       .catch(() => {
         addSourceGap("Spot balances were unavailable.");
         return { balances: [] };

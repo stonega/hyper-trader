@@ -57,7 +57,7 @@ making the API wallet independently selectable.
 ## Key product decisions
 
 - **Contextual setup.** First launch opens read-only Trade directly. Setup appears only when the user chooses to add an account or review an action that needs one. Governs R13–R19.
-- **Testnet-first context.** A fresh read-only session and its public-data streams initialize on testnet; users may still explicitly switch networks without merging account, cache, or signing authority.
+- **Testnet-first context.** A fresh read-only session and its public-data streams initialize on testnet. The network selector preserves an exact active account, restores the sole saved account on the selected network, and requires explicit account selection when that network has multiple accounts. Account data, cache, and signing authority never merge across networks.
 - **Session authentication.** Device authentication unlocks a short-lived trading session; every state-changing action still receives an explicit review. Governs R18, R26, R32, R38.
 - **Trade-first home.** Trade reopens the last-used market and provides a searchable market switcher. Governs R1, R20.
 - **Inline progressive order entry.** The order panel stays on Trade, with essential controls visible and advanced controls revealed contextually. Governs R21–R25.
@@ -130,7 +130,7 @@ making the API wallet independently selectable.
 - R36. Settings must manage multiple master accounts and their separate API-wallet authorization, expiry, rotation, and revocation state.
 - R37. The global account switcher must be accessible outside Settings while preventing switches during an in-flight signed action.
 - R38. Settings must present API-wallet authorization state independently from runtime signing. Device authentication is requested from a confirmed action only when its signing session needs to be unlocked; Settings must not present that runtime unlock as incomplete account verification.
-- R39. Network settings must keep public data, account data, API-wallet authorization, nonce state, alerts, and action history isolated between testnet and mainnet.
+- R39. Network settings must keep public data, account data, API-wallet authorization, nonce state, alerts, and action history isolated between testnet and mainnet. Selecting a network may restore only its unique saved account; ambiguous account choices require explicit selection.
 - R40. Trading preferences may provide safe defaults but must not suppress action review or silently bypass market-specific validation.
 - R41. Settings must keep appearance and notifications concise, combine help/privacy/diagnostics/risk content, remember Portfolio range from Portfolio, and never mix runtime signing checks into account status.
 
@@ -200,7 +200,7 @@ making the API wallet independently selectable.
 
 - In-app deposits, withdrawals, and internal transfers are excluded.
 - The master-account seed phrase and private key are never handled by Hyper Trader.
-- Mainnet order submission remains disabled until API-wallet custody, signing, revocation, replay, nonce, and recovery designs pass a separate safety review.
+- Private `candidate` builds may submit supported mainnet orders for explicit functional testing; public distribution remains disabled until API-wallet custody, signing, revocation, replay, nonce, recovery, physical-device, and bounded-canary evidence passes the separate release review.
 - Read-only public market data may continue to use mainnet while authenticated development defaults to testnet.
 - Visual branding, illustration style, final typography, and motion language are not defined by this document.
 

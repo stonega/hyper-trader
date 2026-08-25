@@ -1,7 +1,7 @@
 import {
   type ActionJournalRepository,
   assertSignerBinding,
-  assertTestnetSigningCapability,
+  assertTradingActionCapability,
   buildExchangeAction,
   buildL1TypedData,
   type ClockGateInput,
@@ -47,7 +47,7 @@ export interface ActionReviewSnapshot {
 export interface ActionReviewPresentation {
   readonly market: string;
   readonly account: string;
-  readonly network: "Hyperliquid testnet";
+  readonly network: "Hyperliquid mainnet" | "Hyperliquid testnet";
   readonly action: string;
   readonly side: string;
   readonly price: string;
@@ -141,7 +141,7 @@ function reviewPresentation(
   return {
     market: marketLabel?.trim() || validated.marketCanonicalId,
     account: validation.context.targetAccount,
-    network: "Hyperliquid testnet",
+    network: `Hyperliquid ${validation.context.network}`,
     action,
     side: isOrder ? intent.side.toUpperCase() : "Not applicable",
     price,
@@ -236,9 +236,9 @@ export function createActionReview(input: {
   readonly estimatedFee?: string | null;
   readonly marketLabel?: string;
 }): ActionReviewSnapshot {
-  assertTestnetSigningCapability(input.validation.context.network);
+  assertTradingActionCapability(input.validation.context.network);
   const binding = normalizeSignerBinding(input.binding);
-  assertTestnetSigningCapability(binding.network);
+  assertTradingActionCapability(binding.network);
   if (
     input.capturedContextEpoch !== input.validation.context.capturedContextEpoch
   ) {
@@ -439,7 +439,7 @@ function preSubmissionFailureMessage(
   const code = failureCode(error);
   if (phase === "unlocking") {
     if (code === "missing_or_invalidated" || code === "malformed_record") {
-      return "The protected API wallet is no longer available. Set up a new testnet API wallet before trading.";
+      return "The protected API wallet is no longer available. Set up a new API wallet on this network before trading.";
     }
     if (code === "authentication_failed") {
       return "Device authentication did not complete. Try again and finish the Face ID, biometric, or passcode prompt.";
@@ -642,8 +642,8 @@ export function createActionOrchestrator(options: {
       dispatch({ type: "RESET" });
     },
     async confirm(review, lifecycle) {
-      assertTestnetSigningCapability(review.binding.network);
-      assertTestnetSigningCapability(review.validation.context.network);
+      assertTradingActionCapability(review.binding.network);
+      assertTradingActionCapability(review.validation.context.network);
       if (
         state.phase !== "review" &&
         state.phase !== "failed_before_submission"
@@ -741,7 +741,7 @@ export function createActionOrchestrator(options: {
           vaultAddress: review.vaultAddress,
           expiresAfter: prepared.expiresAfterMs,
         });
-        const payload = buildL1TypedData("testnet", encoded);
+        const payload = buildL1TypedData(review.binding.network, encoded);
         const signature = await options.session.signTypedData({
           expectedBinding: review.binding,
           payload: payload.typedData,
@@ -751,7 +751,7 @@ export function createActionOrchestrator(options: {
         requireCurrent(review);
 
         advance(generation, "submission_start", prepared.journalId);
-        assertTestnetSigningCapability(review.binding.network);
+        assertTradingActionCapability(review.binding.network);
         const receipt = options.repository.markSubmissionStarted(
           prepared.journalId,
           options.now(),

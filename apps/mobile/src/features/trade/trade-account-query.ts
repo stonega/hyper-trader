@@ -25,31 +25,16 @@ import {
 } from "../../core/streams/account-events";
 import { useStreamRuntime } from "../../core/streams/provider";
 import {
+  accountTargetKey,
+  marketAccountKey,
+  tradeAccountQueryIsEnabled,
+  tradeAccountSnapshotQueryKey,
+} from "./trade-account-query-policy";
+import {
   tradePerpAccountSnapshot,
   tradeSpotAccountSnapshot,
 } from "./trade-account-snapshot";
 import type { TradeAccountSnapshot } from "./trade-model";
-
-function accountTargetKey(target: AccountTarget): string {
-  return JSON.stringify([
-    target.kind,
-    target.address.trim().toLowerCase(),
-    target.kind === "master"
-      ? null
-      : (target.masterAddress?.trim().toLowerCase() ?? null),
-  ]);
-}
-
-function marketAccountKey(market: Market): string {
-  return JSON.stringify([
-    market.canonicalId,
-    market.family,
-    market.coin,
-    market.family === "perp" ? market.dexName : null,
-    market.family === "spot" ? market.baseToken.index : null,
-    market.family === "spot" ? market.quoteToken.index : null,
-  ]);
-}
 
 async function loadTradeAccountSnapshot(input: {
   readonly context: NormalizedTradingContext;
@@ -98,8 +83,6 @@ export function useTradeAccountSnapshot(
   const isFocused = useIsFocused();
   const queryClient = useQueryClient();
   const streams = useStreamRuntime();
-  const targetIdentity = target === null ? null : accountTargetKey(target);
-  const marketIdentity = market === null ? null : marketAccountKey(market);
   const eventUser = target?.address.trim().toLowerCase() ?? null;
   const eventChannel =
     market?.family === "perp"
@@ -114,17 +97,11 @@ export function useTradeAccountSnapshot(
     () => queryKeys.private.openOrders(context, orderDex),
     [context, orderDex],
   );
-  const queryKey = useMemo(
-    () => [
-      ...queryKeys.private.accountSnapshot(context),
-      "trade-order-entry",
-      targetIdentity,
-      marketIdentity,
-    ],
-    [context, marketIdentity, targetIdentity],
-  );
-  const enabled =
-    target !== null && market !== null && market.family !== "outcome";
+  const queryKey = tradeAccountSnapshotQueryKey(context, target, market);
+  // The account can change while Settings owns focus. An explicit focus gate
+  // guarantees that returning to Trade starts the new owner's query instead
+  // of depending on an observer re-subscription transition.
+  const enabled = tradeAccountQueryIsEnabled(target, market, isFocused);
   const query = useQuery<TradeAccountSnapshot | null>({
     queryKey,
     enabled,
@@ -148,11 +125,9 @@ export function useTradeAccountSnapshot(
         : false,
     refetchIntervalInBackground: false,
     staleTime: mobileDataPolicies.tradeAccount.staleTimeMs,
-    subscribed: isFocused,
   });
   useEffect(() => {
-    if (!enabled || !isFocused || eventUser === null || eventChannel === null)
-      return;
+    if (!enabled || eventUser === null || eventChannel === null) return;
     const key = accountEventStreamKey(context.network, eventUser, eventChannel);
     let active = true;
     const invalidation = createCoalescedTask(() => {
@@ -209,7 +184,6 @@ export function useTradeAccountSnapshot(
     eventCoin,
     eventIsSpot,
     eventUser,
-    isFocused,
     openOrdersQueryPrefix,
     queryClient,
     queryKey,
@@ -242,7 +216,7 @@ export function useTradeOpenOrders(
   );
   return useQuery<readonly FrontendOpenOrder[]>({
     queryKey,
-    enabled: target !== null && market !== null && market.family !== "outcome",
+    enabled: tradeAccountQueryIsEnabled(target, market, isFocused),
     queryFn: async ({ signal }) => {
       if (target === null || market === null) {
         throw new Error("An exact account target and market are required.");
@@ -254,6 +228,5 @@ export function useTradeOpenOrders(
     },
     refetchOnMount: "always",
     staleTime: mobileDataPolicies.tradeAccount.staleTimeMs,
-    subscribed: isFocused,
   });
 }

@@ -189,6 +189,44 @@ describe("account data client", () => {
     ).rejects.toThrow("activeAssetData.availableToTrade");
   });
 
+  test("omits unidentifiable zero spot rows but rejects value without token identity", async () => {
+    const target = { kind: "master", address: MASTER_ADDRESS } as const;
+    const zeroUnknown = {
+      coin: "o498",
+      token: null,
+      hold: "0.0",
+      total: "0.0",
+      entryNtl: "0.0",
+    };
+    const client = createAccountDataClient({
+      network: "mainnet",
+      fetch: async () =>
+        Response.json({
+          balances: [
+            ...ACCOUNT_RESPONSES.spotClearinghouseState.balances,
+            zeroUnknown,
+          ],
+        }),
+    });
+
+    await expect(
+      client.getSpotClearinghouseState(target),
+    ).resolves.toMatchObject({
+      data: { balances: [{ coin: "USDC", token: 0 }] },
+    });
+
+    const invalid = createAccountDataClient({
+      network: "mainnet",
+      fetch: async () =>
+        Response.json({
+          balances: [{ ...zeroUnknown, total: "1" }],
+        }),
+    });
+    await expect(invalid.getSpotClearinghouseState(target)).rejects.toThrow(
+      "spotClearinghouseState.balances[0].token",
+    );
+  });
+
   test("rejects malformed frontend trigger-order metadata", async () => {
     const client = createAccountDataClient({
       network: "testnet",

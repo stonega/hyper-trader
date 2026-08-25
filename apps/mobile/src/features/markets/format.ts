@@ -43,6 +43,12 @@ const compactDecimalFormatter = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const fundingRateFormatter = new Intl.NumberFormat("en-US", {
+  style: "percent",
+  minimumFractionDigits: 4,
+  maximumFractionDigits: 8,
+});
+
 export function formatMarketPrice(market: MarketSummary): string {
   const value = market.midPx ?? market.markPx;
   if (value === null || value === undefined) {
@@ -66,6 +72,17 @@ export function formatCompactDecimal(value: string | null | undefined): string {
     return value;
   }
   return compactDecimalFormatter.format(number);
+}
+
+export function formatFundingRate(value: string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "Unavailable";
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return value;
+  }
+  return fundingRateFormatter.format(number);
 }
 
 export function formatPercent(value: number | null): string {

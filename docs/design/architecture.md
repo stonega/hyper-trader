@@ -118,7 +118,7 @@ master wallet connection → generate API wallet → master approves API wallet
 
 order draft → human confirmation → authoritative market/account review
             → device authentication → API-wallet signature
-            → testnet exchange submission → verified response and reconciliation
+            → selected-network exchange submission → verified response and reconciliation
 ```
 
 The master-account private key or seed phrase must never be requested, persisted,
@@ -179,8 +179,9 @@ and [exchange actions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-devel
 - The chosen network must be visible anywhere an order can be signed.
 - API-wallet authorization, storage, and nonce state are network-scoped and must
   never be silently reused across testnet and mainnet.
-- Mainnet trading requires an explicit product decision and a separate release
-  safety review.
+- The action implementation accepts either validated network, but mainnet signer
+  access and transport remain compile-disabled until the separate mainnet release
+  evidence and safety review are complete.
 
 ## Security architecture contract
 
@@ -214,28 +215,41 @@ preimages, canonical action bytes, and complete signed request bodies are
 prohibited from durable storage, logs, analytics, crash reports, support bundles,
 notification payloads, and backend requests.
 
-## Compile-owned mainnet denial
+## Compile-owned mainnet candidate gate
 
-For every build covered by the current plan, the compile-owned action capability
-matrix is:
+The current `candidate` source stage derives this compile-owned action
+capability matrix:
 
 ```text
 testnet: { signerAccess: true, exchangeTransport: true }
-mainnet: { signerAccess: false, exchangeTransport: false }
+mainnet: { signerAccess: true, exchangeTransport: true }
 ```
 
-The shared action entry point, mobile signer repository, and exchange transport
-each check it. A mainnet context is public-read-only and fails before key access
-and again before `/exchange`. Remote configuration, backend responses, deep
-links, notifications, restored state, environment variables, and debug menus
-cannot enable a false capability.
+The shared action entry point, mobile signer repository, nonce reservation, and
+exchange transport check the capability appropriate to their boundary. A
+mainnet context may use every currently implemented action after exact setup,
+authoritative refresh, review, and explicit confirmation. Already-started
+journal records remain eligible for signer-free, same-network reconciliation if
+an incident build later disables new signer access and transport. Remote
+configuration, backend responses, deep links, notifications, restored state,
+environment variables, and debug menus cannot change the compiled capability.
 
-Future mainnet enablement requires a new reviewed plan, an explicit source diff
-to this matrix, current official vectors for both networks, independent protocol
-and mobile-security sign-off, updated threat/incident contracts, physical-device
-custody evidence, staged disposable-agent testnet evidence, release attestation,
-and a separately authorized mainnet canary/rollback procedure. Testnet approval
-is not mainnet evidence.
+`candidate` enables real mainnet submission for private functional testing; it
+does not approve public distribution. The exact artifacts must still satisfy
+the external evidence, bounded-canary, and final release preflight contract.
+
+The network-generic implementation, migrations, and deterministic parity tests
+are tracked in
+[`../plans/2026-08-24-mainnet-trading-readiness.md`](../plans/2026-08-24-mainnet-trading-readiness.md).
+Opening a private candidate requires one explicit reviewed source-line change
+from `preactivation` to `candidate`; mainnet capability and the release action
+runtime derive from that one value and cannot disagree. Independent protocol
+and mobile-security sign-off, physical-device custody evidence, staged
+disposable-agent testnet evidence, release attestation, and a separately
+authorized mainnet canary/rollback procedure remain mandatory. Public release
+requires the final preflight for the exact candidate binaries that ran the
+canary. Testnet approval is not mainnet evidence. See
+[`../implementation/mainnet-release-preflight.md`](../implementation/mainnet-release-preflight.md).
 
 ## Fixed origins and release integrity
 
@@ -244,7 +258,7 @@ Hyperliquid clients use exact compile-owned origins:
 | Network | HTTPS | WSS |
 |---|---|---|
 | Testnet | `https://api.hyperliquid-testnet.xyz` | `wss://api.hyperliquid-testnet.xyz/ws` |
-| Mainnet public reads | `https://api.hyperliquid.xyz` | `wss://api.hyperliquid.xyz/ws` |
+| Mainnet | `https://api.hyperliquid.xyz` | `wss://api.hyperliquid.xyz/ws` |
 
 Clients reject overrides, non-TLS schemes, alternate ports, userinfo, suffix
 host matching, redirects, and TLS errors. Certificate pinning is not assumed.

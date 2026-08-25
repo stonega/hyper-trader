@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { MAINNET_TRADING_RELEASE_STAGE } from "../signing/boundary";
 import { validateTradingAction } from "./validation";
 
 const context = {
@@ -209,7 +210,7 @@ describe("action boundary validation", () => {
     ).toThrow("available");
   });
 
-  test("rejects precision drift, insufficient margin, and mainnet before action work", () => {
+  test("rejects precision drift and applies the compile-owned mainnet stage", () => {
     expect(() =>
       validateTradingAction({
         context,
@@ -234,27 +235,35 @@ describe("action boundary validation", () => {
       }),
     ).toThrow("size");
 
-    expect(() =>
+    const validateMainnet = () =>
       validateTradingAction({
-        context: { ...context, network: "mainnet" },
+        context: {
+          ...context,
+          network: "mainnet",
+          currentNetwork: "mainnet",
+        },
         market,
         account: {
-          availableMargin: "1",
+          availableMargin: "1000",
           leverage: 1,
           positionSize: "0",
           version: 5,
         },
-        controls: { slippageBps: null, trigger: null },
+        controls: { slippageBps: 50, trigger: null },
         intent: {
           type: "market_order",
           assetId: 0,
           side: "buy",
           size: "1",
-          aggressiveLimitPrice: "101",
+          aggressiveLimitPrice: "100.5",
           cloid: "0x00000000000000000000000000000003",
         },
-      }),
-    ).toThrow("mainnet");
+      });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(validateMainnet).toThrow("mainnet");
+    } else {
+      expect(validateMainnet).not.toThrow();
+    }
   });
 
   test("requires a full opposite-side reduce-only close", () => {

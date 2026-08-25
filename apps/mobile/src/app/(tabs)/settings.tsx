@@ -1,3 +1,4 @@
+import { hasSignerAccessCapability } from "@hyper-trader/hyperliquid";
 import Constants from "expo-constants";
 import { useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
@@ -12,19 +13,24 @@ import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { useSignerSession } from "../../core/session/provider";
-import { resolveDirectoryAccount } from "../../features/accounts/account-directory";
+import {
+  resolveDirectoryAccount,
+  resolveNetworkAccountSelection,
+} from "../../features/accounts/account-directory";
 import { AccountDirectoryList } from "../../features/accounts/account-directory-list";
 import { useAccountDirectory } from "../../features/accounts/account-directory-provider";
 import {
   accountGateMessage,
   accountMutationGate,
 } from "../../features/accounts/account-lifecycle";
+import { getManualSetupRuntime } from "../../features/accounts/manual-setup-runtime";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import {
   buildRedactedDiagnosticExport,
   diagnosticExportJson,
 } from "../../features/diagnostics/diagnostic-export";
 import { useNotificationRuntime } from "../../features/notifications/provider";
+import { AboutCard } from "../../features/settings/about-card";
 import { useAppearancePreference } from "../../features/settings/appearance-provider";
 import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
 import { SettingsSection } from "../../features/settings/settings-section";
@@ -34,6 +40,11 @@ const API_WALLET_GUIDANCE_URL =
 
 function shortAddress(address: string | null): string {
   return address === null ? "no account" : `…${address.slice(-6)}`;
+}
+
+interface SettingsMessage {
+  readonly placement: "accounts" | "page";
+  readonly text: string;
 }
 
 export default function SettingsScreen(): JSX.Element {
@@ -48,7 +59,11 @@ export default function SettingsScreen(): JSX.Element {
   const scopedPreferences = useScopedTradingPreferences();
   const appearance = useAppearancePreference();
   const notifications = useNotificationRuntime();
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessageState] = useState<SettingsMessage | null>(null);
+  const setMessage = (
+    text: string,
+    placement: SettingsMessage["placement"] = "page",
+  ) => setMessageState({ placement, text });
   const activeAccount = useMemo(
     () =>
       resolveDirectoryAccount(
@@ -73,10 +88,16 @@ export default function SettingsScreen(): JSX.Element {
     return true;
   };
 
-  const switchPublicNetwork = async (network: "mainnet" | "testnet") => {
+  const switchNetwork = async (network: "mainnet" | "testnet") => {
     if (current.masterAccount !== null && activeAccount === null) {
       setMessage(
         "Repair the unrecognized active context before changing networks.",
+      );
+      return;
+    }
+    if (current.network === network && activeAccount !== null) {
+      setMessage(
+        `${network === "mainnet" ? "Mainnet" : "Testnet"} is already selected.`,
       );
       return;
     }
@@ -90,6 +111,37 @@ export default function SettingsScreen(): JSX.Element {
       setMessage(accountGateMessage(gate.reason));
       return;
     }
+    const selection = resolveNetworkAccountSelection(
+      directory.accounts,
+      network,
+    );
+    if (selection.kind === "unique") {
+      try {
+        const nextContext = await (
+          await getManualSetupRuntime()
+        ).restoreTradingContext(selection.account);
+        const committed = await tradingContext.switchContext(nextContext);
+        if (!committed) {
+          setMessage("A newer context change superseded this network request.");
+          return;
+        }
+        const selected = await directory.select(selection.account.id);
+        if (!selected) {
+          setMessage(
+            "The account was restored, but its active selection could not be persisted.",
+          );
+          return;
+        }
+        setMessage(
+          `${network === "mainnet" ? "Mainnet" : "Testnet"} selected for ${shortAddress(selection.account.target.address)}.`,
+        );
+      } catch {
+        setMessage(
+          "The saved account could not be restored safely. Select it from the account switcher and try again.",
+        );
+      }
+      return;
+    }
     const committed = await tradingContext.switchContext({
       network,
       masterAccount: null,
@@ -101,10 +153,19 @@ export default function SettingsScreen(): JSX.Element {
       return;
     }
     await directory.select(null);
+    if (selection.kind === "ambiguous") {
+      setMessage(
+        `${network === "mainnet" ? "Mainnet" : "Testnet"} selected. Choose a saved account from the account switcher.`,
+      );
+      return;
+    }
     setMessage(
       network === "mainnet"
-        ? "Mainnet public browsing selected. Signing and exchange submission remain locally disabled."
-        : "Testnet read-only browsing selected. Add an exact authorization before trading.",
+        ? hasSignerAccessCapability("mainnet")
+          ? "Mainnet selected. Add an exact mainnet authorization before trading."
+          : "Mainnet public browsing selected. Trading remains disabled until release approval."
+        : "Testnet selected. Add an exact authorization before trading.",
+      "accounts",
     );
   };
 
@@ -158,6 +219,12 @@ export default function SettingsScreen(): JSX.Element {
 
   const startAccountSetup = () => {
     if (!reportGate("add")) return;
+    if (!hasSignerAccessCapability(current.network)) {
+      setMessage(
+        `${current.network === "mainnet" ? "Mainnet" : "Testnet"} API-wallet setup is disabled by the release capability policy.`,
+      );
+      return;
+    }
     router.push("/setup");
   };
 
@@ -207,13 +274,13 @@ export default function SettingsScreen(): JSX.Element {
         showContext={false}
       />
 
-      {message ? (
+      {message?.placement === "page" ? (
         <Text
           accessibilityLiveRegion="polite"
           accessibilityRole="alert"
           className="text-sm leading-5 text-warning"
         >
-          {message}
+          {message.text}
         </Text>
       ) : null}
 
@@ -221,6 +288,15 @@ export default function SettingsScreen(): JSX.Element {
         title="Accounts and API wallets"
         description="Saved accounts and their API-wallet status."
       >
+        {message?.placement === "accounts" ? (
+          <Text
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+            className="text-sm leading-5 text-warning"
+          >
+            {message.text}
+          </Text>
+        ) : null}
         {directory.status === "error" ? (
           <View className="gap-3">
             <Text accessibilityRole="alert" className="text-sm text-warning">
@@ -254,7 +330,7 @@ export default function SettingsScreen(): JSX.Element {
           </Text>
         ) : null}
         {directory.accounts.length === 0 ? (
-          <SetupResumeCard />
+          <SetupResumeCard network={current.network} />
         ) : (
           <Button
             animation={reducedMotion ? "disable-all" : undefined}
@@ -267,32 +343,31 @@ export default function SettingsScreen(): JSX.Element {
         )}
       </SettingsSection>
 
-      <SettingsSection
-        title="Network"
-        description="Choose the public data network."
-      >
+      <SettingsSection title="Network" description="Choose the network.">
         <Text className="text-sm leading-5 text-muted">
           Current context · {current.network} ·{" "}
           {shortAddress(current.targetAccount)}
         </Text>
         <View className="flex-row flex-wrap gap-2">
           <Button
-            accessibilityState={{ selected: current.network === "testnet" }}
-            animation={reducedMotion ? "disable-all" : undefined}
-            className="min-h-12 flex-1"
-            onPress={() => void switchPublicNetwork("testnet")}
-            variant={current.network === "testnet" ? "secondary" : "outline"}
-          >
-            Testnet browsing
-          </Button>
-          <Button
             accessibilityState={{ selected: current.network === "mainnet" }}
             animation={reducedMotion ? "disable-all" : undefined}
             className="min-h-12 flex-1"
-            onPress={() => void switchPublicNetwork("mainnet")}
+            isDisabled={directory.status === "loading"}
+            onPress={() => void switchNetwork("mainnet")}
             variant={current.network === "mainnet" ? "secondary" : "outline"}
           >
-            Mainnet read-only
+            Mainnet
+          </Button>
+          <Button
+            accessibilityState={{ selected: current.network === "testnet" }}
+            animation={reducedMotion ? "disable-all" : undefined}
+            className="min-h-12 flex-1"
+            isDisabled={directory.status === "loading"}
+            onPress={() => void switchNetwork("testnet")}
+            variant={current.network === "testnet" ? "secondary" : "outline"}
+          >
+            Testnet
           </Button>
         </View>
       </SettingsSection>
@@ -453,6 +528,8 @@ export default function SettingsScreen(): JSX.Element {
           Trading can cause losses. Always review an order before confirming.
         </Text>
       </SettingsSection>
+
+      <AboutCard />
     </ScrollView>
   );
 }

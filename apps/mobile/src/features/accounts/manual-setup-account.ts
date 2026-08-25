@@ -8,7 +8,7 @@ export function accountFromManualSetup(
 ): SavedAccount {
   if (
     activation.attemptId !== attempt.id ||
-    activation.binding.network !== "testnet" ||
+    activation.binding.network !== attempt.network ||
     activation.binding.masterAccount !== attempt.masterAccount ||
     activation.binding.targetAccount !== attempt.targetAccount ||
     activation.binding.agentAddress !== attempt.agentAddress ||
@@ -19,9 +19,9 @@ export function accountFromManualSetup(
     throw new Error("The activated API-wallet binding does not match setup.");
   }
   return normalizeSavedAccount({
-    id: `testnet.${attempt.masterAccount.slice(2)}`,
+    id: `${attempt.network}.${attempt.masterAccount.slice(2)}`,
     label: `Hyperliquid · …${attempt.masterAccount.slice(-6)}`,
-    network: "testnet",
+    network: attempt.network,
     masterAccount: attempt.masterAccount,
     target: { kind: "master", address: attempt.masterAccount },
     authorization: {

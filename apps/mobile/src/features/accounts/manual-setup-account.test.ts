@@ -49,6 +49,25 @@ describe("manual setup account activation", () => {
     });
   });
 
+  test("preserves an activated mainnet API-wallet summary", () => {
+    const mainnetAttempt = { ...ATTEMPT, network: "mainnet" as const };
+    const mainnetActivation = {
+      ...ACTIVATION,
+      binding: { ...ACTIVATION.binding, network: "mainnet" as const },
+    };
+
+    expect(
+      accountFromManualSetup(mainnetAttempt, mainnetActivation),
+    ).toMatchObject({
+      network: "mainnet",
+      authorization: {
+        agentAddress: ATTEMPT.agentAddress,
+        registrationState: "active",
+        credentialState: "protected",
+      },
+    });
+  });
+
   test("rejects a mismatched activation", () => {
     expect(() =>
       accountFromManualSetup(ATTEMPT, {

@@ -62,6 +62,11 @@ for another target or after retirement.
 3. Write the secret to its final authenticated SecureStore record before opening
    the external wallet. Write only a non-secret, resumable setup attempt to
    SQLite. If either write fails, delete the partial record and stop.
+   Credential creation presents exactly one system-authentication prompt. On
+   Android, the authenticated SecureStore write owns that prompt; a separate
+   LocalAuthentication prompt must not run first. On iOS, authenticate once
+   before the initial Keychain insert because adding a new protected item does
+   not itself prompt.
 4. Confirm that the locally derived address and the action-codec fixture match
    the pinned official Hyperliquid Python SDK behavior. A mismatch is a protocol
    stop, not a recoverable UI error.

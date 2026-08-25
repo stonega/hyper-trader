@@ -4,6 +4,11 @@ const MINUTE_MS = 60 * 1_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
+export const TRADE_CHART_FRAME_HEIGHT = {
+  compact: 210,
+  standard: 260,
+} as const;
+
 const TRADE_AXIS_PRICE_FORMATTER = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 8,
   notation: "standard",

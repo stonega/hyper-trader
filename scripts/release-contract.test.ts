@@ -33,10 +33,28 @@ describe("production release contract", () => {
     expect(scripts["test:mobile"]).toBeTruthy();
     expect(scripts["test:e2e:mobile"]).toBeTruthy();
     expect(scripts["test:e2e:mobile:device"]).toBeTruthy();
+    expect(scripts["check:mainnet-source"]).toBeTruthy();
+    expect(scripts["mainnet:preflight"]).toBeTruthy();
     expect(scripts["check:secrets"]).toBeTruthy();
     expect(scripts["test:e2e:mobile"]).not.toBe(
       scripts["test:e2e:mobile:device"],
     );
+  });
+
+  test("applies only the reviewed noble-hashes mobile export alias", async () => {
+    const rootPackage = await readJson(join(repositoryRoot, "package.json"));
+    const patchPath = "patches/@noble%2Fhashes@1.8.0.patch";
+    const patch = await readFile(join(repositoryRoot, patchPath), "utf8");
+
+    expect(rootPackage.patchedDependencies).toEqual({
+      "@noble/hashes@1.8.0": patchPath,
+    });
+    expect(patch).toContain('    "./crypto.js": {');
+    expect(patch).toContain('        "import": "./esm/cryptoNode.js",');
+    expect(patch).toContain('      "import": "./esm/crypto.js",');
+    expect(patch).toContain('      "default": "./crypto.js"');
+    expect(patch.match(/^@@/gm)).toHaveLength(1);
+    expect(patch).not.toMatch(/^diff --git a\/(?!package\.json)/m);
   });
 
   test("declares every controlled Maestro fixture journey", async () => {

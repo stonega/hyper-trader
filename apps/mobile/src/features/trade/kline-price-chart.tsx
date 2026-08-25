@@ -20,6 +20,7 @@ import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { buildCandlestickChartModel } from "./candlestick-chart-model";
 import {
+  TRADE_CHART_FRAME_HEIGHT,
   TRADE_CHART_INTERVALS,
   type TradeChartInterval,
   tradeChartSpec,
@@ -154,7 +155,9 @@ function MarketKlinePriceChartComponent({
     [model],
   );
   const displayedOverlays = overlays.slice(0, MAXIMUM_VISIBLE_OVERLAYS);
-  const chartHeight = compact ? 210 : 260;
+  const chartHeight = compact
+    ? TRADE_CHART_FRAME_HEIGHT.compact
+    : TRADE_CHART_FRAME_HEIGHT.standard;
   const colors = useMemo(
     () => ({
       background: chartColor(surface, FALLBACK_COLORS.background),
@@ -244,98 +247,106 @@ function MarketKlinePriceChartComponent({
           </Text>
         ) : null}
 
-        {model ? (
-          <>
-            <View
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              onLayout={measureChart}
-              style={[
-                styles.chart,
-                { backgroundColor: colors.background, height: chartHeight },
-              ]}
-              testID="kline-chart-frame"
-            >
-              {chartWidth > 0 ? (
-                <KlineChart
-                  backgroundColor={colors.background}
-                  bearishColor={colors.negative}
-                  bullishColor={colors.positive}
-                  candleSpacing={2}
-                  candleWidth={6}
-                  crosshairColor={colors.muted}
-                  crosshairHaptics={!reducedMotion}
-                  data={chartData}
-                  gridColor={colors.grid}
-                  height={chartHeight}
-                  key={`${canonicalMarketId}:${displayedInterval}`}
-                  maColors={[colors.accent, colors.warning, colors.positive]}
-                  maPeriods={[5, 10, 20]}
-                  rightPaddingCandles={6}
-                  showCrosshair
-                  showMA={chartData.length >= 5}
-                  textColor={colors.muted}
-                  width={chartWidth}
-                />
-              ) : null}
-            </View>
-            <View
-              accessible
-              accessibilityLabel={model.summary.accessibilityLabel}
-              className="flex-row flex-wrap gap-x-3 gap-y-1"
-            >
-              <Text className="text-xs tabular-nums text-muted">
-                O <Text className="text-foreground">{model.summary.open}</Text>
-              </Text>
-              <Text className="text-xs tabular-nums text-muted">
-                H <Text className="text-foreground">{model.summary.high}</Text>
-              </Text>
-              <Text className="text-xs tabular-nums text-muted">
-                L <Text className="text-foreground">{model.summary.low}</Text>
-              </Text>
-              <Text className="text-xs tabular-nums text-muted">
-                C <Text className="text-foreground">{model.summary.close}</Text>
-              </Text>
-            </View>
-            {displayedOverlays.length > 0 ? (
-              <View
-                accessible
-                accessibilityLabel={displayedOverlays
-                  .map(({ accessibilityLabel }) => accessibilityLabel)
-                  .join(". ")}
-                className="flex-row flex-wrap gap-x-3 gap-y-1"
+        <View
+          accessibilityElementsHidden={model !== null}
+          importantForAccessibility={
+            model === null ? "auto" : "no-hide-descendants"
+          }
+          onLayout={measureChart}
+          style={[
+            styles.chart,
+            { backgroundColor: colors.background, height: chartHeight },
+          ]}
+          testID="kline-chart-frame"
+        >
+          {model && chartWidth > 0 ? (
+            <KlineChart
+              backgroundColor={colors.background}
+              bearishColor={colors.negative}
+              bullishColor={colors.positive}
+              candleSpacing={2}
+              candleWidth={6}
+              crosshairColor={colors.muted}
+              crosshairHaptics={!reducedMotion}
+              data={chartData}
+              gridColor={colors.grid}
+              height={chartHeight}
+              key={`${canonicalMarketId}:${displayedInterval}`}
+              maColors={[colors.accent, colors.warning, colors.positive]}
+              maPeriods={[5, 10, 20]}
+              rightPaddingCandles={6}
+              showCrosshair
+              showMA={chartData.length >= 5}
+              textColor={colors.muted}
+              width={chartWidth}
+            />
+          ) : model === null && !loading ? (
+            <View className="flex-1 items-center justify-center px-5">
+              <Text
+                accessibilityRole={unavailable ? "alert" : undefined}
+                className="text-center text-sm leading-5 text-muted"
               >
-                {displayedOverlays.map((item) => (
-                  <Text
-                    className="text-xs tabular-nums text-muted"
-                    key={item.id}
-                  >
-                    {item.label}{" "}
-                    <Text className="text-foreground">{item.price}</Text>
-                  </Text>
-                ))}
-                {overlays.length > displayedOverlays.length ? (
-                  <Text className="text-xs text-muted">
-                    +{overlays.length - displayedOverlays.length} more
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </>
-        ) : (
-          <View className="gap-2 py-5">
-            <Text
-              accessibilityRole={unavailable ? "alert" : undefined}
-              className="text-sm leading-5 text-muted"
-            >
-              {loading
-                ? "Loading the latest candle series. Market summary remains visible."
-                : unavailable
+                {unavailable
                   ? "Candle data is unavailable. No price path is inferred from missing data."
                   : "No valid candles are available for this window."}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+        <View
+          accessible={model !== null}
+          accessibilityElementsHidden={model === null}
+          accessibilityLabel={model?.summary.accessibilityLabel}
+          className="flex-row flex-wrap gap-x-3 gap-y-1"
+          importantForAccessibility={
+            model === null ? "no-hide-descendants" : "auto"
+          }
+          testID="kline-summary-rail"
+        >
+          <Text className="text-xs tabular-nums text-muted">
+            O{" "}
+            <Text className="text-foreground">
+              {model?.summary.open ?? "-"}
             </Text>
+          </Text>
+          <Text className="text-xs tabular-nums text-muted">
+            H{" "}
+            <Text className="text-foreground">
+              {model?.summary.high ?? "-"}
+            </Text>
+          </Text>
+          <Text className="text-xs tabular-nums text-muted">
+            L{" "}
+            <Text className="text-foreground">{model?.summary.low ?? "-"}</Text>
+          </Text>
+          <Text className="text-xs tabular-nums text-muted">
+            C{" "}
+            <Text className="text-foreground">
+              {model?.summary.close ?? "-"}
+            </Text>
+          </Text>
+        </View>
+        {displayedOverlays.length > 0 ? (
+          <View
+            accessible
+            accessibilityLabel={displayedOverlays
+              .map(({ accessibilityLabel }) => accessibilityLabel)
+              .join(". ")}
+            className="flex-row flex-wrap gap-x-3 gap-y-1"
+          >
+            {displayedOverlays.map((item) => (
+              <Text className="text-xs tabular-nums text-muted" key={item.id}>
+                {item.label}{" "}
+                <Text className="text-foreground">{item.price}</Text>
+              </Text>
+            ))}
+            {overlays.length > displayedOverlays.length ? (
+              <Text className="text-xs text-muted">
+                +{overlays.length - displayedOverlays.length} more
+              </Text>
+            ) : null}
           </View>
-        )}
+        ) : null}
       </Card.Body>
     </Card>
   );

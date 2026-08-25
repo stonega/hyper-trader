@@ -1,6 +1,5 @@
 import {
   type ActionJournalRepository,
-  assertTestnetSigningCapability,
   decideReconciliation,
   isTerminalJournalState,
   type JournalState,
@@ -145,7 +144,6 @@ export function createActionReconciler(options: {
     record: PreparedActionRecord,
     lease: ReconciliationLease,
   ): Promise<ActionReconcilerResult> => {
-    assertTestnetSigningCapability(record.network);
     let evidence: ReconciliationEvidence;
     try {
       evidence = await options.evidence.load(record);
@@ -181,7 +179,6 @@ export function createActionReconciler(options: {
     async reconcile(journalId: string): Promise<ActionReconcilerResult> {
       const record = options.repository.getAction(journalId);
       if (record === null) return { kind: "not_reconcilable" };
-      assertTestnetSigningCapability(record.network);
       if (isTerminalJournalState(record.state)) {
         return { kind: "already_terminal", state: record.state };
       }
@@ -206,15 +203,6 @@ export function createActionReconciler(options: {
         options.now(),
       );
       if (claim === null) return null;
-      try {
-        assertTestnetSigningCapability(claim.record.network);
-      } catch (error) {
-        options.repository.releaseReconciliationLease(
-          claim.lease,
-          options.now(),
-        );
-        throw error;
-      }
       return reconcileClaim(claim.record, claim.lease);
     },
   });

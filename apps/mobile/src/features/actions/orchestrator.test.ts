@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   type AtomicActionReservationInput,
   createExchangeClient,
+  MAINNET_TRADING_RELEASE_STAGE,
   type PreparedActionRecord,
   type SignerBinding,
   type TradingActionValidationInput,
@@ -624,7 +625,7 @@ describe("shared action orchestrator", () => {
     ],
     [
       "missing_or_invalidated",
-      "The protected API wallet is no longer available. Set up a new testnet API wallet before trading.",
+      "The protected API wallet is no longer available. Set up a new API wallet on this network before trading.",
     ],
     [
       "app_not_active",
@@ -649,14 +650,21 @@ describe("shared action orchestrator", () => {
     },
   );
 
-  test("denies mainnet review before session access", () => {
-    expect(() =>
+  test("applies the compile-owned mainnet stage before session access", () => {
+    const reviewMainnet = () =>
       createActionReview({
         binding: { ...binding, network: "mainnet" },
         capturedContextEpoch: 4,
         validation: validation("mainnet"),
-      }),
-    ).toThrow("mainnet");
+      });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(reviewMainnet).toThrow("mainnet");
+    } else {
+      expect(reviewMainnet()).toMatchObject({
+        binding: { network: "mainnet" },
+        validation: { context: { network: "mainnet" } },
+      });
+    }
   });
 
   test("owns an immutable review snapshot after caller mutation", async () => {

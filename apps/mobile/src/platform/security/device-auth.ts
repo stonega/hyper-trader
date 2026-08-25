@@ -31,6 +31,22 @@ export interface DeviceAuthenticationPort {
   authenticate(): Promise<void>;
 }
 
+export async function prepareProtectedCredentialCreation(
+  authentication: DeviceAuthenticationPort,
+  platform: "android" | "ios",
+): Promise<void> {
+  if (platform === "android") {
+    // SecureStore authenticates the cipher used for a protected Android write.
+    // Only preflight capability here so creation has one system prompt.
+    await authentication.assertAvailable();
+    return;
+  }
+
+  // Adding a new authenticated Keychain item does not prompt on iOS, so the
+  // creation confirmation is owned by LocalAuthentication on this platform.
+  await authentication.authenticate();
+}
+
 export function createDeviceAuthenticationPort(adapter: {
   hasHardware(): Promise<boolean>;
   isEnrolled(): Promise<boolean>;

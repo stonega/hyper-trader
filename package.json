@@ -13,9 +13,11 @@
     "mobile:android": "bun --cwd apps/mobile android",
     "mobile:ios": "bun --cwd apps/mobile ios",
     "market-catalog": "bun --cwd apps/api start:catalog",
+    "mainnet:preflight": "bun scripts/mainnet-release-readiness.ts",
     "backend:deploy": "bun --cwd apps/api deploy:cloudflare",
     "check": "biome check .",
     "check:fix": "biome check --write .",
+    "check:mainnet-source": "bun scripts/mainnet-release-readiness.ts source",
     "check:secrets": "bun scripts/check-secrets.ts",
     "typecheck": "bun run --filter '*' typecheck && tsc -p examples/tsconfig.json",
     "test": "bun test",
@@ -28,7 +30,7 @@
     "db:local:status": "bun scripts/local-postgres.ts status"
   },
   "overrides": {
-    "expo-constants": "57.0.10"
+    "expo-constants": "57.0.14"
   },
   "trustedDependencies": [
     "@shopify/react-native-skia"
@@ -36,5 +38,8 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.7",
     "typescript": "~6.0.3"
+  },
+  "patchedDependencies": {
+    "@noble/hashes@1.8.0": "patches/@noble%2Fhashes@1.8.0.patch"
   }
 }

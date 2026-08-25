@@ -1,4 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  type HyperliquidNetwork,
+  hasSignerAccessCapability,
+} from "@hyper-trader/hyperliquid";
 import { CameraView } from "expo-camera";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
@@ -41,7 +45,7 @@ import {
   setupConsumesBack,
 } from "../../features/accounts/setup-flow";
 import type { ActivatedSetupRecord } from "../../features/accounts/setup-repository";
-import { HYPERLIQUID_TESTNET_API_WALLET_URL } from "../../platform/wallet/manual-authority";
+import { HYPERLIQUID_API_WALLET_URLS } from "../../platform/wallet/manual-authority";
 import { DEFAULT_API_WALLET_REGISTRATION_NAME } from "../../platform/wallet/setup-identifiers";
 
 const ETHEREUM_ADDRESS_PATTERN = /^0x[0-9a-f]{40}$/i;
@@ -61,7 +65,8 @@ const PHASE_COPY = {
   },
   account: {
     title: "Enter your Hyperliquid wallet",
-    description: "Enter the public address you use on Hyperliquid testnet.",
+    description:
+      "Enter the public address you use on this Hyperliquid network.",
   },
   protection: {
     title: "Generate your API wallet",
@@ -88,8 +93,7 @@ const PHASE_COPY = {
   },
   ready: {
     title: "Trading access is ready",
-    description:
-      "The verified testnet account is saved and Trade will open next.",
+    description: "The verified account is saved and Trade will open next.",
   },
 } as const;
 
@@ -155,6 +159,9 @@ export default function SetupScreen(): JSX.Element {
   const switchTradingContext = tradingContext.switchContext;
   const [state, dispatch] = useReducer(reduceSetupFlow, INITIAL_SETUP_FLOW);
   const [masterAccount, setMasterAccount] = useState("");
+  const [setupNetwork, setSetupNetwork] = useState<HyperliquidNetwork>(
+    tradingContext.current.network,
+  );
   const [registrationName, setRegistrationName] = useState(
     DEFAULT_API_WALLET_REGISTRATION_NAME,
   );
@@ -167,6 +174,7 @@ export default function SetupScreen(): JSX.Element {
   const verificationInFlight = useRef(false);
   const verifyOnForeground = useRef<(() => void) | null>(null);
   const copy = PHASE_COPY[state.phase];
+  const setupCapabilityEnabled = hasSignerAccessCapability(setupNetwork);
 
   useEffect(() => {
     const subscription = CameraView.onModernBarcodeScanned(({ data }) => {
@@ -212,7 +220,7 @@ export default function SetupScreen(): JSX.Element {
           );
         }
         const switched = await switchTradingContext({
-          network: "testnet",
+          network: account.network,
           masterAccount: account.masterAccount,
           targetAccount: account.target.address,
           signer: {
@@ -250,22 +258,26 @@ export default function SetupScreen(): JSX.Element {
             dispatch({ type: "HYDRATE", phase: "account" });
             return;
           case "identity":
+            setSetupNetwork(saved.network);
             setMasterAccount(saved.masterAccount);
             setRegistrationName(DEFAULT_API_WALLET_REGISTRATION_NAME);
             dispatch({ type: "HYDRATE", phase: "account" });
             return;
           case "protection":
+            setSetupNetwork(saved.network);
             setMasterAccount(saved.masterAccount);
             setRegistrationName(saved.registrationName);
             dispatch({ type: "HYDRATE", phase: "protection" });
             return;
           case "authorization":
+            setSetupNetwork(saved.attempt.network);
             setMasterAccount(saved.attempt.masterAccount);
             setRegistrationName(saved.attempt.registrationName);
             setAttempt(saved.attempt);
             dispatch({ type: "HYDRATE", phase: "authorization" });
             return;
           case "finalizing": {
+            setSetupNetwork(saved.attempt.network);
             setMasterAccount(saved.attempt.masterAccount);
             setRegistrationName(saved.attempt.registrationName);
             setAttempt(saved.attempt);
@@ -335,7 +347,7 @@ export default function SetupScreen(): JSX.Element {
 
   const openHyperliquid = async () => {
     try {
-      await Linking.openURL(HYPERLIQUID_TESTNET_API_WALLET_URL);
+      await Linking.openURL(HYPERLIQUID_API_WALLET_URLS[setupNetwork]);
     } catch {
       setNotice(
         "Hyperliquid could not be opened. Try again after checking your connection.",
@@ -345,6 +357,12 @@ export default function SetupScreen(): JSX.Element {
 
   const generateWallet = async () => {
     if (prepareInFlight.current) return;
+    if (!setupCapabilityEnabled) {
+      setNotice(
+        `${setupNetwork === "mainnet" ? "Mainnet" : "Testnet"} API-wallet setup is unavailable in this build.`,
+      );
+      return;
+    }
     prepareInFlight.current = true;
     const generation = ++operation.current;
     let identitySaved = state.phase !== "account";
@@ -354,6 +372,7 @@ export default function SetupScreen(): JSX.Element {
       const identity =
         state.phase === "account"
           ? await setupRuntime.saveMasterAccount(
+              setupNetwork,
               masterAccount,
               registrationName,
             )
@@ -366,6 +385,7 @@ export default function SetupScreen(): JSX.Element {
       setRegistrationName(identity.registrationName);
       dispatch({ type: "START_PREPARE", generation });
       const prepared = await setupRuntime.prepare(
+        setupNetwork,
         identity.masterAccount,
         identity.registrationName,
       );
@@ -538,7 +558,7 @@ export default function SetupScreen(): JSX.Element {
       >
         <View className="gap-2">
           <Text className="text-sm font-medium text-accent">
-            Hyperliquid testnet
+            Hyperliquid {setupNetwork}
           </Text>
           <Text
             accessibilityRole="header"
@@ -549,6 +569,17 @@ export default function SetupScreen(): JSX.Element {
           <Text className="text-base leading-6 text-muted">
             {stepLabel(state.phase)}
           </Text>
+          {setupNetwork === "mainnet" && setupCapabilityEnabled ? (
+            <Text className="text-sm leading-5 text-danger">
+              Mainnet actions use real funds. This API wallet is isolated from
+              testnet and remains bound to this exact account.
+            </Text>
+          ) : setupNetwork === "mainnet" ? (
+            <Text className="text-sm leading-5 text-muted">
+              Mainnet API-wallet setup remains unavailable until its release
+              evidence is approved.
+            </Text>
+          ) : null}
         </View>
 
         <Card variant="default" className="min-h-80 gap-4">
@@ -720,6 +751,7 @@ export default function SetupScreen(): JSX.Element {
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
+                isDisabled={!setupCapabilityEnabled}
                 onPress={() => void generateWallet()}
                 variant="primary"
               >
@@ -731,7 +763,9 @@ export default function SetupScreen(): JSX.Element {
               <Button
                 animation={reducedMotion ? "disable-all" : undefined}
                 className="min-h-12 w-full"
-                isDisabled={state.readiness === "working"}
+                isDisabled={
+                  !setupCapabilityEnabled || state.readiness === "working"
+                }
                 onPress={() => void generateWallet()}
                 variant="primary"
               >

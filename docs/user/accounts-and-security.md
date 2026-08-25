@@ -14,9 +14,11 @@ account badge in the adjacent header.
 
 ## API-wallet access
 
-Hyper Trader uses a dedicated named Hyperliquid API wallet for testnet exchange
-actions. The master wallet stays external and is used only for the authorization
-handoff. The app must never ask for a seed phrase or master private key.
+Hyper Trader uses a dedicated named Hyperliquid API wallet for each enabled
+network and target. The master wallet stays external and is used only for the
+authorization handoff. The app must never ask for a seed phrase or master
+private key. A testnet API wallet is never valid mainnet authority, or vice
+versa.
 
 The avatar is derived from the API wallet already bound to the active account.
 It changes automatically with account context and is not a control for choosing
@@ -30,7 +32,11 @@ never restore signing authority, even when the record says `active` and
 an exact signer after fresh authoritative verification and device
 authentication.
 
-Adding an account opens the dedicated testnet authorization flow. Rotation,
+Adding an account opens the authorization flow only when the selected network's
+compile-owned signer capability is enabled. The current private `candidate`
+build enables exact testnet and mainnet authorization; mainnet authorization
+and actions use real funds.
+Rotation,
 repair, and unlink remain unavailable until an authoritative action journal and
 all cleanup adapters are connected. External revoke or replacement guidance is
 available through the official
@@ -106,10 +112,13 @@ through current-state refresh, boundary validation, and explicit review.
 
 ## Network safety
 
-Authenticated exchange actions default to Hyperliquid testnet. Mainnet is
-visibly public and read-only. There is no control that enables mainnet signing
-or submission, and restored local state or a server response cannot change that
-boundary.
+Authenticated exchange actions default to Hyperliquid testnet. The private
+functional-testing candidate also enables mainnet setup, signing, and submission
+for intentional real-funds testing; it is not approved for public distribution.
+Selecting a network keeps its exact active account or restores its sole saved
+account. If multiple accounts exist on that network, choose one explicitly from
+the account switcher. Setup, Portfolio data, and action records remain isolated
+by network, master account, and target.
 
 ## Scoped trading preferences
 

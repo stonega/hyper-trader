@@ -1,3 +1,5 @@
+import type { HyperliquidNetwork } from "@hyper-trader/hyperliquid";
+
 import { LOWERCASE_HASH_PATTERN } from "../../platform/persistence/validation";
 import {
   AGENT_REGISTRATION_NAME_PATTERN,
@@ -17,14 +19,15 @@ export const MANUAL_SETUP_PROGRESS_KEY =
 
 export type ManualSetupProgress =
   | {
-      readonly version: 1;
+      readonly version: 2;
       readonly phase: "protection";
+      readonly network: HyperliquidNetwork;
       readonly masterAccount: string;
       readonly registrationName: string;
       readonly updatedAt: number;
     }
   | {
-      readonly version: 1;
+      readonly version: 2;
       readonly phase: "authorization";
       readonly attempt: SetupAttempt;
       readonly updatedAt: number;
@@ -39,6 +42,7 @@ export interface ManualSetupProgressStorage {
 export interface ManualSetupProgressRepository {
   load(): Promise<ManualSetupProgress | null>;
   saveProtection(
+    network: HyperliquidNetwork,
     masterAccount: string,
     registrationName: string,
     now: number,
@@ -100,7 +104,7 @@ function parseAttempt(value: unknown): SetupAttempt {
   const attempt = input as unknown as SetupAttempt;
   bindingFromAttempt(attempt);
   if (
-    attempt.network !== "testnet" ||
+    (attempt.network !== "testnet" && attempt.network !== "mainnet") ||
     !LOWERCASE_HASH_PATTERN.test(attempt.id) ||
     !CONNECTOR_SESSION_PATTERN.test(attempt.connectorSessionId) ||
     attempt.masterAccount !== normalizeSetupAddress(attempt.masterAccount) ||
@@ -135,16 +139,32 @@ export function parseManualSetupProgress(
     typeof input === "object" &&
     input !== null &&
     Object.hasOwn(input, "registrationName");
+  const version = (input as { version?: unknown })?.version;
   const base = exactObject(
     input,
     phase === "authorization"
       ? ["version", "phase", "attempt", "updatedAt"]
       : hasRegistrationName
-        ? ["version", "phase", "masterAccount", "registrationName", "updatedAt"]
+        ? version === 2
+          ? [
+              "version",
+              "phase",
+              "network",
+              "masterAccount",
+              "registrationName",
+              "updatedAt",
+            ]
+          : [
+              "version",
+              "phase",
+              "masterAccount",
+              "registrationName",
+              "updatedAt",
+            ]
         : ["version", "phase", "masterAccount", "updatedAt"],
     "The saved setup progress",
   );
-  if (base.version !== 1) {
+  if (base.version !== 1 && base.version !== 2) {
     throw new Error("The saved setup progress version is unsupported.");
   }
   const updatedAt = positiveTime(base.updatedAt, "updatedAt");
@@ -153,8 +173,16 @@ export function parseManualSetupProgress(
       throw new Error("The saved master account is malformed.");
     }
     return {
-      version: 1,
+      version: 2,
       phase: "protection",
+      network:
+        base.version === 1
+          ? "testnet"
+          : base.network === "mainnet" || base.network === "testnet"
+            ? base.network
+            : (() => {
+                throw new Error("The saved setup network is malformed.");
+              })(),
       masterAccount: normalizeSetupAddress(base.masterAccount),
       registrationName:
         typeof base.registrationName === "string"
@@ -164,10 +192,14 @@ export function parseManualSetupProgress(
     };
   }
   if (base.phase === "authorization") {
+    const attempt = parseAttempt(base.attempt);
+    if (base.version === 1 && attempt.network !== "testnet") {
+      throw new Error("Legacy setup progress must use testnet.");
+    }
     return {
-      version: 1,
+      version: 2,
       phase: "authorization",
-      attempt: parseAttempt(base.attempt),
+      attempt,
       updatedAt,
     };
   }
@@ -186,10 +218,14 @@ export function createManualSetupProgressRepository(
         await storage.getItem(MANUAL_SETUP_PROGRESS_KEY),
       );
     },
-    saveProtection(masterAccount, registrationName, now) {
+    saveProtection(network, masterAccount, registrationName, now) {
+      if (network !== "mainnet" && network !== "testnet") {
+        throw new Error("The setup network is malformed.");
+      }
       return save({
-        version: 1,
+        version: 2,
         phase: "protection",
+        network,
         masterAccount: normalizeSetupAddress(masterAccount),
         registrationName: normalizeAgentRegistrationName(registrationName),
         updatedAt: positiveTime(now, "updatedAt"),
@@ -197,7 +233,7 @@ export function createManualSetupProgressRepository(
     },
     saveAuthorization(attempt, now) {
       return save({
-        version: 1,
+        version: 2,
         phase: "authorization",
         attempt: parseAttempt(attempt),
         updatedAt: positiveTime(now, "updatedAt"),

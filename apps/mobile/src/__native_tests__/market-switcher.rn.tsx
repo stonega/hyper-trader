@@ -48,7 +48,7 @@ test("renders compact, left-aligned market rows without repeated trading copy", 
   );
 
   expect(screen.queryByText("Search markets")).toBeNull();
-  expect(screen.getByPlaceholderText("Search symbol or venue")).toBeTruthy();
+  expect(screen.getByPlaceholderText("Search markets")).toBeTruthy();
   expect(
     screen.getByTestId("market-switcher-surface").props.className,
   ).toContain("bg-background");
@@ -56,6 +56,10 @@ test("renders compact, left-aligned market rows without repeated trading copy", 
   expect(screen.UNSAFE_getByType(KeyboardAvoidingView).props.behavior).toBe(
     Platform.OS === "ios" ? "padding" : "height",
   );
+  expect(
+    screen.getByRole("button", { name: "Close market selector" }),
+  ).toBeTruthy();
+  expect(screen.queryByTestId("market-catalog-mode-toggle")).toBeNull();
   const selected = screen.getByRole("button", {
     name: "Selected, DUP-USDC, 20x max leverage, Trading",
   });
@@ -67,6 +71,10 @@ test("renders compact, left-aligned market rows without repeated trading copy", 
     name: "DUP-USDC, 20x max leverage, omega provider, Trading",
   });
   expect(within(hip3).getByText("omega")).toBeTruthy();
+  const spot = screen.getByRole("button", {
+    name: "DUP/USDC, Trading",
+  });
+  expect(within(spot).getByText("DUP/USDC")).toBeTruthy();
   expect(screen.getByText("View only")).toBeTruthy();
   expect(
     screen.getAllByTestId("market-icon-image", {

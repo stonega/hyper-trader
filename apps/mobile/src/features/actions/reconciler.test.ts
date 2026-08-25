@@ -194,7 +194,7 @@ describe("signer-free reconciliation worker", () => {
     expect(scheduled).toBe(0);
   });
 
-  test("denies mainnet records at both public worker entries", async () => {
+  test("reconciles mainnet records without signer or transport capability", async () => {
     const mainnetRecord = { ...record, network: "mainnet" as const };
     const lease: ReconciliationLease = {
       journalId: record.journalId,
@@ -202,28 +202,24 @@ describe("signer-free reconciliation worker", () => {
       expiresAt: 31_000,
     };
     let evidenceLoads = 0;
-    let releases = 0;
+    let schedules = 0;
+    let transitions = 0;
     const reconciler = createActionReconciler({
       owner: lease.owner,
       now: () => 1_100,
       repository: {
         getAction: () => mainnetRecord,
-        claimReconciliationLease: () => {
-          throw new Error("reconcile must deny before claiming");
-        },
+        claimReconciliationLease: () => lease,
         claimNextReconciliation: () => ({ record: mainnetRecord, lease }),
-        renewReconciliationLease: () => {
-          throw new Error("mainnet must not renew");
-        },
-        releaseReconciliationLease: () => {
-          releases += 1;
-          return true;
-        },
+        renewReconciliationLease: () => lease,
+        releaseReconciliationLease: () => true,
         scheduleReconciliation: () => {
-          throw new Error("mainnet must not schedule");
+          schedules += 1;
+          return mainnetRecord;
         },
         transitionAction: () => {
-          throw new Error("mainnet must not transition");
+          transitions += 1;
+          return { ...mainnetRecord, state: "accepted" };
         },
         markSubmissionStarted: () => {
           throw new Error("mainnet must not submit");
@@ -233,17 +229,25 @@ describe("signer-free reconciliation worker", () => {
       evidence: {
         load: async () => {
           evidenceLoads += 1;
-          return evidence();
+          return {
+            ...evidence(),
+            context: { ...evidence().context, network: "mainnet" },
+          };
         },
       },
       isActiveContext: () => true,
       publishToActiveContext: () => undefined,
     });
-    await expect(reconciler.reconcile(record.journalId)).rejects.toThrow(
-      "mainnet",
-    );
-    await expect(reconciler.reconcileNext()).rejects.toThrow("mainnet");
-    expect(evidenceLoads).toBe(0);
-    expect(releases).toBe(1);
+    await expect(reconciler.reconcile(record.journalId)).resolves.toEqual({
+      kind: "terminal",
+      state: "accepted",
+    });
+    await expect(reconciler.reconcileNext()).resolves.toEqual({
+      kind: "terminal",
+      state: "accepted",
+    });
+    expect(evidenceLoads).toBe(2);
+    expect(schedules).toBe(0);
+    expect(transitions).toBe(2);
   });
 });

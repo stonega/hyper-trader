@@ -21,8 +21,8 @@ import { AccountDirectoryProvider } from "../features/accounts/account-directory
 import { ActiveAccountContextRestorer } from "../features/accounts/active-account-context-restorer";
 import { ActionFlowSheet } from "../features/actions/action-flow-sheet";
 import {
-  DevelopmentActionRuntimeProvider,
-  DevelopmentSignerSessionProvider,
+  TradingActionRuntimeProvider,
+  TradingSignerSessionProvider,
 } from "../features/actions/development-trading-runtime";
 import { NotificationRuntimeProvider } from "../features/notifications/provider";
 import { PortfolioStartupLoader } from "../features/portfolio/portfolio-startup-loader";
@@ -56,14 +56,14 @@ export default function RootLayout(): JSX.Element {
           <SafeAreaProvider>
             <MobileQueryProvider>
               <AccountDirectoryProvider>
-                <DevelopmentSignerSessionProvider>
+                <TradingSignerSessionProvider>
                   <StreamRuntimeProvider>
                     <DraftRegistryProvider>
                       <TradingContextProvider>
                         <ActiveAccountContextRestorer />
                         <PortfolioStartupLoader />
                         <ScopedTradingPreferencesProvider>
-                          <DevelopmentActionRuntimeProvider>
+                          <TradingActionRuntimeProvider>
                             <NativeLifecycleProvider>
                               <NotificationRuntimeProvider>
                                 <StatusBar style="auto" />
@@ -86,12 +86,12 @@ export default function RootLayout(): JSX.Element {
                                 <ActionFlowSheet />
                               </NotificationRuntimeProvider>
                             </NativeLifecycleProvider>
-                          </DevelopmentActionRuntimeProvider>
+                          </TradingActionRuntimeProvider>
                         </ScopedTradingPreferencesProvider>
                       </TradingContextProvider>
                     </DraftRegistryProvider>
                   </StreamRuntimeProvider>
-                </DevelopmentSignerSessionProvider>
+                </TradingSignerSessionProvider>
               </AccountDirectoryProvider>
             </MobileQueryProvider>
           </SafeAreaProvider>

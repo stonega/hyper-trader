@@ -1,3 +1,4 @@
+import { hasTradingActionCapability } from "@hyper-trader/hyperliquid";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import type { JSX } from "react";
@@ -21,6 +22,7 @@ import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
+import { useAccountDirectory } from "../../features/accounts/account-directory-provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
@@ -94,12 +96,16 @@ export default function PortfolioScreen(): JSX.Element {
   const tradingContext = useTradingContext();
   const { current } = tradingContext;
   const signerSession = useSignerSession();
+  const directory = useAccountDirectory();
   const actionRuntime = useActionRuntime();
   const scopedPreferences = useScopedTradingPreferences();
   const { catalog, catalogQuery, presentation } = useMarketCatalogPresentation(
     current.network,
   );
   const targetResolution = resolvePortfolioTarget(current);
+  const hasSavedAccountForNetwork = directory.accounts.some(
+    (account) => account.network === current.network,
+  );
   const { portfolio, query, historyQuery, freshness } = usePortfolioData(
     current,
     targetResolution.target,
@@ -137,8 +143,8 @@ export default function PortfolioScreen(): JSX.Element {
     nowMs - portfolio.observedAtMs <= 30_000;
   const actionGate = (() => {
     if (targetResolution.target === null) return targetResolution.reason;
-    if (current.network !== "testnet") {
-      return "Mainnet Portfolio is read-only. This build reviews testnet actions only.";
+    if (!hasTradingActionCapability(current.network)) {
+      return `${current.network === "mainnet" ? "Mainnet" : "Testnet"} Portfolio trading is disabled in this release.`;
     }
     if (presentation.freshness !== "fresh") {
       return "Current market metadata is not fresh. Cached rows remain visible, but actions stay closed.";
@@ -481,7 +487,18 @@ export default function PortfolioScreen(): JSX.Element {
 
         {targetResolution.target === null ? (
           current.masterAccount === null ? (
-            <SetupResumeCard />
+            directory.status === "ready" && !hasSavedAccountForNetwork ? (
+              <SetupResumeCard network={current.network} />
+            ) : (
+              <Card variant="tertiary">
+                <Card.Body className="gap-2">
+                  <Card.Title>Choose an account</Card.Title>
+                  <Card.Description>
+                    Select a saved account above to view Portfolio.
+                  </Card.Description>
+                </Card.Body>
+              </Card>
+            )
           ) : (
             <Card variant="tertiary">
               <Card.Body className="gap-2">

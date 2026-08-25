@@ -38,10 +38,7 @@ import {
   marketTimingNow,
 } from "../../core/performance/market-load-timing";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
-import {
-  type MarketCatalogMode,
-  MarketCatalogModeToggle,
-} from "../../features/markets/catalog-mode-toggle";
+import { ACTIVE_MARKET_CATALOG_FILTERS } from "../../features/markets/catalog-filter";
 import { CatalogStatus } from "../../features/markets/catalog-status";
 import {
   discoverMarkets,
@@ -122,7 +119,6 @@ export default function MarketsScreen(): JSX.Element {
   const firstRowTraceId = useRef<string | null>(null);
   const [isPullRefreshing, setIsPullRefreshing] = useState(false);
   const [query, setQuery] = useState("");
-  const [catalogMode, setCatalogMode] = useState<MarketCatalogMode>("strict");
   const [family, setFamily] = useState<MarketFamily | "all">("all");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [recentsOnly, setRecentsOnly] = useState(false);
@@ -140,24 +136,16 @@ export default function MarketsScreen(): JSX.Element {
     () => ({
       query,
       families: family === "all" ? [] : [family],
-      includeHip3: catalogMode === "all",
-      availability: "enabled",
-      lifecycle: "active",
+      includeHip3: ACTIVE_MARKET_CATALOG_FILTERS.includeHip3,
+      availability: ACTIVE_MARKET_CATALOG_FILTERS.availability,
+      lifecycle: ACTIVE_MARKET_CATALOG_FILTERS.lifecycle,
       favoritesOnly,
       recentsOnly,
       favoriteIds,
       recentIds,
       sort: "volume",
     }),
-    [
-      catalogMode,
-      family,
-      favoriteIds,
-      favoritesOnly,
-      query,
-      recentIds,
-      recentsOnly,
-    ],
+    [family, favoriteIds, favoritesOnly, query, recentIds, recentsOnly],
   );
   // A cached first summary page is first content, so never defer it. Only
   // user-driven discovery changes may keep showing the current list briefly.
@@ -357,12 +345,6 @@ export default function MarketsScreen(): JSX.Element {
     >
       <ScreenHeading
         title="Markets"
-        titleAccessory={
-          <MarketCatalogModeToggle
-            mode={catalogMode}
-            onChange={setCatalogMode}
-          />
-        }
         network={current.network}
         accountLabel={
           current.targetAccount === null
@@ -462,11 +444,7 @@ export default function MarketsScreen(): JSX.Element {
     </View>
   );
   const hasDiscoveryConstraint =
-    query !== "" ||
-    family !== "all" ||
-    catalogMode !== "strict" ||
-    favoritesOnly ||
-    recentsOnly;
+    query !== "" || family !== "all" || favoritesOnly || recentsOnly;
   const emptyTitle =
     presentation.content === "unavailable"
       ? "Catalog unavailable"

@@ -17,16 +17,71 @@ export interface ActionCapability {
   readonly exchangeTransport: boolean;
 }
 
-export const ACTION_CAPABILITIES = Object.freeze({
-  mainnet: Object.freeze({
-    signerAccess: false,
-    exchangeTransport: false,
-  }),
-  testnet: Object.freeze({
-    signerAccess: true,
-    exchangeTransport: true,
-  }),
-}) satisfies Readonly<Record<HyperliquidNetwork, Readonly<ActionCapability>>>;
+/**
+ * The only source switch that may compile mainnet authority into an artifact.
+ *
+ * `candidate` is an immutable, privately distributed release candidate. It is
+ * not permission to distribute publicly: the external evidence manifest must
+ * still pass the release preflight for the exact candidate binaries after the
+ * bounded canary. There is intentionally no environment, remote, OTA, deep
+ * link, callback, persisted-state, or UI override for this value.
+ */
+export type MainnetTradingReleaseStage = "preactivation" | "candidate";
+
+export const MAINNET_TRADING_RELEASE_STAGE: MainnetTradingReleaseStage =
+  "candidate";
+
+export function actionCapabilitiesForReleaseStage(
+  stage: MainnetTradingReleaseStage,
+): Readonly<Record<HyperliquidNetwork, Readonly<ActionCapability>>> {
+  const mainnetEnabled = stage === "candidate";
+  return Object.freeze({
+    mainnet: Object.freeze({
+      signerAccess: mainnetEnabled,
+      exchangeTransport: mainnetEnabled,
+    }),
+    testnet: Object.freeze({
+      signerAccess: true,
+      exchangeTransport: true,
+    }),
+  });
+}
+
+export const ACTION_CAPABILITIES = actionCapabilitiesForReleaseStage(
+  MAINNET_TRADING_RELEASE_STAGE,
+);
+
+function actionCapability(network: string): Readonly<ActionCapability> {
+  if (network !== "mainnet" && network !== "testnet") {
+    throw new HyperliquidValidationError("network", "unknown network");
+  }
+  return ACTION_CAPABILITIES[network];
+}
+
+export function assertKnownActionNetwork(
+  network: string,
+): asserts network is HyperliquidNetwork {
+  actionCapability(network);
+}
+
+export function hasSignerAccessCapability(
+  network: HyperliquidNetwork,
+): boolean {
+  return actionCapability(network).signerAccess;
+}
+
+export function hasExchangeTransportCapability(
+  network: HyperliquidNetwork,
+): boolean {
+  return actionCapability(network).exchangeTransport;
+}
+
+export function hasTradingActionCapability(
+  network: HyperliquidNetwork,
+): boolean {
+  const capability = actionCapability(network);
+  return capability.signerAccess && capability.exchangeTransport;
+}
 
 export function normalizeSignerBinding(binding: SignerBinding): SignerBinding {
   if (!Number.isSafeInteger(binding.generation) || binding.generation < 1) {
@@ -70,18 +125,31 @@ export function assertSignerBinding(
   }
 }
 
-export function assertTestnetSigningCapability(network: string): void {
-  const capability =
-    network === "testnet"
-      ? ACTION_CAPABILITIES.testnet
-      : ACTION_CAPABILITIES.mainnet;
-  if (!capability.signerAccess || !capability.exchangeTransport) {
+export function assertSignerAccessCapability(network: string): void {
+  if (!actionCapability(network).signerAccess) {
     throw new HyperliquidValidationError(
       "network",
-      "mainnet signing is disabled by the local capability policy",
+      `${network} signer access is disabled by the local capability policy`,
     );
   }
 }
+
+export function assertExchangeTransportCapability(network: string): void {
+  if (!actionCapability(network).exchangeTransport) {
+    throw new HyperliquidValidationError(
+      "network",
+      `${network} exchange transport is disabled by the local capability policy`,
+    );
+  }
+}
+
+export function assertTradingActionCapability(network: string): void {
+  assertSignerAccessCapability(network);
+  assertExchangeTransportCapability(network);
+}
+
+/** @deprecated Use the capability-specific assertions. */
+export const assertTestnetSigningCapability = assertTradingActionCapability;
 
 function validateSignature(signature: Eip712Signature): Eip712Signature {
   if (
@@ -101,27 +169,45 @@ function validateSignature(signature: Eip712Signature): Eip712Signature {
   };
 }
 
-export async function signTestnetTypedData(input: {
+export async function signNetworkTypedData(input: {
   readonly expectedBinding: SignerBinding;
   readonly payload: NetworkTypedData;
   readonly signer: InjectedTypedDataSigner;
 }): Promise<Eip712Signature> {
-  assertTestnetSigningCapability(input.expectedBinding.network);
-  assertTestnetSigningCapability(input.payload.network);
+  assertSignerAccessCapability(input.expectedBinding.network);
+  assertSignerAccessCapability(input.payload.network);
+  if (input.payload.network !== input.expectedBinding.network) {
+    throw new HyperliquidValidationError(
+      "signer.network",
+      "the signing payload network does not match the signer binding",
+    );
+  }
   assertSignerBinding(input.expectedBinding, input.signer.binding);
   return validateSignature(
     await input.signer.signTypedData(input.payload.typedData),
   );
 }
 
-export async function signTestnetBytes(input: {
+export async function signNetworkBytes(input: {
   readonly expectedBinding: SignerBinding;
   readonly network: "mainnet" | "testnet";
   readonly bytes: Uint8Array;
   readonly signer: InjectedBytesSigner;
 }): Promise<Eip712Signature> {
-  assertTestnetSigningCapability(input.expectedBinding.network);
-  assertTestnetSigningCapability(input.network);
+  assertSignerAccessCapability(input.expectedBinding.network);
+  assertSignerAccessCapability(input.network);
+  if (input.network !== input.expectedBinding.network) {
+    throw new HyperliquidValidationError(
+      "signer.network",
+      "the signing bytes network does not match the signer binding",
+    );
+  }
   assertSignerBinding(input.expectedBinding, input.signer.binding);
   return validateSignature(await input.signer.signBytes(input.bytes));
 }
+
+/** @deprecated Use signNetworkTypedData. */
+export const signTestnetTypedData = signNetworkTypedData;
+
+/** @deprecated Use signNetworkBytes. */
+export const signTestnetBytes = signNetworkBytes;

@@ -55,8 +55,12 @@ Private Portfolio results remain memory-only and are canceled and evicted by the
 normal context supervisor when the owner changes.
 
 Only the default first market-summary page participates in TanStack Query
-device persistence. Cache writes subscribe only to that query, and persistence
-strips every later infinite-scroll page. Candle, market-context, order-book,
+device persistence. Markets and the Trade market selector consume that same
+query key and paginated loader, so Trade can preload or reuse the first 24 rows
+without waiting for the memory-only full catalog. Cache writes subscribe only
+to that query, and persistence strips every later infinite-scroll page.
+Selecting a summary still requires the matching full-catalog market before
+order entry can become authoritative. Candle, market-context, order-book,
 trade WebSocket updates, and the full trading catalog remain in memory, so a
 high-frequency stream cannot repeatedly serialize a large catalog on the
 JavaScript thread. Focused REST or catalog baselines restore live views after a

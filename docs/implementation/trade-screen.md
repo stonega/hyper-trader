@@ -25,7 +25,10 @@ then account WebSocket events invalidate it for a coalesced reload. Perpetual
 order entry listens to clearinghouse and selected-coin `activeAssetData`
 changes; spot listens to `userEvents` and `spotState`. While Trade is focused,
 REST reconciles every 10 seconds and refreshes immediately on focus, reconnect,
-or pull-to-refresh. If the cached observation is older than 30 seconds when the
+or pull-to-refresh. If an account changes while another tab owns focus, the
+old owner remains disabled and returning to Trade enables a newly keyed query
+for the exact network, master account, target, and market. If the cached
+observation is older than 30 seconds when the
 user starts review, the same action performs an automatic REST preflight before
 review continues. Deterministic fixtures cover perpetual margin with and without an
 open position, spot held funds, and ambiguous input. This screen does not add a
@@ -149,21 +152,35 @@ Trade follows a compact exchange-workspace order without copying another
 product's visual styling: the title and concise pair switch share the header,
 followed by a top-right account avatar, market identity and price, the
 candlestick chart, the order-entry and activity workspace, then account and
-session actions. The pair control uses a down chevron and opens the complete
-market selector. Selector results use compact left-aligned rows with the pair,
+session actions. The network-aware setup card appears after the market and
+activity workspace only when the selected network has no saved account. An
+existing account with a missing local signer instead receives a repair message
+for that network and is never presented as a new-account or testnet setup case.
+The pair control uses a down chevron and opens the complete
+market selector. The selector uses the same generation-pinned, 24-row summary
+query and persisted default first page as Markets, starts that query while Trade
+is focused, searches through the backend, and incrementally loads later pages.
+Opening it does not wait for or synchronously filter the full trading catalog.
+A selected summary only changes the requested canonical market; Trade still
+resolves the full validated catalog metadata before enabling order entry.
+Selector results use compact left-aligned rows with the pair,
 maximum leverage, and HIP-3 provider when present; normal trading availability
 is implicit, while exceptional availability remains visible and the active
 market uses a quiet checkmark. The Trade summary follows the same rule by
-omitting the normal `Trading` chip while retaining `Browse only`. Markets
-discovery cards reuse the same token icon and hyphenated pair label, such as
-`BTC-USDC`, so selection and discovery share one visible identity. Native
+omitting the normal `Trading` chip while retaining `Browse only`. The Trade
+summary and Markets discovery cards share the same identity, price, and metrics
+layout; Trade alone omits the Favorite and Open in Trade footer. Both reuse the
+same token icon and market-family pair notation: perpetuals use a hyphen, such
+as `BTC-USDC`, while spot markets use a slash, such as `SWAP/USDC`, so selection
+and discovery share one visible identity. Builder-deployed perpetuals also show
+the validated short DEX name, such as `xyz`, in a compact tag beside maximum
+leverage; the tag is never inferred from the market symbol. Native
 discovery and Trade summary cards omit the redundant `Native` venue line, while
 spot, outcome, and HIP-3 provider labels remain visible. The Markets
 search field uses `Search markets` as its placeholder and accessible label
-without a duplicate label above it. A title-level mode button mirrors Trade's
-compact market-selector styling and uses a trailing swap icon. `Strict` is the
-default and shows active order-enabled markets; `All` adds active browse-only
-markets without exposing delisted records. Token icons load from one fixed
+without a duplicate label above it. Markets and the Trade selector always show
+the complete active validated catalog, including HIP-3 and browse-only markets,
+without exposing delisted records or a separate catalog-mode control. Token icons load from one fixed
 public icon host for presentation only and fall back to deterministic initials;
 icon success is never market identity or selection evidence. Pressing the avatar
 opens the shared account dialog used by Markets; its concise rows show the
@@ -217,11 +234,12 @@ and other primary actions.
 ## Draft and review ownership
 
 A Trade draft binds to `(network, master account, target account)`, canonical
-market ID, and the market-safety metadata fingerprint. Account, network, market,
-or safety-metadata changes reset it with an explicit reason. Side, order type,
-keyboard state, tab changes, and signer-session changes do not replace the
-draft. A locked session may reach review because confirmation owns device
-authentication. An expired credential keeps review disabled.
+market ID, and the market-safety metadata fingerprint. A deliberate market
+switch silently replaces the prior draft with a fresh form scoped to the new
+market. Account, network, or safety-metadata changes reset it with an explicit
+reason. Side, order type, keyboard state, tab changes, and signer-session changes
+do not replace the draft. A locked session may reach review because confirmation
+owns device authentication. An expired credential keeps review disabled.
 
 The form has no separate side selector. Its final execution rail stacks the
 full-width Buy/Long and Sell/Short actions vertically and acts as the explicit
@@ -318,7 +336,7 @@ of color, and disable staged motion under system Reduced Motion.
 
 ## Fail-closed review gates
 
-Review reports a specific reason for invalid clock, mainnet, non-orderable
+Review reports a specific reason for invalid clock, a capability-disabled network, non-orderable
 metadata, pending HIP-3 evidence, stale/offline/reconnecting metadata,
 read-only/missing binding, and expired agent. Stale account state is the one
 recoverable gate: starting review runs the REST preflight, while refresh failure

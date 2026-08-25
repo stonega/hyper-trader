@@ -5,6 +5,7 @@ import {
   ApiWalletAvatar,
   shortenWalletAddress,
   walletGradientForAddress,
+  walletGradientForSeed,
 } from "../features/accounts/api-wallet-avatar";
 
 jest.mock("expo-linear-gradient", () => {
@@ -29,6 +30,9 @@ test("derives a stable gradient from the API wallet address", () => {
   );
   expect(walletGradientForAddress(ADDRESS)).not.toEqual(
     walletGradientForAddress(`0x34${"b".repeat(34)}3434`),
+  );
+  expect(walletGradientForSeed("testnet-account")).not.toEqual(
+    walletGradientForSeed("mainnet-account"),
   );
 });
 

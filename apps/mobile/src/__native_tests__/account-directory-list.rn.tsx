@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react-native";
 
 import { AccountDirectoryList } from "../features/accounts/account-directory-list";
 import type { SavedAccount } from "../features/accounts/account-scope";
+import { walletGradientForSeed } from "../features/accounts/api-wallet-avatar";
 
 jest.mock("expo-linear-gradient", () => {
   const React = jest.requireActual<typeof import("react")>("react");
@@ -48,12 +49,25 @@ test("shows every saved account with the selector avatar style", () => {
     network: "testnet",
     addressDigit: "1",
   });
-  const reserve = account({
+  const reserveFixture = account({
     id: "reserve",
     label: "Reserve",
     network: "mainnet",
     addressDigit: "2",
   });
+  const reserve: SavedAccount = {
+    ...reserveFixture,
+    authorization: {
+      agentAddress: null,
+      generation: null,
+      registrationName: null,
+      registrationState: "inactive",
+      requestedExpiryMs: null,
+      effectiveExpiryMs: null,
+      lastVerifiedAtMs: null,
+      credentialState: "absent",
+    },
+  };
 
   render(
     <AccountDirectoryList
@@ -68,12 +82,28 @@ test("shows every saved account with the selector avatar style", () => {
     ),
   ).toBeTruthy();
   expect(
-    screen.getByLabelText("Reserve, 0x2222…2222, Mainnet, Read only"),
+    screen.getByLabelText("Reserve, 0x2222…2222, Mainnet, Setup required"),
   ).toBeTruthy();
   expect(
     screen.getAllByTestId("api-wallet-avatar", {
       includeHiddenElements: true,
     }),
   ).toHaveLength(2);
+  const gradients = screen.getAllByTestId("api-wallet-avatar-gradient", {
+    includeHiddenElements: true,
+  });
+  expect(gradients).toHaveLength(2);
+  expect(gradients[0]?.props.colors).toEqual(
+    walletGradientForSeed(primary.id).colors,
+  );
+  expect(gradients[1]?.props.colors).toEqual(
+    walletGradientForSeed(reserve.id).colors,
+  );
+  expect(gradients[0]?.props.colors).not.toEqual(gradients[1]?.props.colors);
+  expect(
+    screen.queryByTestId("api-wallet-avatar-placeholder", {
+      includeHiddenElements: true,
+    }),
+  ).toBeNull();
   expect(screen.getByText("Active")).toBeTruthy();
 });

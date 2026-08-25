@@ -435,7 +435,7 @@ export function ActionFlowSheet(): JSX.Element {
               {flow.phase === "review" ? (
                 <View className="gap-1">
                   <Text className="text-xs font-medium uppercase tracking-wide text-accent">
-                    {review?.presentation.network ?? "Testnet action"}
+                    {review?.presentation.network ?? "Hyperliquid action"}
                   </Text>
                   <BottomSheet.Title>{copy.title}</BottomSheet.Title>
                   <BottomSheet.Description>
@@ -499,7 +499,7 @@ export function ActionFlowSheet(): JSX.Element {
               <View className="gap-3">
                 {flow.phase === "review" && runtime.available ? (
                   <Button
-                    accessibilityHint="Signs and submits this action to Hyperliquid testnet."
+                    accessibilityHint={`Signs and submits this action to ${review?.presentation.network ?? "the selected Hyperliquid network"}.`}
                     animation={reducedMotion ? "disable-all" : undefined}
                     className="min-h-12 w-full"
                     isDisabled={review === null}

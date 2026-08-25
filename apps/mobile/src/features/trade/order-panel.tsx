@@ -543,11 +543,6 @@ export function OrderPanel({
             {formError}
           </Text>
         ) : null}
-        {!formReady && canStartReview ? (
-          <Text className="text-sm leading-5 text-muted">
-            Enter all visible required values before review.
-          </Text>
-        ) : null}
       </Card.Body>
       <Card.Footer className="flex-col gap-2" testID="execution-action-rail">
         <Button

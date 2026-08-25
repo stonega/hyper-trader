@@ -315,8 +315,8 @@ describe("action-specific reconciliation", () => {
     ).toEqual({ kind: "terminal", state: "expired" });
   });
 
-  test("denies mainnet evidence before choosing any result", () => {
-    expect(() =>
+  test("reconciles a network-matched mainnet record without signer capability", () => {
+    expect(
       decideReconciliation({
         record: {
           ...base,
@@ -337,6 +337,6 @@ describe("action-specific reconciliation", () => {
           stateVersion: 15,
         },
       }),
-    ).toThrow("mainnet");
+    ).toEqual({ kind: "terminal", state: "expired" });
   });
 });

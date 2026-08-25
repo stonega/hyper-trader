@@ -32,7 +32,10 @@ export function AccountDirectoryList({
             key={account.id}
             testID={`settings-account-${account.id}`}
           >
-            <ApiWalletAvatar address={account.authorization.agentAddress} />
+            <ApiWalletAvatar
+              address={account.target.address}
+              colorSeed={account.id}
+            />
             <View className="min-w-0 flex-1 gap-0.5">
               <Text
                 className="text-base font-semibold text-foreground"

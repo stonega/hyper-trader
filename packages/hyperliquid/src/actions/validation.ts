@@ -7,7 +7,7 @@ import {
   type PricePrecisionInputs,
   pricePrecisionForSizeDecimals,
 } from "../numbers/precision";
-import { assertTestnetSigningCapability } from "../signing/boundary";
+import { assertTradingActionCapability } from "../signing/boundary";
 import { parseCloid } from "./builders";
 import { MINIMUM_ORDER_NOTIONAL_MESSAGE } from "./constants";
 import type {
@@ -200,7 +200,7 @@ export interface ValidatedTradingAction {
 }
 
 function assertCurrentContext(context: ActionValidationContext): void {
-  assertTestnetSigningCapability(context.network);
+  assertTradingActionCapability(context.network);
   safeInteger(context.capturedContextEpoch, "context.capturedContextEpoch");
   safeInteger(context.currentContextEpoch, "context.currentContextEpoch");
   safeInteger(context.reviewedAtMs, "context.reviewedAtMs");

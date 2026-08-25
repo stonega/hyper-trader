@@ -1,6 +1,5 @@
 import {
   type AccountTarget,
-  assertTestnetSigningCapability,
   createHyperliquidClient,
   type HyperliquidClient,
   type PreparedActionRecord,
@@ -9,7 +8,7 @@ import {
 } from "@hyper-trader/hyperliquid";
 import type { Market } from "@hyper-trader/hyperliquid/public";
 
-import type { TestnetServerClock } from "./authoritative-order-refresh";
+import type { AuthoritativeServerClock } from "./authoritative-order-refresh";
 import type { ReconciliationEvidenceSource } from "./reconciler";
 
 function accountTarget(record: PreparedActionRecord): AccountTarget {
@@ -22,7 +21,7 @@ function accountTarget(record: PreparedActionRecord): AccountTarget {
       };
 }
 
-function currentServerTime(clock: TestnetServerClock): number {
+function currentServerTime(clock: AuthoritativeServerClock): number {
   const sample = clock.read();
   const elapsed = sample.monotonicTimeMs - sample.serverSampledAtMonotonicMs;
   const current = sample.serverTimeMs + elapsed;
@@ -77,7 +76,7 @@ function baseEvidence(
 
 async function loadOrderEvidence(input: {
   readonly client: HyperliquidClient;
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
   readonly record: PreparedActionRecord;
 }): Promise<ReconciliationEvidence> {
   const { record } = input;
@@ -141,7 +140,7 @@ async function loadPerpMarket(input: {
 
 async function loadReduceCloseEvidence(input: {
   readonly client: HyperliquidClient;
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
   readonly record: PreparedActionRecord;
 }): Promise<ReconciliationEvidence> {
   const evidence = await loadOrderEvidence(input);
@@ -176,7 +175,7 @@ async function loadReduceCloseEvidence(input: {
 
 async function loadLeverageEvidence(input: {
   readonly client: HyperliquidClient;
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
   readonly record: PreparedActionRecord;
 }): Promise<ReconciliationEvidence> {
   const { record } = input;
@@ -201,18 +200,22 @@ async function loadLeverageEvidence(input: {
 }
 
 export function createHyperliquidReconciliationEvidenceSource(input: {
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
   readonly client?: HyperliquidClient;
 }): ReconciliationEvidenceSource {
-  const client =
-    input.client ??
-    createHyperliquidClient({ network: "testnet", fetch: input.clock.fetch });
-  if (client.network !== "testnet") {
-    throw new Error("The reconciliation client must use testnet.");
-  }
   return Object.freeze({
     async load(record: PreparedActionRecord): Promise<ReconciliationEvidence> {
-      assertTestnetSigningCapability(record.network);
+      const client =
+        input.client ??
+        createHyperliquidClient({
+          network: record.network,
+          fetch: input.clock.fetch,
+        });
+      if (client.network !== record.network) {
+        throw new Error(
+          "The reconciliation client must match the journal network.",
+        );
+      }
       switch (record.actionType) {
         case "market_order":
         case "limit_order":

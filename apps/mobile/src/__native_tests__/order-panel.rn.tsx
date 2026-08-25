@@ -79,6 +79,34 @@ function renderPanel(market: Market): {
 }
 
 describe("order panel directional review actions", () => {
+  test("keeps a fresh empty order form quiet", () => {
+    render(
+      <OrderPanel
+        authority={authority}
+        draft={createTradeDraft({
+          account,
+          context,
+          market: NATIVE_DUPLICATE,
+        })}
+        gate={gate}
+        invalidationMessage={null}
+        market={NATIVE_DUPLICATE}
+        onDraftChange={jest.fn()}
+        onLeverageChange={jest.fn(async () => undefined)}
+        onReview={jest.fn(async () => undefined)}
+      />,
+    );
+
+    expect(screen.queryByText(/Draft reset/)).toBeNull();
+    expect(
+      screen.queryByText("Enter all visible required values before review."),
+    ).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Buy / Long" }).props
+        .accessibilityState,
+    ).toMatchObject({ disabled: true });
+  });
+
   test("shows available margin as a left-label, right-value row", () => {
     renderPanel(NATIVE_DUPLICATE);
 

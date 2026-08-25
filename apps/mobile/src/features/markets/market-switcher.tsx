@@ -1,17 +1,25 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import type { Market } from "@hyper-trader/hyperliquid/public";
+import type { MarketSummary } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { useThemeColor } from "heroui-native/hooks";
 import { Input } from "heroui-native/input";
 import { TextField } from "heroui-native/text-field";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import { FlatList, Keyboard, Modal, Platform, View } from "react-native";
+import {
+  ActivityIndicator,
+  FlatList,
+  Keyboard,
+  Modal,
+  Platform,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
 import { KeyboardAwareView } from "../../components/keyboard-aware-view";
 import { useReducedMotion } from "../../components/use-reduced-motion";
+import { ACTIVE_MARKET_CATALOG_FILTERS } from "./catalog-filter";
 import {
   discoverMarkets,
   marketDisplayLabel,
@@ -20,51 +28,75 @@ import {
 import { MarketIcon } from "./market-icon";
 
 const EMPTY_IDS: readonly string[] = [];
-const EMPTY_MARKETS: readonly Market[] = [];
+const EMPTY_MARKETS: readonly MarketSummary[] = [];
 
 export function MarketSwitcher({
   markets,
   selectedCanonicalId,
   visible,
+  isFetchingNextPage = false,
+  loading = false,
   onClose,
+  onEndReached,
+  onQueryChange,
   onSelect,
+  filterQuery,
+  query: controlledQuery,
+  status,
+  total,
 }: {
-  readonly markets: readonly Market[];
+  readonly markets: readonly MarketSummary[];
   readonly selectedCanonicalId: string | null;
   readonly visible: boolean;
+  readonly isFetchingNextPage?: boolean;
+  readonly loading?: boolean;
   readonly onClose: () => void;
+  readonly onEndReached?: () => void;
+  readonly onQueryChange?: (query: string) => void;
   readonly onSelect: (canonicalId: string) => void;
+  readonly filterQuery?: string;
+  readonly query?: string;
+  readonly status?: ReactNode;
+  readonly total?: number;
 }): JSX.Element {
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const accent = useThemeColor("accent");
   const background = useThemeColor("background");
-  const [query, setQuery] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
+  const query = controlledQuery ?? localQuery;
+  const appliedQuery = filterQuery ?? query;
+  const setQuery = onQueryChange ?? setLocalQuery;
   const filtered = useMemo(
     () =>
       visible
         ? discoverMarkets(markets, {
-            query,
+            query: appliedQuery,
             families: [],
-            includeHip3: true,
-            availability: "all",
-            lifecycle: "all",
+            includeHip3: ACTIVE_MARKET_CATALOG_FILTERS.includeHip3,
+            availability: ACTIVE_MARKET_CATALOG_FILTERS.availability,
+            lifecycle: ACTIVE_MARKET_CATALOG_FILTERS.lifecycle,
             favoritesOnly: false,
             recentsOnly: false,
             favoriteIds: EMPTY_IDS,
             recentIds: EMPTY_IDS,
-            sort: query.trim() === "" ? "volume" : "symbol",
+            sort: appliedQuery.trim() === "" ? "volume" : "symbol",
           })
         : EMPTY_MARKETS,
-    [markets, query, visible],
+    [appliedQuery, markets, visible],
   );
+
+  const clearQuery = () => {
+    setLocalQuery("");
+    onQueryChange?.("");
+  };
 
   const requestClose = () => {
     if (Keyboard.isVisible()) {
       Keyboard.dismiss();
       return;
     }
-    setQuery("");
+    clearQuery();
     onClose();
   };
 
@@ -87,21 +119,34 @@ export function MarketSwitcher({
               paddingBottom: Math.max(insets.bottom, 24),
             }}
             data={filtered}
-            initialNumToRender={16}
+            initialNumToRender={8}
             keyboardDismissMode={
               Platform.OS === "ios" ? "interactive" : "on-drag"
             }
             keyboardShouldPersistTaps="handled"
             keyExtractor={(market) => market.canonicalId}
             ListEmptyComponent={
-              <Card variant="secondary">
-                <Card.Body className="gap-2">
-                  <Card.Title>No markets match</Card.Title>
-                  <Card.Description>
-                    Try another symbol or venue.
-                  </Card.Description>
-                </Card.Body>
-              </Card>
+              loading ? (
+                <View className="min-h-32 items-center justify-center">
+                  <ActivityIndicator accessibilityLabel="Loading markets" />
+                </View>
+              ) : (
+                <Card variant="secondary">
+                  <Card.Body className="gap-2">
+                    <Card.Title>No markets match</Card.Title>
+                    <Card.Description>
+                      Try another symbol or venue.
+                    </Card.Description>
+                  </Card.Body>
+                </Card>
+              )
+            }
+            ListFooterComponent={
+              isFetchingNextPage ? (
+                <View className="h-14 items-center justify-center">
+                  <ActivityIndicator accessibilityLabel="Loading more markets" />
+                </View>
+              ) : null
             }
             ListHeaderComponent={
               <View className="gap-4 pb-2">
@@ -118,12 +163,20 @@ export function MarketSwitcher({
                     </Text>
                   </View>
                   <Button
+                    accessibilityHint="Closes the market selector."
+                    accessibilityLabel="Close market selector"
                     animation={reducedMotion ? "disable-all" : undefined}
-                    className="min-h-12 min-w-24"
+                    className="h-12 min-h-12 w-12 min-w-12 px-0"
                     onPress={requestClose}
                     variant="tertiary"
                   >
-                    Close
+                    <Ionicons
+                      accessibilityElementsHidden
+                      color={accent}
+                      importantForAccessibility="no-hide-descendants"
+                      name="close"
+                      size={22}
+                    />
                   </Button>
                 </View>
                 <TextField
@@ -136,16 +189,19 @@ export function MarketSwitcher({
                     autoCorrect={false}
                     autoFocus
                     onChangeText={setQuery}
-                    placeholder="Search symbol or venue"
+                    placeholder="Search markets"
                     returnKeyType="search"
                     value={query}
                   />
                 </TextField>
+                {status}
                 <Text
                   accessibilityLiveRegion="polite"
                   className="text-sm text-muted"
                 >
-                  {filtered.length} markets shown
+                  {total === undefined || total === filtered.length
+                    ? `${filtered.length} markets shown`
+                    : `${filtered.length} of ${total} markets`}
                 </Text>
               </View>
             }
@@ -186,7 +242,7 @@ export function MarketSwitcher({
                   onPress={() => {
                     Keyboard.dismiss();
                     onSelect(item.canonicalId);
-                    setQuery("");
+                    clearQuery();
                     onClose();
                   }}
                   size="sm"
@@ -231,7 +287,12 @@ export function MarketSwitcher({
                 </Button>
               );
             }}
+            onEndReached={onEndReached}
+            onEndReachedThreshold={0.5}
+            maxToRenderPerBatch={6}
             showsVerticalScrollIndicator={false}
+            updateCellsBatchingPeriod={32}
+            windowSize={5}
           />
         </KeyboardAwareView>
       </View>

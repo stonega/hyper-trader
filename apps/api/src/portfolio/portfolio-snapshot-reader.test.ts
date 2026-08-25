@@ -30,7 +30,18 @@ function transport(calls: string[]): InfoHttpTransport {
     async request(body) {
       calls.push(body.type);
       if (body.type === "clearinghouseState") return clearinghouse;
-      if (body.type === "spotClearinghouseState") return { balances: [] };
+      if (body.type === "spotClearinghouseState") {
+        return {
+          balances: [
+            {
+              coin: "retired-token",
+              hold: "0.0",
+              total: "0.0",
+              entryNtl: "0.0",
+            },
+          ],
+        };
+      }
       if (body.type === "historicalOrders") {
         return [{ order: { coin: "builder:COIN" } }];
       }
@@ -80,6 +91,7 @@ describe("backend Portfolio snapshot reader", () => {
     });
 
     expect(live.dexes.map(({ dex }) => dex)).toEqual(["", "builder"]);
+    expect(live.spot.balances).toEqual([]);
     expect(history.fills).toEqual([]);
     expect(calls.filter((type) => type === "clearinghouseState")).toHaveLength(
       2,

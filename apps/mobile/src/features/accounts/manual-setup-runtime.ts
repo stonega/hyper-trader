@@ -1,9 +1,12 @@
-import type {
-  ContextEpochAuthority,
-  SignerBinding,
+import {
+  assertSignerAccessCapability,
+  type ContextEpochAuthority,
+  type HyperliquidNetwork,
+  type SignerBinding,
 } from "@hyper-trader/hyperliquid";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { openDatabaseSync } from "expo-sqlite";
+import { Platform } from "react-native";
 import { toHex } from "viem";
 import type { TradingContextIdentity } from "../../core/context/supervisor";
 import {
@@ -25,15 +28,17 @@ import {
   createCredentialVault,
   createExpoSecureStorePort,
 } from "../../platform/security/credential-vault";
-import { createExpoDeviceAuthenticationPort } from "../../platform/security/device-auth";
+import {
+  createExpoDeviceAuthenticationPort,
+  prepareProtectedCredentialCreation,
+} from "../../platform/security/device-auth";
 import { createManualAgentRegistrationAuthority } from "../../platform/wallet/manual-authority";
 import { normalizeAgentRegistrationName } from "../../platform/wallet/setup-identifiers";
+import { normalizeSavedAccount, type SavedAccount } from "./account-scope";
 import {
-  normalizeSavedAccount,
-  readOnlyTradingContextForSavedAccount,
-  type SavedAccount,
-} from "./account-scope";
-import { restoredTradingContextForSavedAccount } from "./active-account-context";
+  reconcileSavedAccountAuthorization,
+  restoredTradingContextForSavedAccount,
+} from "./active-account-context";
 import {
   createManualSetupProgressRepository,
   type ManualSetupProgressRepository,
@@ -61,11 +66,13 @@ export type ManualSetupHydration =
   | { readonly status: "empty" }
   | {
       readonly status: "identity";
+      readonly network: HyperliquidNetwork;
       readonly masterAccount: string;
       readonly registrationName: string;
     }
   | {
       readonly status: "protection";
+      readonly network: HyperliquidNetwork;
       readonly masterAccount: string;
       readonly registrationName: string;
     }
@@ -79,6 +86,7 @@ export type ManualSetupHydration =
 export interface ManualSetupRuntime {
   load(): Promise<ManualSetupHydration>;
   saveMasterAccount(
+    network: HyperliquidNetwork,
     masterAccount: string,
     registrationName: string,
   ): Promise<{
@@ -86,11 +94,13 @@ export interface ManualSetupRuntime {
     readonly registrationName: string;
   }>;
   prepare(
+    network: HyperliquidNetwork,
     masterAccount: string,
     registrationName: string,
   ): Promise<SetupAttempt>;
   verify(attempt: SetupAttempt): Promise<SetupVerificationResult>;
   activationFor(attempt: SetupAttempt): ActivatedSetupRecord | null;
+  reconcileSavedAccount(account: SavedAccount): Promise<SavedAccount>;
   restoreTradingContext(account: SavedAccount): Promise<TradingContextIdentity>;
   createSignerSessionManager(input: {
     readonly isActiveAndFocused: () => boolean;
@@ -230,6 +240,27 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
     }
     return activation;
   };
+  const accountRestorationEvidence = async (accountInput: SavedAccount) => {
+    const account = normalizeSavedAccount(accountInput);
+    const activeBinding = repository.getActiveBindingForTarget({
+      network: account.network,
+      masterAccount: account.masterAccount,
+      targetAccount: account.target.address,
+    });
+    const manifest = await vault.readManifest();
+    const nowMs = Date.now();
+    return {
+      account: reconcileSavedAccountAuthorization({
+        account,
+        activeBinding,
+        manifest,
+        nowMs,
+      }),
+      activeBinding,
+      manifest,
+      nowMs,
+    };
+  };
 
   return {
     async load() {
@@ -244,12 +275,14 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         if (saved.registrationName.length === 0) {
           return {
             status: "identity",
+            network: saved.network,
             masterAccount: saved.masterAccount,
             registrationName: "",
           };
         }
         return {
           status: "protection",
+          network: saved.network,
           masterAccount: saved.masterAccount,
           registrationName: saved.registrationName,
         };
@@ -271,20 +304,40 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
       }
       throw new Error("The saved setup checkpoint is no longer recoverable.");
     },
-    async saveMasterAccount(masterAccount, registrationName) {
+    async saveMasterAccount(network, masterAccount, registrationName) {
+      assertSignerAccessCapability(network);
       const normalized = normalizeSetupAddress(masterAccount.trim());
       const normalizedName = normalizeAgentRegistrationName(registrationName);
-      await progress.saveProtection(normalized, normalizedName, Date.now());
+      await progress.saveProtection(
+        network,
+        normalized,
+        normalizedName,
+        Date.now(),
+      );
       return {
         masterAccount: normalized,
         registrationName: normalizedName,
       };
     },
-    async prepare(masterAccount, registrationName) {
+    async prepare(network, masterAccount, registrationName) {
+      assertSignerAccessCapability(network);
       const normalized = normalizeSetupAddress(masterAccount.trim());
       const normalizedName = normalizeAgentRegistrationName(registrationName);
-      await progress.saveProtection(normalized, normalizedName, Date.now());
-      await deviceAuthentication.authenticate();
+      await progress.saveProtection(
+        network,
+        normalized,
+        normalizedName,
+        Date.now(),
+      );
+      if (Platform.OS !== "android" && Platform.OS !== "ios") {
+        throw new Error(
+          "Protected API-wallet creation requires iOS or Android.",
+        );
+      }
+      await prepareProtectedCredentialCreation(
+        deviceAuthentication,
+        Platform.OS,
+      );
       const sessionBytes = await expoCryptographicRandomBytes(16);
       let connectorSessionId: string;
       try {
@@ -293,7 +346,7 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         sessionBytes.fill(0);
       }
       const attempt = await coordinator.prepare({
-        network: "testnet",
+        network,
         connectorSessionId,
         connectedMasterAccount: normalized,
         targetAccount: normalized,
@@ -313,21 +366,16 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
         connectorSessionId: attempt.connectorSessionId,
       }),
     activationFor,
+    async reconcileSavedAccount(accountInput) {
+      return (await accountRestorationEvidence(accountInput)).account;
+    },
     async restoreTradingContext(accountInput) {
-      const account = normalizeSavedAccount(accountInput);
-      if (account.network !== "testnet") {
-        return readOnlyTradingContextForSavedAccount(account);
-      }
-      const activeBinding = repository.getActiveBindingForTarget({
-        network: "testnet",
-        masterAccount: account.masterAccount,
-        targetAccount: account.target.address,
-      });
+      const evidence = await accountRestorationEvidence(accountInput);
       return restoredTradingContextForSavedAccount({
-        account,
-        activeBinding,
-        manifest: await vault.readManifest(),
-        nowMs: Date.now(),
+        account: evidence.account,
+        activeBinding: evidence.activeBinding,
+        manifest: evidence.manifest,
+        nowMs: evidence.nowMs,
       });
     },
     createSignerSessionManager({
@@ -354,7 +402,7 @@ async function createRuntime(): Promise<ManualSetupRuntime> {
     },
     registerActionSignerScope(actionRepository, binding, nowMs) {
       const active = repository.getActiveBindingForTarget({
-        network: "testnet",
+        network: binding.network,
         masterAccount: binding.masterAccount,
         targetAccount: binding.targetAccount,
       });

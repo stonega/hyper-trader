@@ -50,16 +50,29 @@ export function ActiveAccountContextRestorer(): JSX.Element | null {
     const capture = tradingContext.capture();
     let cancelled = false;
     void getManualSetupRuntime()
-      .then((runtime) => runtime.restoreTradingContext(account))
-      .then(async (next) => {
+      .then(async (runtime) => {
+        const reconciledAccount = await runtime.reconcileSavedAccount(account);
+        return {
+          reconciledAccount,
+          next: await runtime.restoreTradingContext(reconciledAccount),
+        };
+      })
+      .then(async ({ next, reconciledAccount }) => {
         if (cancelled || !tradingContext.canCommit(capture)) return;
-        await tradingContext.switchContext(next);
+        const committed = await tradingContext.switchContext(next);
+        if (
+          committed &&
+          accountAuthorizationKey(reconciledAccount) !==
+            accountAuthorizationKey(account)
+        ) {
+          await directory.save(reconciledAccount);
+        }
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
-  }, [account, directory.status, tradingContext]);
+  }, [account, directory, tradingContext]);
 
   return null;
 }

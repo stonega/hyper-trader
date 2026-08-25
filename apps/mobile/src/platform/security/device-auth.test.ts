@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { createDeviceAuthenticationPort } from "./device-auth";
+import {
+  createDeviceAuthenticationPort,
+  type DeviceAuthenticationPort,
+  prepareProtectedCredentialCreation,
+} from "./device-auth";
 
 describe("device authentication capability", () => {
   test("requires enrolled strong biometrics", async () => {
@@ -36,5 +40,28 @@ describe("device authentication capability", () => {
     });
 
     await expect(cancelled.authenticate()).rejects.toThrow("did not complete");
+  });
+
+  test("assigns one authentication owner to protected credential creation", async () => {
+    const calls: string[] = [];
+    const authentication: DeviceAuthenticationPort = {
+      assess: async () => ({
+        status: "available",
+        level: "strong_biometric",
+      }),
+      assertAvailable: async () => {
+        calls.push("availability");
+      },
+      authenticate: async () => {
+        calls.push("prompt");
+      },
+    };
+
+    await prepareProtectedCredentialCreation(authentication, "android");
+    expect(calls).toEqual(["availability"]);
+
+    calls.length = 0;
+    await prepareProtectedCredentialCreation(authentication, "ios");
+    expect(calls).toEqual(["prompt"]);
   });
 });

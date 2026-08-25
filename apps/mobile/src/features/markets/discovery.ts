@@ -175,7 +175,7 @@ export function marketDisplayLabel(market: MarketSummary): string {
 
 export function marketPairLabel(market: MarketSummary): string {
   if (market.family === "spot") {
-    return `${market.baseToken.name}-${market.quoteToken.name}`;
+    return `${market.baseToken.name}/${market.quoteToken.name}`;
   }
   if (market.family === "perp") {
     return `${market.displaySymbol}-USDC`;

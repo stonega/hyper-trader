@@ -25,7 +25,7 @@ const defaultOptions = {
 describe("market discovery", () => {
   test("formats concise Trade header labels for each market family", () => {
     expect(marketPairLabel(NATIVE_DUPLICATE)).toBe("DUP-USDC");
-    expect(marketPairLabel(SPOT_DUPLICATE)).toBe("DUP-USDC");
+    expect(marketPairLabel(SPOT_DUPLICATE)).toBe("DUP/USDC");
     expect(marketPairLabel(OUTCOME_MARKET)).toBe("Higher");
   });
 

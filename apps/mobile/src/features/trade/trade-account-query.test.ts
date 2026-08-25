@@ -4,6 +4,10 @@ import type { ActiveAssetData } from "@hyper-trader/hyperliquid";
 import { NATIVE_DUPLICATE, SPOT_DUPLICATE } from "../markets/fixture";
 import { PORTFOLIO_FIXTURE } from "../portfolio/portfolio.fixture";
 import {
+  tradeAccountQueryIsEnabled,
+  tradeAccountSnapshotQueryKey,
+} from "./trade-account-query-policy";
+import {
   tradePerpAccountSnapshot,
   tradeSpotAccountSnapshot,
 } from "./trade-account-snapshot";
@@ -106,5 +110,45 @@ describe("Trade account snapshot adapters", () => {
         observedAtMs: OBSERVED_AT,
       }),
     ).toBeNull();
+  });
+});
+
+describe("Trade account query ownership", () => {
+  test("changes ownership with the active account and starts only while Trade is focused", () => {
+    const firstContext = {
+      network: "mainnet" as const,
+      masterAccount: "0x1111111111111111111111111111111111111111",
+      targetAccount: "0x1111111111111111111111111111111111111111",
+      signer: null,
+    };
+    const secondContext = {
+      ...firstContext,
+      masterAccount: "0x2222222222222222222222222222222222222222",
+      targetAccount: "0x2222222222222222222222222222222222222222",
+    };
+    const firstTarget = {
+      kind: "master" as const,
+      address: firstContext.targetAccount,
+    };
+    const secondTarget = {
+      kind: "master" as const,
+      address: secondContext.targetAccount,
+    };
+
+    expect(
+      tradeAccountSnapshotQueryKey(firstContext, firstTarget, NATIVE_DUPLICATE),
+    ).not.toEqual(
+      tradeAccountSnapshotQueryKey(
+        secondContext,
+        secondTarget,
+        NATIVE_DUPLICATE,
+      ),
+    );
+    expect(
+      tradeAccountQueryIsEnabled(secondTarget, NATIVE_DUPLICATE, false),
+    ).toBe(false);
+    expect(
+      tradeAccountQueryIsEnabled(secondTarget, NATIVE_DUPLICATE, true),
+    ).toBe(true);
   });
 });

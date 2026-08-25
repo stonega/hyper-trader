@@ -1,4 +1,7 @@
-import type { SignerBinding } from "@hyper-trader/hyperliquid";
+import {
+  hasSignerAccessCapability,
+  type SignerBinding,
+} from "@hyper-trader/hyperliquid";
 
 import type { TradingContextIdentity } from "../../core/context/supervisor";
 import {
@@ -22,17 +25,75 @@ function sameBinding(left: SignerBinding, right: SignerBinding): boolean {
   );
 }
 
+export function reconcileSavedAccountAuthorization(input: {
+  readonly account: SavedAccount;
+  readonly activeBinding: ActiveSetupBindingRecord | null;
+  readonly manifest: CustodyManifest | null;
+  readonly nowMs: number;
+}): SavedAccount {
+  const account = normalizeSavedAccount(input.account);
+  const active = input.activeBinding;
+  const legacyMainnetAuthorizationWasStripped =
+    account.network === "mainnet" &&
+    account.authorization.agentAddress === null &&
+    account.authorization.generation === null &&
+    account.authorization.registrationName === null &&
+    account.authorization.registrationState === "inactive" &&
+    account.authorization.requestedExpiryMs === null &&
+    account.authorization.effectiveExpiryMs === null &&
+    account.authorization.lastVerifiedAtMs === null &&
+    account.authorization.credentialState === "absent";
+  if (
+    !legacyMainnetAuthorizationWasStripped ||
+    active === null ||
+    input.manifest === null ||
+    !Number.isSafeInteger(input.nowMs) ||
+    input.nowMs < 0 ||
+    active.effectiveExpiry <= input.nowMs ||
+    active.binding.network !== account.network ||
+    active.binding.masterAccount !== account.masterAccount ||
+    active.binding.targetAccount !== account.target.address
+  ) {
+    return account;
+  }
+  const bindingId = custodyBindingId(active.binding);
+  const custodyRecord = input.manifest.records.find(
+    (record) => record.bindingId === bindingId,
+  );
+  if (
+    custodyRecord === undefined ||
+    custodyRecord.network !== active.binding.network ||
+    custodyRecord.agentAddress !== active.binding.agentAddress ||
+    custodyRecord.generation !== active.binding.generation
+  ) {
+    return account;
+  }
+  return normalizeSavedAccount({
+    ...account,
+    authorization: {
+      agentAddress: active.binding.agentAddress,
+      generation: active.binding.generation,
+      registrationName: active.registrationName,
+      registrationState: "active",
+      requestedExpiryMs: active.requestedExpiry,
+      effectiveExpiryMs: active.effectiveExpiry,
+      lastVerifiedAtMs: active.activatedAt,
+      credentialState: "protected",
+    },
+  });
+}
+
 export function restoredTradingContextForSavedAccount(input: {
   readonly account: SavedAccount;
   readonly activeBinding: ActiveSetupBindingRecord | null;
   readonly manifest: CustodyManifest | null;
   readonly nowMs: number;
 }): TradingContextIdentity {
-  const account = normalizeSavedAccount(input.account);
+  const account = reconcileSavedAccountAuthorization(input);
   const readOnly = readOnlyTradingContextForSavedAccount(account);
   const authorization = account.authorization;
   if (
-    account.network !== "testnet" ||
+    !hasSignerAccessCapability(account.network) ||
     authorization.agentAddress === null ||
     authorization.generation === null ||
     authorization.registrationName === null ||
@@ -50,7 +111,7 @@ export function restoredTradingContextForSavedAccount(input: {
   }
 
   const expected: SignerBinding = {
-    network: "testnet",
+    network: account.network,
     masterAccount: account.masterAccount,
     targetAccount: account.target.address,
     agentAddress: authorization.agentAddress,
@@ -73,7 +134,7 @@ export function restoredTradingContextForSavedAccount(input: {
   );
   if (
     custodyRecord === undefined ||
-    custodyRecord.network !== "testnet" ||
+    custodyRecord.network !== expected.network ||
     custodyRecord.agentAddress !== expected.agentAddress ||
     custodyRecord.generation !== expected.generation
   ) {

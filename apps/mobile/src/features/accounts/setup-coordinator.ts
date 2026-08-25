@@ -1,6 +1,7 @@
 import {
-  assertTestnetSigningCapability,
+  assertSignerAccessCapability,
   buildApproveAgentTypedData,
+  type HyperliquidNetwork,
   type NetworkTypedData,
   normalizeSignerBinding,
   type SignerBinding,
@@ -23,7 +24,7 @@ export interface SecretMaterial {
 
 export interface SetupAttempt {
   readonly id: `0x${string}`;
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly connectorSessionId: string;
   readonly masterAccount: string;
   readonly targetAccount: string;
@@ -38,14 +39,14 @@ export interface SetupAttempt {
 
 export interface SetupRepository {
   nextGeneration(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): number;
   createAttempt(attempt: SetupAttempt): void;
   getPendingAttempt(id: string): SetupAttempt | null;
   getPendingAttemptForTarget(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): SetupAttempt | null;
@@ -76,7 +77,7 @@ export interface NamedAgentRegistration {
 
 export interface AgentRegistrationAuthority {
   inspect(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): Promise<{
@@ -85,7 +86,7 @@ export interface AgentRegistrationAuthority {
     readonly targetKind: "master" | "subaccount" | "vault";
   }>;
   verify(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
     readonly agentAddress: string;
@@ -130,7 +131,7 @@ export type SetupVerificationResult =
 
 export interface ApiWalletSetupCoordinator {
   prepare(input: {
-    readonly network: "mainnet" | "testnet";
+    readonly network: HyperliquidNetwork;
     readonly connectorSessionId: string;
     readonly connectedMasterAccount: string;
     readonly targetAccount: string;
@@ -162,17 +163,17 @@ export function normalizeSetupAddress(value: string): string {
 }
 
 export function normalizeSetupTarget(input: {
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly masterAccount: string;
   readonly targetAccount: string;
 }): {
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly masterAccount: string;
   readonly targetAccount: string;
 } {
-  assertTestnetSigningCapability(input.network);
+  assertSignerAccessCapability(input.network);
   return {
-    network: "testnet",
+    network: input.network,
     masterAccount: normalizeSetupAddress(input.masterAccount),
     targetAccount: normalizeSetupAddress(input.targetAccount),
   };
@@ -311,12 +312,12 @@ export function createApiWalletSetupCoordinator(options: {
 
   return {
     async prepare(input) {
-      assertTestnetSigningCapability(input.network);
+      assertSignerAccessCapability(input.network);
       if (!isConnectorSessionId(input.connectorSessionId)) {
         throw new TypeError("The connector session identifier is malformed.");
       }
       const { network, masterAccount, targetAccount } = normalizeSetupTarget({
-        network: "testnet",
+        network: input.network,
         masterAccount: input.connectedMasterAccount,
         targetAccount: input.targetAccount,
       });

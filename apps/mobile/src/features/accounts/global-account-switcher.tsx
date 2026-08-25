@@ -17,10 +17,7 @@ import {
   accountDisplayLabel,
   accountNetworkLabel,
 } from "./account-presentation";
-import {
-  readOnlyTradingContextForSavedAccount,
-  type SavedAccount,
-} from "./account-scope";
+import type { SavedAccount } from "./account-scope";
 import { ApiWalletAvatar, shortenWalletAddress } from "./api-wallet-avatar";
 import { accountSwitcherDialogLayout } from "./global-account-switcher-layout";
 import { getManualSetupRuntime } from "./manual-setup-runtime";
@@ -95,7 +92,7 @@ export function GlobalAccountSwitcher({
         account.authorization.generation;
     if (
       active?.id === account.id &&
-      (account.network === "mainnet" || signerMatches)
+      (signerMatches || account.authorization.credentialState !== "protected")
     ) {
       setOpen(false);
       return;
@@ -104,10 +101,9 @@ export function GlobalAccountSwitcher({
     setSwitching(true);
     setMessage("Switching the exact account, target, and network…");
     try {
-      const nextContext =
-        account.network === "testnet"
-          ? await (await getManualSetupRuntime()).restoreTradingContext(account)
-          : readOnlyTradingContextForSavedAccount(account);
+      const nextContext = await (
+        await getManualSetupRuntime()
+      ).restoreTradingContext(account);
       const committed = await tradingContext.switchContext(nextContext);
       if (!committed) {
         setMessage("A newer context switch superseded this request.");
@@ -180,7 +176,8 @@ export function GlobalAccountSwitcher({
         >
           {avatarOnly ? (
             <ApiWalletAvatar
-              address={avatarAccount?.authorization.agentAddress ?? null}
+              address={avatarAccount?.target.address ?? null}
+              colorSeed={avatarAccount?.id}
             />
           ) : (
             <Button.Label
@@ -263,7 +260,8 @@ export function GlobalAccountSwitcher({
                     variant={selected ? "secondary" : "outline"}
                   >
                     <ApiWalletAvatar
-                      address={account.authorization.agentAddress}
+                      address={account.target.address}
+                      colorSeed={account.id}
                     />
                     <Button.Label
                       className="min-w-0 flex-1 text-left"

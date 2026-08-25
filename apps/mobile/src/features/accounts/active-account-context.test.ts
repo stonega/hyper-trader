@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 
 import { custodyBindingId } from "../../platform/security/credential-vault";
 import type { SavedAccount } from "./account-scope";
-import { restoredTradingContextForSavedAccount } from "./active-account-context";
+import {
+  reconcileSavedAccountAuthorization,
+  restoredTradingContextForSavedAccount,
+} from "./active-account-context";
 import type { ActiveSetupBindingRecord } from "./setup-repository";
 
 const NOW = 1_725_000_000_000;
@@ -65,6 +68,65 @@ describe("active account context restoration", () => {
       }),
     ).toEqual({
       network: "testnet",
+      masterAccount: MASTER,
+      targetAccount: MASTER,
+      signer: { agentAddress: AGENT, generation: 1 },
+    });
+  });
+
+  test("recovers legacy-stripped mainnet metadata from matching local activation and custody", () => {
+    const mainnetBinding = { ...binding, network: "mainnet" as const };
+    const mainnetActiveBinding = {
+      ...activeBinding,
+      binding: mainnetBinding,
+    };
+    const legacyMainnet: SavedAccount = {
+      ...account,
+      id: "mainnet-account",
+      network: "mainnet",
+      authorization: {
+        agentAddress: null,
+        generation: null,
+        registrationName: null,
+        registrationState: "inactive",
+        requestedExpiryMs: null,
+        effectiveExpiryMs: null,
+        lastVerifiedAtMs: null,
+        credentialState: "absent",
+      },
+    };
+    const mainnetManifest = {
+      ...manifest,
+      records: [
+        {
+          ...manifest.records[0],
+          bindingId: custodyBindingId(mainnetBinding),
+          network: "mainnet" as const,
+        },
+      ],
+    };
+    const recovered = reconcileSavedAccountAuthorization({
+      account: legacyMainnet,
+      activeBinding: mainnetActiveBinding,
+      manifest: mainnetManifest,
+      nowMs: NOW,
+    });
+
+    expect(recovered.authorization).toMatchObject({
+      agentAddress: AGENT,
+      generation: 1,
+      registrationState: "active",
+      credentialState: "protected",
+    });
+    expect(
+      restoredTradingContextForSavedAccount({
+        account: legacyMainnet,
+        activeBinding: mainnetActiveBinding,
+        manifest: mainnetManifest,
+        nowMs: NOW,
+      }),
+    ).toEqual({
+      network: "mainnet",
       masterAccount: MASTER,
       targetAccount: MASTER,
       signer: { agentAddress: AGENT, generation: 1 },

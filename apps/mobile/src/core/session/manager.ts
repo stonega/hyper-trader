@@ -1,12 +1,12 @@
 import {
+  assertSignerAccessCapability,
   assertSignerBinding,
-  assertTestnetSigningCapability,
   type Eip712Payload,
   type Eip712Signature,
   type InjectedTypedDataSigner,
   normalizeSignerBinding,
   type SignerBinding,
-  signTestnetTypedData,
+  signNetworkTypedData,
 } from "@hyper-trader/hyperliquid";
 
 export const SIGNER_SESSION_DURATION_MS = 5 * 60 * 1_000;
@@ -243,7 +243,7 @@ export function createSignerSessionManager(options: {
     lock,
     unlock(input) {
       try {
-        assertTestnetSigningCapability(input.binding.network);
+        assertSignerAccessCapability(input.binding.network);
       } catch (error) {
         return Promise.reject(error);
       }
@@ -327,7 +327,7 @@ export function createSignerSessionManager(options: {
       return promise;
     },
     async signTypedData(input) {
-      assertTestnetSigningCapability(input.expectedBinding.network);
+      assertSignerAccessCapability(input.expectedBinding.network);
       const current = state;
       if (current.status !== "unlocked" || signer === null) {
         throw new Error("The signer session is locked.");
@@ -346,9 +346,12 @@ export function createSignerSessionManager(options: {
         throw new Error("The signer session context changed.");
       }
       const signEpoch = epoch;
-      const signature = await signTestnetTypedData({
+      const signature = await signNetworkTypedData({
         expectedBinding: input.expectedBinding,
-        payload: { network: "testnet", typedData: input.payload },
+        payload: {
+          network: input.expectedBinding.network,
+          typedData: input.payload,
+        },
         signer,
       });
       if (

@@ -3,7 +3,7 @@ import {
   HYPERLIQUID_NETWORK_ORIGINS,
   type HyperliquidNetwork,
 } from "../network";
-import { assertTestnetSigningCapability } from "../signing/boundary";
+import { assertExchangeTransportCapability } from "../signing/boundary";
 import type { Eip712Signature } from "../signing/types";
 import { encodeL1Action } from "./codec";
 import { MAX_BULK_CANCELS, MINIMUM_ORDER_NOTIONAL_MESSAGE } from "./constants";
@@ -310,7 +310,7 @@ export function createExchangeClient(options: {
     async submit(
       request: SignedExchangeRequest,
     ): Promise<ExchangeSubmissionResult> {
-      assertTestnetSigningCapability(options.network);
+      assertExchangeTransportCapability(options.network);
       assertSignedRequest(request);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);

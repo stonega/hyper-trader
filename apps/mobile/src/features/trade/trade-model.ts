@@ -5,6 +5,7 @@ import type {
 } from "@hyper-trader/hyperliquid";
 import {
   HyperliquidValidationError,
+  hasTradingActionCapability,
   MINIMUM_ORDER_NOTIONAL,
   MINIMUM_ORDER_NOTIONAL_MESSAGE,
   parseCloid,
@@ -120,7 +121,7 @@ export type TradeDraftReconciliation =
       readonly draft: TradeDraft;
       readonly preserved: false;
       readonly reason: DraftInvalidationReason;
-      readonly message: string;
+      readonly message: string | null;
     };
 
 export interface TradeOperationToken {
@@ -320,7 +321,7 @@ export function reconcileTradeDraft(
     draft: createTradeDraft(input),
     preserved: false,
     reason: validation.reason,
-    message: validation.message,
+    message: validation.reason === "market_changed" ? null : validation.message,
   };
 }
 
@@ -375,8 +376,11 @@ export function evaluateTradeGate(input: {
   if (!Number.isSafeInteger(input.nowMs) || input.nowMs < 0) {
     return disabled("invalid_time", "Check your device time, then refresh.");
   }
-  if (input.context.network !== "testnet") {
-    return disabled("mainnet", "Switch to testnet to trade.");
+  if (!hasTradingActionCapability(input.context.network)) {
+    return disabled(
+      "mainnet",
+      `${input.context.network === "mainnet" ? "Mainnet" : "Testnet"} trading is disabled in this release.`,
+    );
   }
   if (!hasSupportedOrderMetadata(input.market)) {
     return disabled(
@@ -399,16 +403,27 @@ export function evaluateTradeGate(input: {
   if (connectivity === "stale") {
     return disabled("stale_metadata", "Refresh market data before review.");
   }
+  const networkLabel =
+    input.context.network === "mainnet" ? "Mainnet" : "Testnet";
   if (
     input.context.masterAccount === null ||
-    input.context.targetAccount === null ||
-    input.context.signer === null ||
-    account === null ||
-    signerState === "missing"
+    input.context.targetAccount === null
   ) {
     return disabled(
       "read_only",
-      "Set up a testnet account to review this order.",
+      `Select a ${networkLabel} account to review this order.`,
+    );
+  }
+  if (account === null) {
+    return disabled(
+      "read_only",
+      "Refresh current account data before reviewing this order.",
+    );
+  }
+  if (input.context.signer === null || signerState === "missing") {
+    return disabled(
+      "read_only",
+      `The selected ${networkLabel} API wallet is unavailable on this device. Repair it in Settings.`,
     );
   }
   if (signerState === "expired") {
@@ -441,6 +456,20 @@ export function evaluateTradeGate(input: {
 /** A stale account is recoverable because review performs a REST preflight. */
 export function canStartTradeReview(gate: TradeGate): boolean {
   return gate.enabled || gate.code === "stale_account";
+}
+
+export function shouldShowTradeSetupCard(input: {
+  readonly hasMarket: boolean;
+  readonly accountDirectoryReady: boolean;
+  readonly hasSavedAccountForNetwork: boolean;
+  readonly gate: TradeGate | null;
+}): boolean {
+  return (
+    input.hasMarket &&
+    input.accountDirectoryReady &&
+    !input.hasSavedAccountForNetwork &&
+    input.gate?.code === "read_only"
+  );
 }
 
 function parseUnsignedDecimal(
@@ -517,15 +546,17 @@ export function signerBindingForTradeContext(
   context: NormalizedTradingContext,
 ): SignerBinding {
   if (
-    context.network !== "testnet" ||
+    !hasTradingActionCapability(context.network) ||
     context.masterAccount === null ||
     context.targetAccount === null ||
     context.signer === null
   ) {
-    throw new Error("An exact testnet signer binding is required for review.");
+    throw new Error(
+      "An exact signer binding on an enabled trading network is required for review.",
+    );
   }
   return {
-    network: "testnet",
+    network: context.network,
     masterAccount: context.masterAccount,
     targetAccount: context.targetAccount,
     agentAddress: context.signer.agentAddress,

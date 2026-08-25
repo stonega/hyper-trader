@@ -1,7 +1,7 @@
 import {
   type AccountTarget,
   assertSignerBinding,
-  assertTestnetSigningCapability,
+  assertTradingActionCapability,
   type ClockGateInput,
   createHyperliquidClient,
   type HyperliquidClient,
@@ -26,7 +26,7 @@ import {
 import { aggressiveOrderPrice } from "./aggressive-order-price";
 import type { ActionReviewSnapshot } from "./orchestrator";
 
-export interface TestnetServerClock {
+export interface AuthoritativeServerClock {
   readonly fetch: typeof globalThis.fetch;
   read(): ClockGateInput;
 }
@@ -44,13 +44,13 @@ function safeMilliseconds(value: number, label: string): number {
   return milliseconds;
 }
 
-export function createTestnetServerClock(
+export function createAuthoritativeServerClock(
   options: {
     readonly fetch?: typeof globalThis.fetch;
     readonly wallNow?: () => number;
     readonly monotonicNow?: () => number;
   } = {},
-): TestnetServerClock {
+): AuthoritativeServerClock {
   const fetchRequest = options.fetch ?? globalThis.fetch.bind(globalThis);
   const wallNow = options.wallNow ?? Date.now;
   const monotonicNow =
@@ -102,15 +102,14 @@ export function createTestnetServerClock(
 
 function bindingForContext(context: NormalizedTradingContext): SignerBinding {
   if (
-    context.network !== "testnet" ||
     context.masterAccount === null ||
     context.targetAccount === null ||
     context.signer === null
   ) {
-    throw new Error("The exact testnet signing context is unavailable.");
+    throw new Error("The exact signing context is unavailable.");
   }
   return {
-    network: "testnet",
+    network: context.network,
     masterAccount: context.masterAccount,
     targetAccount: context.targetAccount,
     agentAddress: context.signer.agentAddress,
@@ -301,13 +300,13 @@ function cancelOpenOrderEvidence(input: {
 
 export async function refreshReviewedOrder(input: {
   readonly review: ActionReviewSnapshot;
-  readonly clock: TestnetServerClock;
+  readonly clock: AuthoritativeServerClock;
   readonly readCurrentContext: () => CurrentActionContext;
   readonly client?: HyperliquidClient;
   readonly now?: () => number;
 }): Promise<TradingActionValidationInput> {
   const { review } = input;
-  assertTestnetSigningCapability(review.binding.network);
+  assertTradingActionCapability(review.binding.network);
   if (
     review.validated.intent.type !== "market_order" &&
     review.validated.intent.type !== "limit_order" &&
@@ -320,9 +319,14 @@ export async function refreshReviewedOrder(input: {
   }
   const client =
     input.client ??
-    createHyperliquidClient({ network: "testnet", fetch: input.clock.fetch });
-  if (client.network !== "testnet") {
-    throw new Error("The authoritative refresh client must use testnet.");
+    createHyperliquidClient({
+      network: review.binding.network,
+      fetch: input.clock.fetch,
+    });
+  if (client.network !== review.binding.network) {
+    throw new Error(
+      "The authoritative refresh client must match the review network.",
+    );
   }
   const catalog = await client.getMarketCatalog({
     scope: catalogScopeForReview(review),
@@ -397,3 +401,9 @@ export async function refreshReviewedOrder(input: {
     intent: refreshedOrderIntent(review, marketValidation),
   };
 }
+
+/** @deprecated Use AuthoritativeServerClock. */
+export type TestnetServerClock = AuthoritativeServerClock;
+
+/** @deprecated Use createAuthoritativeServerClock. */
+export const createTestnetServerClock = createAuthoritativeServerClock;

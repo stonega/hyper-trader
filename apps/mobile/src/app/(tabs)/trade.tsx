@@ -6,10 +6,8 @@ import type {
 } from "@hyper-trader/hyperliquid/public";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
-import { Card } from "heroui-native/card";
-import { Chip } from "heroui-native/chip";
 import { useThemeColor } from "heroui-native/hooks";
-import type { JSX, ReactNode } from "react";
+import type { JSX } from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BackHandler,
@@ -37,20 +35,13 @@ import {
 } from "../../core/context/supervisor";
 import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
+import { useAccountDirectory } from "../../features/accounts/account-directory-provider";
 import { GlobalAccountSwitcher } from "../../features/accounts/global-account-switcher";
 import { useActionRuntime } from "../../features/actions/runtime-provider";
 import { CatalogStatus } from "../../features/markets/catalog-status";
-import {
-  marketPairLabel,
-  marketPriceChangePercent,
-  marketVenueLabel,
-} from "../../features/markets/discovery";
-import {
-  formatCompactDecimal,
-  formatMarketPrice,
-  formatPercent,
-} from "../../features/markets/format";
-import { MarketSwitcher } from "../../features/markets/market-switcher";
+import { marketPairLabel } from "../../features/markets/discovery";
+import { MarketCard } from "../../features/markets/market-card";
+import { MarketSummarySwitcher } from "../../features/markets/market-summary-switcher";
 import { useMarketPreferences } from "../../features/markets/preferences-provider";
 import { useMarketCatalogPresentation } from "../../features/markets/query";
 import {
@@ -93,6 +84,7 @@ import {
   evaluateTradeGate,
   reconcileTradeDraft,
   resolveCanonicalMarketSwitch,
+  shouldShowTradeSetupCard,
   type TradeAccountSnapshot,
   type TradeAuthority,
   type TradeDraft,
@@ -103,130 +95,6 @@ import {
   tradeReviewScopeKey,
 } from "../../features/trade/trade-model";
 import { expoCryptographicRandomBytes } from "../../platform/security/agent-signer";
-
-function MarketSummary({
-  market,
-  status,
-}: {
-  readonly market: Market;
-  readonly status?: ReactNode;
-}): JSX.Element {
-  const orderable =
-    market.orderAvailability === "enabled" && market.lifecycle === "active";
-  const venueLabel =
-    market.family === "perp" && (market.dexIndex === 0 || market.dexName === "")
-      ? null
-      : marketVenueLabel(market);
-  const marketPrice = market.midPx ?? market.markPx;
-  const priceChangePercent = marketPriceChangePercent(market);
-  return (
-    <Card variant="default" className="gap-3">
-      <Card.Header className="flex-row items-start justify-between gap-3">
-        <View className="min-w-0 flex-1 gap-1">
-          <Card.Title className="text-xl">
-            {marketPairLabel(market)}
-            {market.family === "perp" ? ` x${market.maxLeverage}` : ""}
-          </Card.Title>
-          {status}
-          {venueLabel === null ? null : (
-            <Card.Description>{venueLabel}</Card.Description>
-          )}
-        </View>
-        <View className="items-end gap-1">
-          <Text
-            adjustsFontSizeToFit
-            className="font-mono text-2xl font-semibold text-foreground"
-            numberOfLines={1}
-          >
-            {marketPrice === null || marketPrice === undefined
-              ? "-"
-              : formatMarketPrice(market)}
-          </Text>
-          <Text className="text-sm tabular-nums text-muted">
-            {priceChangePercent === null
-              ? "-"
-              : formatPercent(priceChangePercent)}{" "}
-            · 24h
-          </Text>
-        </View>
-      </Card.Header>
-      <Card.Body className="flex-row flex-wrap items-end gap-x-4 gap-y-2">
-        <View className="min-w-28 flex-1">
-          <Stat
-            label="24h volume"
-            value={
-              market.dayNtlVlm === undefined
-                ? "-"
-                : formatCompactDecimal(market.dayNtlVlm)
-            }
-          />
-        </View>
-        {market.family === "perp" ? (
-          <>
-            <View className="min-w-24 flex-1">
-              <Stat
-                label="Funding"
-                value={
-                  market.funding === undefined
-                    ? "-"
-                    : formatCompactDecimal(market.funding)
-                }
-              />
-            </View>
-            <View className="min-w-28 flex-1">
-              <Stat
-                label="Open interest"
-                value={
-                  market.openInterest === undefined
-                    ? "-"
-                    : formatCompactDecimal(market.openInterest)
-                }
-              />
-            </View>
-          </>
-        ) : market.family === "spot" ? (
-          <View className="min-w-28 flex-1">
-            <Stat
-              label="Pair"
-              value={`${market.baseToken.name}/${market.quoteToken.name}`}
-            />
-          </View>
-        ) : (
-          <View className="min-w-28 flex-1">
-            <Stat label="Outcome" value={market.sideName} />
-          </View>
-        )}
-        {orderable ? null : (
-          <Chip
-            accessibilityLabel="Browse-only market"
-            color="warning"
-            size="sm"
-            variant="soft"
-          >
-            Browse only
-          </Chip>
-        )}
-      </Card.Body>
-    </Card>
-  );
-}
-
-function Stat({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: string;
-}): JSX.Element {
-  return (
-    <View className="gap-1">
-      <Text className="text-xs uppercase tracking-wide text-muted">
-        {label}
-      </Text>
-      <Text className="font-mono text-base text-foreground">{value}</Text>
-    </View>
-  );
-}
 
 const LiveTradeChart = memo(function LiveTradeChart({
   context,
@@ -316,6 +184,7 @@ export default function TradeScreen(): JSX.Element {
   const tradingContext = useTradingContext();
   const { current } = tradingContext;
   const signerSession = useSignerSession();
+  const directory = useAccountDirectory();
   const drafts = useDraftRegistry();
   const actionRuntime = useActionRuntime();
   const scopedPreferences = useScopedTradingPreferences();
@@ -391,6 +260,9 @@ export default function TradeScreen(): JSX.Element {
     [catalogMarket, marketData.context.data],
   );
   const accountTarget = resolvePortfolioTarget(current).target;
+  const hasSavedAccountForNetwork = directory.accounts.some(
+    (account) => account.network === current.network,
+  );
   const accountQuery = useTradeAccountSnapshot(current, accountTarget, market);
   const signerState: TradeSignerState =
     current.signer === null
@@ -595,14 +467,9 @@ export default function TradeScreen(): JSX.Element {
     presentation.hasPartialSources;
 
   const switchMarket = (canonicalId: string) => {
-    const next = resolveCanonicalMarketSwitch(
-      catalog?.markets ?? [],
-      canonicalId,
-    );
-    if (next === null) return;
     operationFence.current.invalidate();
-    if (next.lifecycle === "active") preferences.selectMarket(next.canonicalId);
-    router.setParams({ market: next.canonicalId });
+    preferences.selectMarket(canonicalId);
+    router.setParams({ market: canonicalId });
   };
 
   const selectOrderBookPrice = useCallback((limitPrice: string) => {
@@ -911,8 +778,9 @@ export default function TradeScreen(): JSX.Element {
         ) : null}
 
         {market && catalogMarket ? (
-          <MarketSummary
+          <MarketCard
             market={market}
+            showOrderAvailability
             status={
               showCatalogStatus ? (
                 <CatalogStatus
@@ -1000,13 +868,17 @@ export default function TradeScreen(): JSX.Element {
           )}
         </View>
 
-        {market &&
-        (gate?.code === "read_only" || gate?.code === "expired_agent") ? (
-          <SetupResumeCard />
+        {shouldShowTradeSetupCard({
+          hasMarket: market !== null,
+          accountDirectoryReady: directory.status === "ready",
+          hasSavedAccountForNetwork,
+          gate,
+        }) ? (
+          <SetupResumeCard network={current.network} />
         ) : null}
       </ScrollView>
-      <MarketSwitcher
-        markets={catalog?.markets ?? []}
+      <MarketSummarySwitcher
+        network={current.network}
         onClose={() => setSwitcherOpen(false)}
         onSelect={switchMarket}
         selectedCanonicalId={market?.canonicalId ?? null}

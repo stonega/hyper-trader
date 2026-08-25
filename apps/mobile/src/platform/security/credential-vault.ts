@@ -1,6 +1,8 @@
 import {
+  assertKnownActionNetwork,
+  assertSignerAccessCapability,
   assertSignerBinding,
-  assertTestnetSigningCapability,
+  type HyperliquidNetwork,
   normalizeSignerBinding,
   type SignerBinding,
 } from "@hyper-trader/hyperliquid";
@@ -20,7 +22,7 @@ const MANIFEST_KEY = "hypertrader.custody-manifest.v1";
 
 export interface CustodyManifestRecord {
   readonly bindingId: `0x${string}`;
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly agentAddress: string;
   readonly generation: number;
   readonly recordVersion: 1;
@@ -131,7 +133,7 @@ function validateManifest(value: unknown): CustodyManifest {
     if (
       typeof entry !== "object" ||
       entry === null ||
-      entry.network !== "testnet" ||
+      (entry.network !== "testnet" && entry.network !== "mainnet") ||
       entry.recordVersion !== 1 ||
       !LOWERCASE_HASH_PATTERN.test(entry.bindingId) ||
       !LOWERCASE_ADDRESS_PATTERN.test(entry.agentAddress) ||
@@ -189,7 +191,7 @@ export function createCredentialVault(options: {
   return {
     async stage(input) {
       const binding = normalizeSignerBinding(input.binding);
-      assertTestnetSigningCapability(binding.network);
+      assertSignerAccessCapability(binding.network);
       const key = credentialKey(binding);
       if (
         !AGENT_REGISTRATION_NAME_PATTERN.test(input.registrationName) ||
@@ -216,7 +218,7 @@ export function createCredentialVault(options: {
       }
       const entry: CustodyManifestRecord = {
         bindingId: custodyBindingId(binding),
-        network: "testnet",
+        network: binding.network,
         agentAddress: binding.agentAddress,
         generation: binding.generation,
         recordVersion: 1,
@@ -249,7 +251,7 @@ export function createCredentialVault(options: {
       }
     },
     async read(bindingInput) {
-      assertTestnetSigningCapability(bindingInput.network);
+      assertSignerAccessCapability(bindingInput.network);
       const binding = normalizeSignerBinding(bindingInput);
       let serialized: string | null;
       try {
@@ -295,7 +297,7 @@ export function createCredentialVault(options: {
       }
     },
     async delete(bindingInput) {
-      assertTestnetSigningCapability(bindingInput.network);
+      assertKnownActionNetwork(bindingInput.network);
       const binding = normalizeSignerBinding(bindingInput);
       await store.deleteItem(credentialKey(binding), protectedOptions(store));
       const existing = await readManifest(store);

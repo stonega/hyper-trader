@@ -9,13 +9,13 @@ account owner. Native perpetual and builder-deployed perpetual rows preserve
 their source DEX and canonical market identity. Spot order and balance identity
 is not merged into a same-symbol perpetual.
 
-The root action runtime remains intentionally unavailable while the security
-review is conditional. Portfolio therefore renders current or safely cached
-private state when an exact account adapter is available, but it never invents
-signer or submission authority. Cancel and close controls fail closed
-at confirmation while the injected root runtime is unavailable; immutable
-review remains available. No screen-local signer, nonce, journal, exchange
-client, or reconciliation state machine exists.
+The root action runtime is available in the current `candidate` functional-test
+stage. Portfolio renders current or safely cached private state when an exact
+account adapter is available, and exposes cancel and full reduce-only close only
+when the injected exact signer/runtime authority is current. It never invents
+authority, and no screen-local signer, nonce, journal, exchange client, or
+reconciliation state machine exists. Mainnet confirmation explicitly identifies
+real-funds use before submission.
 
 ## Account ownership and data lifecycle
 
@@ -70,6 +70,13 @@ catalog failure is also visible and retryable. Cached data remains on screen
 during a same-owner refresh, offline, stale, or error state. Review stays
 available through a background refresh only while that displayed snapshot is
 still current; stale and offline evidence remains browse-only.
+
+Mainnet `spotClearinghouseState` can retain retired or outcome rows whose token
+identity is omitted after every economic amount becomes exactly zero. The
+backend omits only a missing-token row whose `total`, `hold`, and `entryNtl` are
+all exact decimal zero. A missing token on any nonzero row remains malformed and
+fails validation, so the adapter never invents an asset identity or hides a
+balance.
 Background-sync, stale, and offline status uses the same compact dot-and-label
 treatment as Trade and is anchored in the Total account value card's top-right
 corner without affecting card height. The row remains visible as `Up to date`,
@@ -145,8 +152,9 @@ and direction. Exchange side codes are presentation details only; `B` and `A`
 render as `Buy` and `Sell`. Numeric fields use explicit labels such as position
 size, limit price, fee, payment, funding rate, and closed PnL instead of being
 combined into an encoded summary line. Spot and HIP-3 pair labels resolve from
-the validated market catalog, preserving their canonical market identity. Spot
-balances omit assets whose exact total amount is zero, including decimal-padded
+the validated market catalog, preserving their canonical market identity; spot
+pairs use slash notation, such as `SWAP/USDC`, while perpetuals remain hyphenated.
+Spot balances omit assets whose exact total amount is zero, including decimal-padded
 zero values.
 
 ## Quick actions and review ownership
@@ -192,7 +200,7 @@ The resolved snapshot row—not a caller-provided clone—supplies account and
 market values. Close intent construction repeats the native-market authority
 check at its final boundary.
 
-Review captures the exact testnet context epoch, signer binding, market safety
+Review captures the exact selected-network context epoch, signer binding, market safety
 fingerprint and reference price, account version, position or order identity,
 and current values. Cryptographic `cloid` generation for closes uses the same
 16-byte Expo Crypto boundary as Trade. Only one Portfolio cancel or close
@@ -209,7 +217,7 @@ create an alternative trigger path.
 
 ## Action gates, phase, and Back behavior
 
-Actions require testnet, an exact target and API-wallet binding, current market
+Actions require a capability-enabled network, an exact target and API-wallet binding, current market
 metadata, current account evidence, and a valid credential state. A background
 refresh does not revoke review access to an otherwise current snapshot; it is
 shown as a quiet syncing state, and confirmation still owns the authoritative
@@ -217,8 +225,10 @@ account refresh and immutable-review comparison. Locked sessions may start
 Cancel or Close confirmation because the progressive path owns the exact
 device-unlock and refresh sequence. When the root confirmation runtime is
 unavailable, both actions stop safely before authentication or submission.
-Mainnet, stale, offline,
-invalidated, and unmatched states remain explicitly browse-only.
+Stale, offline, invalidated, and unmatched states remain explicitly
+browse-only. Mainnet uses the same exact-account and current-evidence gates and
+is actionable only while the compile-owned private-candidate capability permits
+it.
 
 Portfolio stays one mounted vertical `ScrollView`; range and filter controls are
 horizontal text chip rows, and each filter's rows use the bounded incremental
@@ -234,6 +244,10 @@ durable reason.
 The shared account avatar sits at the top-right of the Portfolio heading, matching
 Markets and Trade; pressing it opens the same account-selection dialog. The
 former full-width account card is not duplicated in the content flow.
+If the selected network has no saved account, the network-aware setup card is
+shown after the stable Portfolio regions. If a saved account exists but is not
+currently selectable, Portfolio shows the account-selection recovery action
+instead of incorrectly asking the user to create another API wallet.
 
 ## Funding boundary
 

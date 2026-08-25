@@ -307,27 +307,41 @@ export function parseSpotClearinghouseState(
   path = "spotClearinghouseState",
 ): SpotClearinghouseState {
   const source = object(payload, path);
-  return {
-    balances: list(source.balances, `${path}.balances`).map((value, index) => {
-      const balance = object(value, `${path}.balances[${index}]`);
-      return {
-        coin: text(balance.coin, `${path}.balances[${index}].coin`),
-        token: integer(balance.token, `${path}.balances[${index}].token`),
-        hold: parseDecimalString(
-          balance.hold,
-          `${path}.balances[${index}].hold`,
-        ),
-        total: parseDecimalString(
-          balance.total,
-          `${path}.balances[${index}].total`,
-        ),
-        entryNtl: parseDecimalString(
-          balance.entryNtl,
-          `${path}.balances[${index}].entryNtl`,
-        ),
-      };
-    }),
-  };
+  const balances: SpotClearinghouseState["balances"][number][] = [];
+  for (const [index, value] of list(
+    source.balances,
+    `${path}.balances`,
+  ).entries()) {
+    const balancePath = `${path}.balances[${index}]`;
+    const balance = object(value, balancePath);
+    const coin = text(balance.coin, `${balancePath}.coin`);
+    const hold = parseDecimalString(balance.hold, `${balancePath}.hold`);
+    const total = parseDecimalString(balance.total, `${balancePath}.total`);
+    const entryNtl = parseDecimalString(
+      balance.entryNtl,
+      `${balancePath}.entryNtl`,
+    );
+    if (
+      (balance.token === null || balance.token === undefined) &&
+      isZeroDecimal(hold) &&
+      isZeroDecimal(total) &&
+      isZeroDecimal(entryNtl)
+    ) {
+      continue;
+    }
+    balances.push({
+      coin,
+      token: integer(balance.token, `${balancePath}.token`),
+      hold,
+      total,
+      entryNtl,
+    });
+  }
+  return { balances };
+}
+
+function isZeroDecimal(value: DecimalString): boolean {
+  return /^-?0(?:\.0+)?$/.test(value);
 }
 
 function parseOpenOrder(value: unknown, path: string): OpenOrder {

@@ -25,7 +25,7 @@ describe("portfolio row presentation", () => {
       portfolioMarketLabel(HIP3_DUPLICATE.coin, MARKET_FIXTURE, HIP3_DUPLICATE),
     ).toBe("DUP-USDC");
     expect(portfolioMarketLabel(SPOT_DUPLICATE.coin, MARKET_FIXTURE)).toBe(
-      "DUP-USDC",
+      "DUP/USDC",
     );
     expect(portfolioMarketLabel("BTC", [])).toBe("BTC-USDC");
   });

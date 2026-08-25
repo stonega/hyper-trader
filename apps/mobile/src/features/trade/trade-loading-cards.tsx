@@ -13,6 +13,7 @@ import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { UnderlineTabs } from "../../components/ui/underline-tabs";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
+  TRADE_CHART_FRAME_HEIGHT,
   TRADE_CHART_INTERVALS,
   type TradeChartInterval,
   tradeChartSpec,
@@ -23,17 +24,6 @@ const ORDER_TYPE_TABS = [
   { label: "Limit", value: "limit" },
 ] as const;
 const SIZE_PRESETS = [25, 50, 75, 100] as const;
-
-function EmptyStat({ label }: { readonly label: string }): JSX.Element {
-  return (
-    <View className="gap-1">
-      <Text className="text-xs uppercase tracking-wide text-muted">
-        {label}
-      </Text>
-      <Text className="font-mono text-base text-foreground">-</Text>
-    </View>
-  );
-}
 
 export function TradeMarketSummaryPlaceholder({
   unavailable = false,
@@ -48,27 +38,35 @@ export function TradeMarketSummaryPlaceholder({
       className="gap-3"
       variant="default"
     >
-      <Card.Header className="flex-row items-start justify-between gap-3">
-        <View className="min-w-0 flex-1 gap-1">
-          <Card.Title className="text-xl">-</Card.Title>
-          <Card.Description>-</Card.Description>
+      <Card.Header className="flex-row items-center justify-between gap-3">
+        <View className="min-w-0 flex-1 flex-row items-center gap-3">
+          <View
+            accessibilityElementsHidden
+            className="h-9 w-9 rounded-full bg-accent/10"
+            importantForAccessibility="no-hide-descendants"
+          />
+          <View className="min-w-0 flex-1 gap-1">
+            <Card.Title>-</Card.Title>
+            <Card.Description>-</Card.Description>
+          </View>
         </View>
-        <View className="items-end gap-1">
-          <Text className="font-mono text-2xl font-semibold text-foreground">
+        <View
+          accessibilityElementsHidden
+          className="h-7 min-w-10 rounded-full bg-accent/10"
+          importantForAccessibility="no-hide-descendants"
+        />
+      </Card.Header>
+      <Card.Body className="gap-3">
+        <View className="flex-row flex-wrap items-baseline gap-x-3 gap-y-1">
+          <Text className="text-2xl font-semibold tabular-nums text-foreground">
             -
           </Text>
-          <Text className="text-sm tabular-nums text-muted">- · 24h</Text>
+          <Text className="text-sm tabular-nums text-muted">24h -</Text>
         </View>
-      </Card.Header>
-      <Card.Body className="flex-row flex-wrap items-end gap-x-4 gap-y-2">
-        <View className="min-w-28 flex-1">
-          <EmptyStat label="24h volume" />
-        </View>
-        <View className="min-w-24 flex-1">
-          <EmptyStat label="Funding" />
-        </View>
-        <View className="min-w-28 flex-1">
-          <EmptyStat label="Open interest" />
+        <View className="flex-row flex-wrap gap-x-5 gap-y-2">
+          <Text className="text-sm text-muted">Volume -</Text>
+          <Text className="text-sm text-muted">Funding -</Text>
+          <Text className="text-sm text-muted">Open interest -</Text>
         </View>
       </Card.Body>
     </Card>
@@ -139,9 +137,31 @@ export function TradeChartPlaceholder({
         </View>
         <View
           accessibilityElementsHidden
-          className="min-h-52"
+          className="w-full rounded-lg"
           importantForAccessibility="no-hide-descendants"
+          style={{ height: TRADE_CHART_FRAME_HEIGHT.compact }}
+          testID="trade-chart-placeholder-frame"
         />
+        <View
+          accessibilityElementsHidden
+          className="flex-row flex-wrap gap-x-3 gap-y-1"
+          importantForAccessibility="no-hide-descendants"
+        >
+          {(["O", "H", "L", "C"] as const).map((label) => (
+            <Text className="text-xs tabular-nums text-muted" key={label}>
+              {label} <Text className="text-foreground">-</Text>
+            </Text>
+          ))}
+        </View>
+        <View
+          accessibilityElementsHidden
+          className="flex-row flex-wrap gap-x-3 gap-y-1"
+          importantForAccessibility="no-hide-descendants"
+        >
+          <Text className="text-xs tabular-nums text-muted">
+            Mid <Text className="text-foreground">-</Text>
+          </Text>
+        </View>
       </Card.Body>
     </Card>
   );

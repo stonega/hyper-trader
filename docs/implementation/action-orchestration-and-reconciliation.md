@@ -2,19 +2,31 @@
 
 ## Runtime status
 
-The action orchestration layer provides one deterministic pipeline for Trade and Portfolio. It
-supports reviewed testnet market and limit orders, cancellation, full
-reduce-only close, and leverage changes through the nonce journal and signer
-session boundaries.
+The action orchestration layer provides one deterministic pipeline for Trade and
+Portfolio. It supports reviewed market and limit orders, cancellation, full
+reduce-only close, and leverage changes through network-scoped nonce, journal,
+signer-session, and transport boundaries.
 
-The root action runtime is intentionally created without a production
-orchestrator while `security-review.md` remains conditional. Distributed and
-release builds do not instantiate live `/exchange` transport or real signer
-access. Immutable review remains available because it performs neither
-operation; the confirmation control is omitted and the review says submission
-is unavailable. The source-development testnet exception is documented below;
-enabling confirmation in a release build requires unconditional evidence for
-the same security revision.
+The root uses the network-generic signer and action providers in every build,
+but they instantiate protected signer access and `/exchange` transport only when
+the compile-owned release-runtime gate and the exact network capability are both
+true. Both values derive from the single compile-owned mainnet release stage;
+the current functional-testing worktree is `candidate`, so mainnet signer
+access, nonce reservation, confirmation, signing, and fixed-origin exchange
+transport are available for every action family implemented by this pipeline.
+Mainnet actions use real funds. This source state is not a public-release
+approval: immutable artifacts, external evidence, the bounded canary, and the
+final release preflight are still required.
+
+The one-line private-candidate transition and exact artifact/evidence preflights
+are documented in
+[`mainnet-release-preflight.md`](mainnet-release-preflight.md).
+
+The secret-free journal repository and restart reconciler initialize regardless
+of those gates. Disabling release signing or a network capability therefore
+stops new review, reservation, key access, and transport without abandoning
+same-network recovery for an already-started journal record.
+
 The progressive Trade drafting and review handoff is documented in
 [`trade-screen.md`](trade-screen.md).
 
@@ -26,8 +38,9 @@ and **Cancel** as its explicit confirmations. The pressed control first shows
 `Reviewing…` without opening a sheet. That explicit confirmation starts this
 sequence:
 
-1. Deny mainnet locally.
-2. Verify context, then refresh authoritative market, account, order, and clock
+1. Verify the selected network's compile-owned signer and transport capabilities.
+2. Verify context, then refresh authoritative same-network market, account,
+   order, and clock
    evidence while the originating screen keeps progress on the pressed button.
 3. Revalidate decimals, discriminators, precision, notional, leverage, margin,
    reduce-only, time-in-force, trigger, slippage, tradability, market metadata,
@@ -37,8 +50,8 @@ sequence:
    the nonce and secret-free journal record.
 6. Build the codec-owned action and sign exact typed data in memory.
 7. Persist `submission_started` and obtain the one-shot permit.
-8. POST once to the compiled testnet `/exchange` origin with redirects rejected
-   and no retry loop.
+8. POST once to the selected network's compiled `/exchange` origin with
+   redirects rejected and no retry loop.
 9. Persist accepted, rejected, expired, or unresolved. The exact documented
    minimum-notional rejection is mapped to the bounded user message
    `Order must have minimum value of $10.`; arbitrary provider error text is
@@ -79,7 +92,7 @@ explicit Portfolio review mounts it before authentication; progressive Trade
 and Close confirmations keep it hidden through review and authentication, then
 reveal it for one-shot submission and reconciliation. Its compact ticket layout
 sizes the sheet to its content and retains scroll behavior when the content
-reaches the available height. Explicit review retains its testnet label, title,
+reaches the available height. Explicit review retains its selected-network label, title,
 and confirmation copy. After confirmation, the sheet removes the
 redundant Review/Submit/Status rail and uses one compact HeroUI Native spinner
 and status label while work is pending. The immutable ticket uses the readable
@@ -131,17 +144,18 @@ documented open-order and fill shapes omit `cloid`, so they remain supplementary
 and are never matched heuristically. Journal work may continue after context
 switch, but active cache writes occur only for the exact active context.
 
-## Source-development testnet runtime
+## Network-generic runtime and source-development testnet policy
 
-`DevelopmentSignerSessionProvider` and `DevelopmentActionRuntimeProvider`
-compose the existing custody and action ports only when `__DEV__` is true. The
+`TradingSignerSessionProvider` and `TradingActionRuntimeProvider` compose the
+existing custody and action ports when source development is active or the
+compile-owned release-runtime gate is true. The latter is currently false. The
 runtime uses the same SecureStore vault created by API-wallet setup, tracks
 native active/focus state, registers the exact authoritative setup binding in
-the SQLite nonce scope, and supplies the signer-session manager to the existing
-five-minute lifecycle controller.
+the network-scoped SQLite nonce scope, and supplies the signer-session manager
+to the existing five-minute lifecycle controller.
 
-Confirmation performs a fresh fixed-origin testnet family-scoped catalog lookup
-and account query before signer-session unlock. Perpetual reviews load only the
+Confirmation performs a fresh fixed-origin, selected-network family-scoped
+catalog lookup and account query before signer-session unlock. Perpetual reviews load only the
 native perpetual catalog and spot reviews load only spot metadata, avoiding the
 unrelated outcome-market payload. Response `Date` headers provide the bounded
 server-time sample required by nonce allocation. The refreshed market
@@ -168,15 +182,17 @@ Pre-submission presentation maps only allowlisted recovery
 classes—authentication interrupted, credential invalidated, or context
 changed—and never exposes native error text.
 
-The development provider's native-activity listener cleanup interrupts pending
+The signer provider's native-activity listener cleanup interrupts pending
 waiters but does not permanently dispose its ref-backed gate. Effect
 re-subscription, including Fast Refresh, resynchronizes the gate from current
 native activity before a later confirmation can attempt SecureStore access.
 
-Distributed and release builds receive neither manager nor orchestrator, so
-submission remains unavailable while the release gate is conditional. The
-development runtime currently exposes market orders, limit orders, full
-reduce-only closes, and exact `oid` cancellation. Cancellation refreshes the
+Distributed and release builds receive neither manager nor orchestrator while
+the compile-owned release-runtime gate is false, so submission remains
+unavailable while the release gate is conditional; secret-free restart recovery
+still runs. The action runtime exposes
+market orders, limit orders, full reduce-only closes, and exact `oid`
+cancellation on a capability-enabled network. Cancellation refreshes the
 reviewed market and its DEX-scoped open orders, then proceeds only when exactly
 one current order matches the reviewed canonical asset and `oid`. An order that
 filled or disappeared during confirmation stops before authentication with
@@ -210,7 +226,8 @@ action bytes, or complete bodies.
 ## Verification boundary
 
 Default tests use fake fetch, signer, refresh, journal, and evidence adapters.
-They cover mainnet denial, one fixed-origin write, malformed signed requests,
+They cover mainnet pre-activation denial, network mismatch, one fixed-origin
+write, malformed signed requests,
 mutable input, stale market/account context, durable-marker ambiguity, observer
 failure, concurrent terminal updates, fill-before-response, cancellation, full
 close, leverage, expiry, malformed evidence, lease takeover, and cross-context

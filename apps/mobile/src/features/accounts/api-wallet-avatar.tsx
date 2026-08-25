@@ -2,15 +2,23 @@ import { LinearGradient } from "expo-linear-gradient";
 import type { JSX } from "react";
 import { StyleSheet, View } from "react-native";
 
-const WALLET_GRADIENTS = [
-  ["#0EA5A8", "#3B82F6"],
-  ["#246BFD", "#8B5CF6"],
-  ["#6C5CE7", "#EC6FA9"],
-  ["#D95D83", "#7A6FF0"],
-  ["#F9735B", "#F4C95D"],
-  ["#E67E22", "#E84393"],
-  ["#16A085", "#5B8DEF"],
-  ["#00A8A8", "#8AC926"],
+const WALLET_COLORS = [
+  "#0EA5A8",
+  "#3B82F6",
+  "#246BFD",
+  "#8B5CF6",
+  "#6C5CE7",
+  "#EC6FA9",
+  "#D95D83",
+  "#7A6FF0",
+  "#F9735B",
+  "#F4C95D",
+  "#E67E22",
+  "#E84393",
+  "#16A085",
+  "#5B8DEF",
+  "#00A8A8",
+  "#8AC926",
 ] as const;
 
 const GRADIENT_DIRECTIONS = [
@@ -26,31 +34,47 @@ export function shortenWalletAddress(address: string): string {
 
 export const shortenApiWalletAddress = shortenWalletAddress;
 
-function hashWalletAddress(address: string): number {
+type WalletColor = (typeof WALLET_COLORS)[number];
+
+interface WalletGradient {
+  readonly colors: readonly [WalletColor, WalletColor];
+  readonly end: (typeof GRADIENT_DIRECTIONS)[number]["end"];
+  readonly start: (typeof GRADIENT_DIRECTIONS)[number]["start"];
+}
+
+function hashColorSeed(seed: string): number {
   let hash = 2_166_136_261;
-  for (const character of address.toLowerCase()) {
+  for (const character of seed.toLowerCase()) {
     hash ^= character.charCodeAt(0);
     hash = Math.imul(hash, 16_777_619);
   }
   return hash >>> 0;
 }
 
-export function walletGradientForAddress(address: string): {
-  readonly colors: (typeof WALLET_GRADIENTS)[number];
-  readonly end: (typeof GRADIENT_DIRECTIONS)[number]["end"];
-  readonly start: (typeof GRADIENT_DIRECTIONS)[number]["start"];
-} {
-  const hash = hashWalletAddress(address);
-  const colors = WALLET_GRADIENTS[hash % WALLET_GRADIENTS.length];
+export function walletGradientForSeed(seed: string): WalletGradient {
+  const hash = hashColorSeed(seed);
+  const firstIndex = hash % WALLET_COLORS.length;
+  const colorOffset = 3 + ((hash >>> 12) % (WALLET_COLORS.length - 4));
+  const secondIndex = (firstIndex + colorOffset) % WALLET_COLORS.length;
+  const colors = [
+    WALLET_COLORS[firstIndex],
+    WALLET_COLORS[secondIndex],
+  ] as const;
   const direction =
     GRADIENT_DIRECTIONS[(hash >>> 8) % GRADIENT_DIRECTIONS.length];
   return { colors, end: direction.end, start: direction.start };
 }
 
+export function walletGradientForAddress(address: string): WalletGradient {
+  return walletGradientForSeed(address);
+}
+
 export function ApiWalletAvatar({
   address,
+  colorSeed,
 }: {
   readonly address: string | null;
+  readonly colorSeed?: string;
 }): JSX.Element {
   if (address === null) {
     return (
@@ -66,7 +90,7 @@ export function ApiWalletAvatar({
     );
   }
 
-  const gradient = walletGradientForAddress(address);
+  const gradient = walletGradientForSeed(colorSeed ?? address);
   return (
     <View
       accessibilityElementsHidden

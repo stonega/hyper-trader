@@ -3,10 +3,11 @@ import {
   type AccountTarget,
   decideReconciliation,
   type HyperliquidClient,
+  type HyperliquidNetwork,
   type PreparedActionRecord,
 } from "@hyper-trader/hyperliquid";
 
-import type { TestnetServerClock } from "./authoritative-order-refresh";
+import type { AuthoritativeServerClock } from "./authoritative-order-refresh";
 import { createHyperliquidReconciliationEvidenceSource } from "./authoritative-reconciliation";
 
 const CLOID = "0x00000000000000000000000000000001";
@@ -48,7 +49,7 @@ function record(
   };
 }
 
-function clock(): TestnetServerClock {
+function clock(): AuthoritativeServerClock {
   return {
     fetch: globalThis.fetch,
     read: () => ({
@@ -62,6 +63,7 @@ function clock(): TestnetServerClock {
 }
 
 function client(input: {
+  readonly network?: HyperliquidNetwork;
   readonly response: Readonly<Record<string, unknown>>;
   readonly observed: {
     target: AccountTarget | null;
@@ -69,7 +71,7 @@ function client(input: {
   };
 }): HyperliquidClient {
   return {
-    network: "testnet",
+    network: input.network ?? "testnet",
     accounts: {
       async getOrderStatus(target: AccountTarget, oid: number | string) {
         input.observed.target = target;
@@ -242,5 +244,32 @@ describe("Hyperliquid reconciliation evidence", () => {
       kind: "terminal",
       state: "reconciled_ambiguous",
     });
+  });
+
+  test("loads mainnet evidence only through a network-matched client", async () => {
+    const observed = { target: null, oid: null } as {
+      target: AccountTarget | null;
+      oid: number | string | null;
+    };
+    const candidate = record({ network: "mainnet" });
+    const source = createHyperliquidReconciliationEvidenceSource({
+      clock: clock(),
+      client: client({
+        network: "mainnet",
+        observed,
+        response: { status: "unknownOid" },
+      }),
+    });
+
+    await expect(source.load(candidate)).resolves.toMatchObject({
+      context: { network: "mainnet" },
+      order: { kind: "unknown" },
+    });
+    await expect(
+      createHyperliquidReconciliationEvidenceSource({
+        clock: clock(),
+        client: client({ observed, response: { status: "unknownOid" } }),
+      }).load(candidate),
+    ).rejects.toThrow("match the journal network");
   });
 });

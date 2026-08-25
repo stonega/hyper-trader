@@ -122,8 +122,7 @@ describe("account identity scopes", () => {
     expect(accountAuthorizationKey(testnet)).not.toBe(
       accountAuthorizationKey(mainnet),
     );
-    expect(mainnet.authorization.registrationState).toBe("inactive");
-    expect(mainnet.authorization.credentialState).toBe("absent");
+    expect(mainnet.authorization).toEqual(testnet.authorization);
   });
 
   test("saved authorization summaries are display-only and always navigate read-only", () => {
@@ -175,7 +174,7 @@ describe("account identity scopes", () => {
       ),
     ).toBe("API wallet needs repair");
     expect(authorizationDisplayLabel(account({ network: "mainnet" }))).toBe(
-      "Read only",
+      "API wallet active",
     );
   });
 

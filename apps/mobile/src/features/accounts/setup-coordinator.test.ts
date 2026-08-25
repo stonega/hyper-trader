@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SignerBinding } from "@hyper-trader/hyperliquid";
+import {
+  MAINNET_TRADING_RELEASE_STAGE,
+  type SignerBinding,
+} from "@hyper-trader/hyperliquid";
 
 import {
   AGENT_AUTHORIZATION_DURATION_MS,
@@ -201,19 +204,32 @@ describe("API-wallet setup coordinator", () => {
     expect(harness.secretDisposed).toBe(1);
   });
 
-  test("denies mainnet before authority, randomness, or vault access", async () => {
+  test("applies the compile-owned mainnet stage before key generation", async () => {
     const harness = createHarness();
-    await expect(
-      harness.coordinator.prepare({
+    const prepareMainnet = harness.coordinator.prepare({
+      network: "mainnet",
+      connectorSessionId: CONNECTOR_SESSION,
+      connectedMasterAccount: MASTER,
+      targetAccount: TARGET,
+      registrationName: REGISTRATION_NAME,
+    });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      await expect(prepareMainnet).rejects.toThrow(
+        "mainnet signer access is disabled",
+      );
+      expect(harness.events).toEqual([]);
+      expect(harness.randomCalls).toBe(0);
+    } else {
+      await expect(prepareMainnet).resolves.toMatchObject({
         network: "mainnet",
-        connectorSessionId: CONNECTOR_SESSION,
-        connectedMasterAccount: MASTER,
-        targetAccount: TARGET,
-        registrationName: REGISTRATION_NAME,
-      }),
-    ).rejects.toThrow("mainnet signing is disabled");
-    expect(harness.events).toEqual([]);
-    expect(harness.randomCalls).toBe(0);
+      });
+      expect(harness.events).toEqual([
+        "authority:inspect",
+        "vault:stage",
+        "repository:create",
+      ]);
+      expect(harness.randomCalls).toBe(2);
+    }
   });
 
   test("rejects a target relationship before generating or storing a key", async () => {

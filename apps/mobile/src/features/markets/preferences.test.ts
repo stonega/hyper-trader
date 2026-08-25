@@ -40,4 +40,16 @@ describe("public market preferences", () => {
     ).toEqual(preferences);
     expect(parseMarketPreferences({ version: 1, favoriteIds: [2] })).toBeNull();
   });
+
+  test("drops the retired catalog mode from saved preferences", () => {
+    expect(
+      parseMarketPreferences({
+        version: 1,
+        favoriteIds: [],
+        recentIds: [],
+        lastMarketId: null,
+        catalogMode: "strict",
+      }),
+    ).toEqual(EMPTY_MARKET_PREFERENCES);
+  });
 });

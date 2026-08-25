@@ -2,32 +2,42 @@
 
 ## Runtime status
 
-Hyper Trader now has a deterministic manual API-wallet setup, custody, and
-signer-session contract for native iOS and Android. The app generates and stages
-a testnet agent locally, shows only its public address and fixed app-supplied
-name, and opens the official Hyperliquid testnet API page for authorization. It
-never sends the private scalar or a prebuilt signed action to the page. The user
-confirmation is not authority: activation still requires a fixed-origin
-`extraAgents` response that matches the exact master, generated address, and
-acceptable finite expiry. The wallet name is not authorization evidence.
+Hyper Trader now has a deterministic, network-scoped manual API-wallet setup,
+custody, and signer-session contract for native iOS and Android. The app
+generates and stages an agent for the selected network, shows only its public
+address and fixed app-supplied name, and opens that network's official
+Hyperliquid API page for authorization. It never sends the private scalar or a
+prebuilt signed action to the page. The user confirmation is not authority:
+activation still requires a fixed-origin `extraAgents` response that matches the
+exact network, master, generated address, and acceptable finite expiry. The
+wallet name is not authorization evidence.
 
 The external Reown wallet runtime remains compile-disabled because the repository
 still has no reviewed project identifier or redirect allowlist. Manual setup does
 not depend on Reown or a callback.
 
-No mainnet key generation, secret read, signing, or exchange action is enabled.
-Mainnet is denied before authoritative setup queries, randomness, device
-authentication, or SecureStore access.
+The setup schema, custody manifest, session binding, and restore flow support
+both networks and migrate legacy testnet-only SQLite rows in place. Mainnet key
+generation, protected-secret access, signing, and exchange actions are enabled
+by the current compile-owned `candidate` stage for private functional testing.
+Every operation remains bound to the exact mainnet authority and fixed mainnet
+origin. The candidate uses real funds and is not public-release approval.
+
+Capability denial does not block incident cleanup. An exact network-scoped
+credential may still be deleted and its signer scope retired while signer access
+and transport are stopped; neither operation releases a secret or creates new
+authority.
 
 ## Setup ownership
 
 The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 
-1. Require testnet, normalize the entered or QR-scanned public master address,
-   and bind the first manual flow to that same master target. The scanner accepts
+1. Validate the selected network, normalize the entered or QR-scanned public
+   master address, and bind the first manual flow to that same master target.
+   The scanner accepts
    a plain Ethereum address or an `ethereum:` URI and passes only the extracted
    public address into the existing validation boundary.
-2. Query the fixed testnet info origin for current HTTP server time and the
+2. Query the selected network's fixed info origin for current HTTP server time and the
    intended account relationship. Named-slot capacity is left to the official
    Hyperliquid API page and never blocks local key generation.
 3. Persist `Hyper Trader` as the API-wallet registration name without asking
@@ -38,7 +48,11 @@ The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 5. Generate a valid secp256k1 scalar from `expo-crypto.getRandomBytesAsync(32)`
    behind an injectable random-source boundary and derive the public agent
    address locally.
-6. Stage the immutable target-bound secret in authenticated SecureStore.
+6. Stage the immutable target-bound secret in authenticated SecureStore with
+   one system-authentication prompt. Android preflights strong-biometric
+   availability and lets the protected SecureStore write own the prompt. iOS
+   prompts through LocalAuthentication before the initial Keychain insert,
+   which does not prompt on its own.
 7. Insert the non-secret, random 256-bit setup checkpoint into SQLite. If this
    insert fails, delete the staged record.
 8. Persist the public attempt in AsyncStorage as a presentation checkpoint and
@@ -47,7 +61,9 @@ The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
    when the official page asks for a label.
    `expo-clipboard` copies only the public address, and the QR code encodes only
    the public agent address.
-9. Open `https://app.hyperliquid-testnet.xyz/API`. The user connects the same
+9. Open the selected network's official API-wallet page:
+   `https://app.hyperliquid.xyz/API` for mainnet or
+   `https://app.hyperliquid-testnet.xyz/API` for testnet. The user connects the same
    master account, creates the named API wallet there, and chooses the expiry.
    Returning the app to the foreground triggers verification automatically;
    **Check again** remains available as a fallback. A 24-hour local attempt
@@ -124,6 +140,14 @@ device authentication. A missing, expired, or mismatched record leaves the
 selected account read-only; the protected key is still read only after explicit
 order confirmation needs a signing session.
 
+An earlier mainnet presentation policy removed authorization fields while saving
+otherwise valid account summaries. Restoration repairs only that exact legacy
+shape and only when an unexpired active SQLite binding and custody-manifest
+record independently agree on network, master, target, agent, binding, and
+generation. The repaired public summary is persisted after a successful context
+switch. Other incomplete or mismatched summaries remain unavailable and are not
+upgraded by inference.
+
 The signer-session manager is single-flight and owns only one exact normalized
 binding. Unlock captures its session epoch, context epoch, and binding before
 checking strong device-auth availability and reading SecureStore. Transient
@@ -138,14 +162,14 @@ The session expires exactly five minutes after unlock. Signing does not extend
 it. It is stopped on manual lock, app inactive/background, Android blur, context
 or signer-generation change, timeout, memory warning, termination,
 authentication or credential invalidation, and compromised-device policy. Every
-sign call repeats testnet, binding, context, active/focused, and expiry checks
+sign call repeats network capability, binding, context, active/focused, and expiry checks
 before and after the asynchronous signer result.
 
 ## Wallet dependency provenance and deferred wiring
 
 - Expo SDK 57 resolved versions: `expo-secure-store 57.0.1`,
-  `expo-local-authentication 57.0.2`, `expo-crypto 57.0.1`,
-  `expo-clipboard 57.0.1`, and `expo-camera 57.0.3`. Camera access is limited to
+  `expo-local-authentication 57.0.2`, `expo-crypto 57.0.2`,
+  `expo-clipboard 57.0.1`, and `expo-camera 57.0.4`. Camera access is limited to
   scanning a public master-wallet address QR code; microphone access is disabled.
   Clipboard access exists only for the public agent address; secret material
   never reaches either boundary.
@@ -172,7 +196,8 @@ revision of `security-review.md`.
 ## Verification boundary
 
 Automated tests use fake wallet, authority, vault, authentication, clock, and
-signer adapters plus a real local SQLite database. They cover mainnet denial,
+signer adapters plus a real local SQLite database. They cover mainnet
+pre-activation denial and fixed-origin registration reads,
 wrong targets, forged and duplicate callbacks, finite future expiry acceptance,
 process restart, exact-binding mismatch, late unlock completion, non-sliding
 timeout, target isolation, expired-attempt recovery, manifest-first staging and

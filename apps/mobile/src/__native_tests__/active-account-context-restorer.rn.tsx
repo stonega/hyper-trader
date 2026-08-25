@@ -31,6 +31,7 @@ const restoredContext = {
   signer: { agentAddress: AGENT, generation: 1 },
 };
 const mockRestoreTradingContext = jest.fn(async () => restoredContext);
+const mockReconcileSavedAccount = jest.fn(async () => mockAccount);
 const mockSwitchContext = jest.fn(async () => true);
 const mockCapture = { epoch: 0, identityKey: "testnet", signerScopeKey: null };
 
@@ -40,6 +41,7 @@ jest.mock("../features/accounts/account-directory-provider", () => ({
     accounts: [mockAccount],
     activeAccountId: mockAccount.id,
     message: null,
+    save: jest.fn(async () => true),
   }),
 }));
 
@@ -59,6 +61,7 @@ jest.mock("../core/context/provider", () => ({
 
 jest.mock("../features/accounts/manual-setup-runtime", () => ({
   getManualSetupRuntime: async () => ({
+    reconcileSavedAccount: mockReconcileSavedAccount,
     restoreTradingContext: mockRestoreTradingContext,
   }),
 }));
@@ -74,4 +77,5 @@ test("restores the persisted active account from independent authority on launch
     expect(mockSwitchContext).toHaveBeenCalledWith(restoredContext),
   );
   expect(mockRestoreTradingContext).toHaveBeenCalledWith(mockAccount);
+  expect(mockReconcileSavedAccount).toHaveBeenCalledWith(mockAccount);
 });

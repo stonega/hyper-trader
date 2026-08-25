@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HYPERLIQUID_NETWORK_ORIGINS } from "../network";
+import { MAINNET_TRADING_RELEASE_STAGE } from "../signing/boundary";
 import {
   classifyExchangeResponse,
   createExchangeClient,
@@ -42,17 +43,43 @@ describe("exchange response boundary", () => {
     });
   });
 
-  test("denies mainnet before calling transport", async () => {
+  test("applies the compile-owned mainnet stage before transport", async () => {
     let writes = 0;
     const client = createExchangeClient({
       network: "mainnet",
       fetch: (async () => {
         writes += 1;
-        return new Response(JSON.stringify({ status: "ok" }));
+        return new Response(
+          JSON.stringify({ status: "ok", response: { type: "default" } }),
+          { headers: { "Content-Type": "application/json" } },
+        );
       }) as typeof fetch,
     });
-    await expect(client.submit({} as never)).rejects.toThrow("mainnet");
-    expect(writes).toBe(0);
+    const submission = client.submit({
+      action: {
+        type: "updateLeverage",
+        asset: 0,
+        isCross: true,
+        leverage: 2,
+      },
+      nonce: 1_000,
+      expiresAfter: 2_000,
+      signature: {
+        r: `0x${"11".repeat(32)}`,
+        s: `0x${"22".repeat(32)}`,
+        v: 27,
+      },
+    });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      await expect(submission).rejects.toThrow("mainnet");
+      expect(writes).toBe(0);
+    } else {
+      await expect(submission).resolves.toEqual({
+        kind: "accepted",
+        providerOrderIds: [],
+      });
+      expect(writes).toBe(1);
+    }
   });
 
   test("performs exactly one fixed-origin POST with redirects and retries disabled", async () => {

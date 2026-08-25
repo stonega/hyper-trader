@@ -1,6 +1,7 @@
 import {
+  assertSignerAccessCapability,
   assertSignerBinding,
-  assertTestnetSigningCapability,
+  type HyperliquidNetwork,
   normalizeSignerBinding,
 } from "@hyper-trader/hyperliquid";
 
@@ -22,7 +23,7 @@ import {
 interface SetupAttemptRow {
   readonly attempt_id: string;
   readonly status: "pending" | "consumed" | "cancelled" | "failed";
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly connector_session_id: string;
   readonly master_account: string;
   readonly target_account: string;
@@ -38,7 +39,7 @@ interface SetupAttemptRow {
 
 interface ActivatedSetupRow {
   readonly attempt_id: string;
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly master_account: string;
   readonly target_account: string;
   readonly agent_address: string;
@@ -51,7 +52,7 @@ interface ActivatedSetupRow {
 }
 
 interface ActiveSetupBindingRow {
-  readonly network: "testnet";
+  readonly network: HyperliquidNetwork;
   readonly master_account: string;
   readonly target_account: string;
   readonly agent_address: string;
@@ -149,7 +150,7 @@ function attemptFromRow(row: SetupAttemptRow): SetupAttempt {
   }
   const attempt: SetupAttempt = {
     id: row.attempt_id as `0x${string}`,
-    network: "testnet",
+    network: binding.network,
     connectorSessionId: row.connector_session_id,
     masterAccount: binding.masterAccount,
     targetAccount: binding.targetAccount,
@@ -174,7 +175,7 @@ export function initializeApiWalletSetupPersistence(
     PRAGMA busy_timeout = 5000;
 
     CREATE TABLE IF NOT EXISTS api_wallet_bindings (
-      network TEXT NOT NULL CHECK (network = 'testnet'),
+      network TEXT NOT NULL CHECK (network IN ('mainnet', 'testnet')),
       master_account TEXT NOT NULL,
       target_account TEXT NOT NULL,
       agent_address TEXT NOT NULL,
@@ -193,7 +194,7 @@ export function initializeApiWalletSetupPersistence(
       attempt_id TEXT PRIMARY KEY NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('pending', 'consumed', 'cancelled', 'failed')),
       failure_reason TEXT,
-      network TEXT NOT NULL CHECK (network = 'testnet'),
+      network TEXT NOT NULL CHECK (network IN ('mainnet', 'testnet')),
       connector_session_id TEXT NOT NULL,
       master_account TEXT NOT NULL,
       target_account TEXT NOT NULL,
@@ -227,6 +228,85 @@ export function initializeApiWalletSetupPersistence(
     CREATE INDEX IF NOT EXISTS api_wallet_attempt_registration_name
       ON api_wallet_setup_attempts(registration_name);
   `);
+
+  const schema = database.getFirstSync<{ sql: string | null }>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'api_wallet_bindings'",
+  );
+  if (schema?.sql?.includes("network = 'testnet'") === true) {
+    database.execSync("BEGIN IMMEDIATE");
+    try {
+      database.execSync(`
+        DROP INDEX IF EXISTS api_wallet_one_pending_target;
+        DROP INDEX IF EXISTS api_wallet_one_active_target;
+        DROP INDEX IF EXISTS api_wallet_setup_expiry;
+        DROP INDEX IF EXISTS api_wallet_binding_registration_name;
+        DROP INDEX IF EXISTS api_wallet_attempt_registration_name;
+
+        ALTER TABLE api_wallet_bindings RENAME TO api_wallet_bindings_testnet_v1;
+        ALTER TABLE api_wallet_setup_attempts RENAME TO api_wallet_setup_attempts_testnet_v1;
+
+        CREATE TABLE api_wallet_bindings (
+          network TEXT NOT NULL CHECK (network IN ('mainnet', 'testnet')),
+          master_account TEXT NOT NULL,
+          target_account TEXT NOT NULL,
+          agent_address TEXT NOT NULL,
+          registration_name TEXT NOT NULL,
+          registration_generation INTEGER NOT NULL CHECK (registration_generation > 0),
+          requested_expiry INTEGER NOT NULL,
+          effective_expiry INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('active', 'retiring', 'retired', 'quarantined')),
+          activated_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (network, agent_address),
+          UNIQUE (network, master_account, target_account, registration_generation)
+        );
+
+        CREATE TABLE api_wallet_setup_attempts (
+          attempt_id TEXT PRIMARY KEY NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending', 'consumed', 'cancelled', 'failed')),
+          failure_reason TEXT,
+          network TEXT NOT NULL CHECK (network IN ('mainnet', 'testnet')),
+          connector_session_id TEXT NOT NULL,
+          master_account TEXT NOT NULL,
+          target_account TEXT NOT NULL,
+          agent_address TEXT NOT NULL,
+          registration_name TEXT NOT NULL,
+          registration_generation INTEGER NOT NULL CHECK (registration_generation > 0),
+          approval_nonce INTEGER NOT NULL,
+          requested_expiry INTEGER NOT NULL,
+          effective_expiry INTEGER,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          consumed_at INTEGER,
+          UNIQUE (network, agent_address),
+          UNIQUE (network, master_account, target_account, registration_generation)
+        );
+
+        INSERT INTO api_wallet_bindings SELECT * FROM api_wallet_bindings_testnet_v1;
+        INSERT INTO api_wallet_setup_attempts SELECT * FROM api_wallet_setup_attempts_testnet_v1;
+
+        DROP TABLE api_wallet_bindings_testnet_v1;
+        DROP TABLE api_wallet_setup_attempts_testnet_v1;
+
+        CREATE UNIQUE INDEX api_wallet_one_pending_target
+          ON api_wallet_setup_attempts(network, master_account, target_account)
+          WHERE status = 'pending';
+        CREATE UNIQUE INDEX api_wallet_one_active_target
+          ON api_wallet_bindings(network, master_account, target_account)
+          WHERE status = 'active';
+        CREATE INDEX api_wallet_setup_expiry
+          ON api_wallet_setup_attempts(status, expires_at);
+        CREATE INDEX api_wallet_binding_registration_name
+          ON api_wallet_bindings(registration_name);
+        CREATE INDEX api_wallet_attempt_registration_name
+          ON api_wallet_setup_attempts(registration_name);
+      `);
+      database.execSync("COMMIT");
+    } catch (error) {
+      database.execSync("ROLLBACK");
+      throw error;
+    }
+  }
 }
 
 export class SqliteSetupRepository implements SetupRepository {
@@ -247,7 +327,7 @@ export class SqliteSetupRepository implements SetupRepository {
   }
 
   nextGeneration(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): number {
@@ -280,7 +360,7 @@ export class SqliteSetupRepository implements SetupRepository {
   createAttempt(attempt: SetupAttempt): void {
     assertAttemptContract(attempt);
     const binding = bindingFromAttempt(attempt);
-    assertTestnetSigningCapability(binding.network);
+    assertSignerAccessCapability(binding.network);
     this.database.runSync(
       `INSERT INTO api_wallet_setup_attempts (
           attempt_id, status, failure_reason, network, connector_session_id,
@@ -378,7 +458,7 @@ export class SqliteSetupRepository implements SetupRepository {
   }
 
   getActiveBindingForTarget(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): ActiveSetupBindingRecord | null {
@@ -396,7 +476,7 @@ export class SqliteSetupRepository implements SetupRepository {
   }
 
   getPendingAttemptForTarget(input: {
-    readonly network: "testnet";
+    readonly network: HyperliquidNetwork;
     readonly masterAccount: string;
     readonly targetAccount: string;
   }): SetupAttempt | null {
@@ -422,7 +502,7 @@ export class SqliteSetupRepository implements SetupRepository {
   }): boolean {
     assertAttemptContract(input.expected);
     const binding = bindingFromAttempt(input.expected);
-    assertTestnetSigningCapability(binding.network);
+    assertSignerAccessCapability(binding.network);
     if (
       !Number.isSafeInteger(input.effectiveExpiry) ||
       input.effectiveExpiry <= input.now

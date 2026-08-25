@@ -35,12 +35,14 @@ describe("manual setup progress", () => {
     });
 
     await repository.saveProtection(
+      ATTEMPT.network,
       ATTEMPT.masterAccount,
       "Stone API",
       ATTEMPT.createdAt,
     );
     await expect(repository.load()).resolves.toMatchObject({
       phase: "protection",
+      network: "testnet",
       masterAccount: ATTEMPT.masterAccount,
       registrationName: "Stone API",
     });
@@ -76,6 +78,16 @@ describe("manual setup progress", () => {
         }),
       ),
     ).toThrow("malformed");
+    expect(() =>
+      parseManualSetupProgress(
+        JSON.stringify({
+          version: 1,
+          phase: "authorization",
+          attempt: { ...ATTEMPT, network: "mainnet" },
+          updatedAt: ATTEMPT.createdAt,
+        }),
+      ),
+    ).toThrow("must use testnet");
   });
 
   test("restores a legacy protection checkpoint for identity review", () => {
@@ -89,10 +101,33 @@ describe("manual setup progress", () => {
         }),
       ),
     ).toEqual({
-      version: 1,
+      version: 2,
       phase: "protection",
+      network: "testnet",
       masterAccount: ATTEMPT.masterAccount,
       registrationName: "",
+      updatedAt: ATTEMPT.createdAt,
+    });
+  });
+
+  test("keeps a mainnet protection checkpoint network-scoped", () => {
+    expect(
+      parseManualSetupProgress(
+        JSON.stringify({
+          version: 2,
+          phase: "protection",
+          network: "mainnet",
+          masterAccount: ATTEMPT.masterAccount,
+          registrationName: "Stone API",
+          updatedAt: ATTEMPT.createdAt,
+        }),
+      ),
+    ).toEqual({
+      version: 2,
+      phase: "protection",
+      network: "mainnet",
+      masterAccount: ATTEMPT.masterAccount,
+      registrationName: "Stone API",
       updatedAt: ATTEMPT.createdAt,
     });
   });

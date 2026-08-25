@@ -9,7 +9,8 @@ transport may construct or submit a state-changing request.
 
 The non-negotiable invariants are:
 
-1. Testnet capability is checked before signer access and again before transport.
+1. The selected network's signer capability is checked before protected-key
+   access and its transport capability is checked again before `/exchange`.
 2. One SQLite transaction reserves the nonce and immutable journal record before
    signing.
 3. `submission_started` is durable before the first transport write. Once set,
@@ -105,7 +106,7 @@ database connection uses the same transaction contract.
 
 Under `BEGIN IMMEDIATE`, a single transaction:
 
-1. verifies the compile-owned testnet capability, active binding, non-retired
+1. verifies the selected network's compile-owned action capability, active binding, non-retired
    signer scope, review fingerprint, epoch, and clock gate;
 2. reads and advances `last_issued_nonce` using the formula above and updates
    `last_observed_wall_ms`;

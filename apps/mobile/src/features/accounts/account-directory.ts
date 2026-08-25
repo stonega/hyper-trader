@@ -29,6 +29,24 @@ export interface AccountDirectory {
   remove(accountId: string): Promise<AccountDirectorySnapshot>;
 }
 
+export type NetworkAccountSelection =
+  | { readonly kind: "none" }
+  | { readonly kind: "unique"; readonly account: SavedAccount }
+  | { readonly kind: "ambiguous" };
+
+export function resolveNetworkAccountSelection(
+  accounts: readonly SavedAccount[],
+  network: SavedAccount["network"],
+): NetworkAccountSelection {
+  let match: SavedAccount | null = null;
+  for (const account of accounts) {
+    if (account.network !== network) continue;
+    if (match !== null) return { kind: "ambiguous" };
+    match = account;
+  }
+  return match === null ? { kind: "none" } : { kind: "unique", account: match };
+}
+
 export function resolveDirectoryAccount(
   accounts: readonly SavedAccount[],
   activeAccountId: string | null,

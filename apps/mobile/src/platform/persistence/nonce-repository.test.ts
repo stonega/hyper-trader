@@ -8,6 +8,7 @@ import {
   type AtomicActionReservationInput,
   agentAddressFingerprint,
   type ContextEpochAuthority,
+  MAINNET_TRADING_RELEASE_STAGE,
   type SignerBinding,
 } from "@hyper-trader/hyperliquid";
 
@@ -259,7 +260,7 @@ describe("SQLite nonce and journal reservation", () => {
     store.database.close();
   });
 
-  test("blocks clock rollback and cross-target or mainnet scope misuse before mutation", () => {
+  test("blocks rollback and cross-target misuse while applying the mainnet stage", () => {
     const store = open(databasePath());
     store.repository.registerActiveSignerScope({ binding, activatedAt: 1 });
     store.repository.reservePreparedAction(reservation(1));
@@ -284,12 +285,21 @@ describe("SQLite nonce and journal reservation", () => {
         }),
       ),
     ).toThrow("not bound to this exact action target");
-    expect(() =>
+    const registerMainnet = () =>
       store.repository.registerActiveSignerScope({
         binding: { ...binding, network: "mainnet" },
         activatedAt: 1,
-      }),
-    ).toThrow("mainnet signing is disabled");
+      });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(registerMainnet).toThrow("mainnet signer access is disabled");
+    } else {
+      expect(registerMainnet).not.toThrow();
+      expect(
+        store.connection.getFirstSync<{ count: number }>(
+          "SELECT COUNT(*) AS count FROM signer_scopes WHERE network = 'mainnet'",
+        )?.count,
+      ).toBe(1);
+    }
     store.database.close();
   });
 

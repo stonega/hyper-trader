@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SignerBinding } from "@hyper-trader/hyperliquid";
+import {
+  MAINNET_TRADING_RELEASE_STAGE,
+  type SignerBinding,
+} from "@hyper-trader/hyperliquid";
 
 import {
   assessCustodyInstall,
@@ -83,16 +86,47 @@ describe("credential vault", () => {
     expect(protectedSecret.bytes.every((value) => value === 0)).toBe(true);
   });
 
-  test("denies mainnet before touching protected storage", async () => {
+  test("applies the compile-owned mainnet stage before protected storage", async () => {
     const harness = createStore();
     const vault = createCredentialVault({
       store: harness.store,
       installationEpoch: "install_epoch_test_1",
     });
+    const mainnetBinding = { ...BINDING, network: "mainnet" as const };
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      await expect(vault.read(mainnetBinding)).rejects.toThrow(
+        "mainnet signer access is disabled",
+      );
+      expect(harness.calls).toEqual([]);
+    } else {
+      const bytes = new Uint8Array(32).fill(7);
+      await vault.stage({
+        binding: mainnetBinding,
+        registrationName: "ht-123456789abcd",
+        requestedExpiry: 1_802_592_000_000,
+        secret: { bytes, dispose: () => bytes.fill(0) },
+      });
+      harness.calls.length = 0;
+      const protectedSecret = await vault.read(mainnetBinding);
+      expect(harness.calls).toEqual(["get:hypertrader.api-wallet.v1:true"]);
+      protectedSecret.dispose();
+    }
+  });
+
+  test("permits exact mainnet credential deletion while signer access is stopped", async () => {
+    const harness = createStore();
+    const vault = createCredentialVault({
+      store: harness.store,
+      installationEpoch: "install_epoch_test_1",
+    });
+
     await expect(
-      vault.read({ ...BINDING, network: "mainnet" }),
-    ).rejects.toThrow("mainnet signing is disabled");
-    expect(harness.calls).toEqual([]);
+      vault.delete({ ...BINDING, network: "mainnet" }),
+    ).resolves.toBeUndefined();
+    expect(harness.calls).toEqual([
+      "delete:hypertrader.api-wallet.v1",
+      "get:hypertrader.custody-manifest.v1:undefined",
+    ]);
   });
 
   test("rolls back a new manifest when protected storage rejects the secret", async () => {

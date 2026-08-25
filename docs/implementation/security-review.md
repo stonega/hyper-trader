@@ -18,10 +18,10 @@ The closure sequence and all 28 unfinished checks are tracked in
 
 | Review | Required owner | Evidence revision | Decision/date |
 |---|---|---|---|
-| Protocol and signing | Hyperliquid protocol reviewer | `u1-doc-v1` | Document contract PASS; runtime evidence pending — 2026-08-09 |
-| Mobile custody and release | Mobile security reviewer | `u1-doc-v1` | Document contract PASS; runtime evidence pending — 2026-08-09 |
-| Notification privacy and operations | Privacy/service-security reviewer | `u1-doc-v1` | Document contract PASS; runtime evidence pending — 2026-08-09 |
-| Recovery and incident response | Operations/recovery reviewer | `u1-doc-v1` | Document contract PASS; runtime evidence pending — 2026-08-09 |
+| Protocol and signing | Hyperliquid protocol reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 network-generic action change; review pending |
+| Mobile custody and release | Mobile security reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 custody/schema change; review pending |
+| Notification privacy and operations | Privacy/service-security reviewer | pending mainnet revision | Prior document decision remains conditional; consolidated release review pending |
+| Recovery and incident response | Operations/recovery reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 recovery-policy change; review pending |
 
 Approval expires after any custody, codec, nonce schema, account-proof, key
 provider, origin, native config-plugin, OTA, or credential-authority change.
@@ -35,6 +35,27 @@ U13 automated, device, external-system, and reviewer receipts are recorded in
 physical-device, Reown, push-provider, database-restore, credential-rotation,
 and live-testnet rows pending; this document's conditional gate therefore
 remains closed.
+
+## Mainnet candidate testing decision
+
+The network-generic implementation is tracked in
+[`2026-08-24-mainnet-trading-readiness.md`](../plans/2026-08-24-mainnet-trading-readiness.md).
+`MAINNET_TRADING_RELEASE_STAGE` is `candidate` for private functional testing;
+mainnet signer access, nonce reservation, exchange transport, and the release
+action runtime all derive from that single compile-owned stage and are true.
+This allows real-funds testing of supported actions but does not approve public
+distribution or satisfy any unchecked review row.
+
+Opening mainnet requires all existing applicable rows below plus physical iOS
+and Android mainnet custody matrices, independent protocol/signing and mobile
+security approvals, the approved disposable-agent testnet sequence, and a
+separately authorized bounded-funds mainnet canary with named stop and rollback
+owners. Evidence must identify the frozen preactivation parent, its one-line
+candidate child, the candidate tree, both candidate build IDs/artifact digests,
+and the restricted evidence digest. The candidate is private and distribution
+remains **stop** until its canary passes and the final release preflight approves
+those same binaries. The executable contract is
+[`mainnet-release-preflight.md`](mainnet-release-preflight.md).
 
 ## Required checklist
 
@@ -84,7 +105,10 @@ remains closed.
   false`, and fail a remote-update probe. Fixed origins reject runtime overrides,
   redirects, non-TLS connections, and TLS failure.
 - [ ] Lockfile, dependency provenance, Reown changes, native config plugins, and
-  update configuration have controlled review and credential owners.
+  update configuration have controlled review and credential owners. M8 evidence
+  includes the narrow `@noble/hashes@1.8.0` export-map patch review and
+  warning-free iOS and Android production exports described in
+  [`mobile-crypto-dependency-patch.md`](mobile-crypto-dependency-patch.md).
 
 ### Notification privacy and service security
 
@@ -163,7 +187,7 @@ corresponding runtime gate closed; it is an explicit drill state, not approval.
 | Outbox/delete race | Reject new permits, drain active calls/leases, commit inactive+cancellation+tombstone; disclose pre-commit accepted pushes. |
 | Unsigned update | Signing-capable runtime rejects it; if code signing is absent, OTA is disabled. |
 | Endpoint override/redirect | Compile-owned allowlist rejects before request; no debug or remote escape in release. |
-| Accidental mainnet context | Compile matrix denies before secret access and before `/exchange`; context is restricted/read-only. |
+| Accidental or unapproved mainnet context | Compile matrix denies before secret access and before `/exchange`; signer-free same-network reconciliation may continue for already-started records. |
 
 ## Trace matrix
 
@@ -175,7 +199,7 @@ path, not merely expiry.
 | Master seed/private key | External secret; master wallet | Never enters Hyper Trader | Wallet owner only | Any request, persistence, or log blocks release |
 | OS passcode/biometric and Keychain/Keystore | External authority; device OS/user | OS-owned; app receives only success/failure and protected reads | User/OS enrollment change or device erase | Invalidation, lockout, or integrity error blocks signing |
 | Hyperliquid registration/time/account state | External public authority; protocol | Fixed-origin authenticated TLS queries | Protocol-owned; local cache expires | Mismatch, stale time, or unavailable proof keeps restricted/read-only |
-| API-wallet private key | Device secret; mobile custody | Authenticated device-only SecureStore; five-minute signer memory | Rotation/unlink/emergency deletion; no backup | Binding/auth/integrity failure or mainnet blocks access |
+| API-wallet private key | Device secret; mobile custody | Authenticated device-only SecureStore; five-minute signer memory | Rotation/unlink/emergency deletion; no backup | Binding/auth/integrity failure or a disabled network capability blocks access |
 | In-memory signing session | Ephemeral secret; signer adapter | Exact binding only | Timeout, background, context, lock, invalidation, termination | Missing review or epoch mismatch |
 | External-wallet setup attempt | Durable non-secret; mobile | SQLite exact binding, 24 hours | Consume or expiry cleanup | User confirmation or callback alone never advances |
 | Custody manifest/install sentinel | Durable non-secret; mobile | SecureStore public manifest/app-data sentinel | Unlink cleanup or app removal | Missing sentinel + manifest quarantines |

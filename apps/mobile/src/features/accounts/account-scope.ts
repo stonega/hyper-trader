@@ -181,10 +181,7 @@ function normalizeTarget(
   return { kind, address, masterAddress: targetMaster };
 }
 
-function normalizeAuthorization(
-  value: unknown,
-  network: HyperliquidNetwork,
-): ApiWalletAuthorizationSummary {
+function normalizeAuthorization(value: unknown): ApiWalletAuthorizationSummary {
   const input = strictRecord(
     value,
     [
@@ -243,7 +240,7 @@ function normalizeAuthorization(
   ) {
     throw new TypeError("The API-wallet registration name is malformed.");
   }
-  const normalized: ApiWalletAuthorizationSummary = {
+  return {
     agentAddress,
     generation,
     registrationName: input.registrationName as string | null,
@@ -259,18 +256,6 @@ function normalizeAuthorization(
     lastVerifiedAtMs: optionalTime(input.lastVerifiedAtMs, "lastVerifiedAtMs"),
     credentialState: input.credentialState as LocalCredentialState,
   };
-  return network === "mainnet"
-    ? {
-        agentAddress: null,
-        generation: null,
-        registrationName: null,
-        registrationState: "inactive",
-        requestedExpiryMs: null,
-        effectiveExpiryMs: null,
-        lastVerifiedAtMs: null,
-        credentialState: "absent",
-      }
-    : normalized;
 }
 
 export function normalizeSavedAccount(value: unknown): SavedAccount {
@@ -321,7 +306,7 @@ export function normalizeSavedAccount(value: unknown): SavedAccount {
     network,
     masterAccount,
     target: normalizeTarget(input.target, masterAccount),
-    authorization: normalizeAuthorization(input.authorization, network),
+    authorization: normalizeAuthorization(input.authorization),
     reconciliation: {
       pendingCount,
       allDurable: pendingCount === 0 || reconciliation.allDurable,
@@ -391,7 +376,6 @@ export function addressSuffix(address: string): string {
 }
 
 export function authorizationDisplayLabel(account: SavedAccount): string {
-  if (account.network === "mainnet") return "Read only";
   const authorization = account.authorization;
   if (authorization.agentAddress === null) return "Setup required";
   if (

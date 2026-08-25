@@ -5,6 +5,7 @@ import type {
   Eip712Signature,
   SignerBinding,
 } from "@hyper-trader/hyperliquid";
+import { MAINNET_TRADING_RELEASE_STAGE } from "@hyper-trader/hyperliquid";
 
 import {
   createSignerSessionManager,
@@ -117,10 +118,11 @@ describe("signer session manager", () => {
     ).toBe(true);
   });
 
-  test("denies mainnet before authentication or credential access", async () => {
+  test("applies the compile-owned mainnet stage before credential access", async () => {
     let authReads = 0;
     let vaultReads = 0;
     const timer = createTimer();
+    const mainnetBinding = { ...BINDING, network: "mainnet" as const };
     const manager = createSignerSessionManager({
       timer: timer.timer,
       deviceAuth: {
@@ -131,23 +133,34 @@ describe("signer session manager", () => {
       vault: {
         read: async () => {
           vaultReads += 1;
-          return secret();
+          return secret(mainnetBinding);
         },
       },
-      signerFactory: async () => {
-        throw new Error("unreachable");
-      },
+      signerFactory: async () => ({
+        binding: mainnetBinding,
+        signTypedData: async () => SIGNATURE,
+        destroy: () => undefined,
+      }),
       isActiveAndFocused: () => true,
     });
-    await expect(
-      manager.unlock({
-        binding: { ...BINDING, network: "mainnet" },
-        capturedContextEpoch: 1,
-        isContextCurrent: () => true,
-      }),
-    ).rejects.toThrow("mainnet signing is disabled");
-    expect(authReads).toBe(0);
-    expect(vaultReads).toBe(0);
+    const unlock = manager.unlock({
+      binding: mainnetBinding,
+      capturedContextEpoch: 1,
+      isContextCurrent: () => true,
+    });
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      await expect(unlock).rejects.toThrow("mainnet signer access is disabled");
+      expect(authReads).toBe(0);
+      expect(vaultReads).toBe(0);
+    } else {
+      await expect(unlock).resolves.toMatchObject({
+        status: "unlocked",
+        binding: mainnetBinding,
+      });
+      expect(authReads).toBe(1);
+      expect(vaultReads).toBe(1);
+      manager.lock("manual");
+    }
   });
 
   test("single-flights unlock and discards a late secret after lock", async () => {

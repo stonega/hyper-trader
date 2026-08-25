@@ -2,7 +2,6 @@ import { getAddress } from "viem";
 
 import { HyperliquidValidationError } from "../errors";
 import type { HyperliquidNetwork } from "../network";
-import { assertTestnetSigningCapability } from "../signing/boundary";
 import type {
   JournalActionType,
   JournalState,
@@ -112,8 +111,13 @@ function assertContext(
   record: ReconciliationRecord,
   evidence: ReconciliationEvidence,
 ): void {
-  assertTestnetSigningCapability(record.network);
-  assertTestnetSigningCapability(evidence.context.network);
+  if (
+    (record.network !== "mainnet" && record.network !== "testnet") ||
+    (evidence.context.network !== "mainnet" &&
+      evidence.context.network !== "testnet")
+  ) {
+    invalid("evidence.context.network", "unknown reconciliation network");
+  }
   if (
     record.network !== evidence.context.network ||
     normalizeAddress(record.masterAccount, "record.masterAccount") !==

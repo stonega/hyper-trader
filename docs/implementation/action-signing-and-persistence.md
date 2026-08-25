@@ -41,8 +41,12 @@ new repository instance, restart, or reconciliation lease can never recreate
 that permit. Restart recovery immediately abandons every prepared record and
 changes every submission-started record to unresolved.
 
-Only testnet reaches an injected signing function. Mainnet parity fixtures are
-encode-only regression evidence. SQLite stores normalized secret-free intent,
+The signing boundary is network-generic and requires the payload network to
+equal the immutable signer binding. With the current capability matrix, only
+testnet reaches an injected signing function; opening mainnet requires the
+one-line reviewed `candidate` stage described in the readiness plan and release
+preflight. Mainnet parity fixtures remain pre-activation protocol evidence.
+SQLite stores normalized secret-free intent,
 digests, identifiers, nonce, expiry, binding, and reconciliation state; it has
 no columns for keys, signatures, action bytes, signing preimages, or complete
 exchange bodies.

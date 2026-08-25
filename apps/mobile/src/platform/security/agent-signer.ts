@@ -1,5 +1,5 @@
 import {
-  assertTestnetSigningCapability,
+  assertSignerAccessCapability,
   type Eip712Payload,
   type Eip712Signature,
   normalizeSignerBinding,
@@ -47,7 +47,7 @@ function protocolSignature(value: `0x${string}`): Eip712Signature {
 export async function createAgentSigner(
   secret: ProtectedAgentSecret,
 ): Promise<DestroyableAgentSigner> {
-  assertTestnetSigningCapability(secret.binding.network);
+  assertSignerAccessCapability(secret.binding.network);
   if (!isValidSecp256k1Secret(secret.bytes)) {
     throw new TypeError("The protected agent scalar is invalid.");
   }

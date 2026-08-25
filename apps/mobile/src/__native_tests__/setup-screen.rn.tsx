@@ -1,4 +1,8 @@
-import { describe, expect, jest, test } from "@jest/globals";
+import {
+  type HyperliquidNetwork,
+  MAINNET_TRADING_RELEASE_STAGE,
+} from "@hyper-trader/hyperliquid";
+import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 import {
   act,
   fireEvent,
@@ -48,7 +52,11 @@ const mockReplace = jest.fn();
 const mockLoad = jest.fn<() => Promise<unknown>>();
 const mockPrepare =
   jest.fn<
-    (master: string, registrationName: string) => Promise<SetupAttempt>
+    (
+      network: HyperliquidNetwork,
+      master: string,
+      registrationName: string,
+    ) => Promise<SetupAttempt>
   >();
 const mockVerify = jest.fn<() => Promise<unknown>>();
 const mockActivationFor = jest.fn<() => ActivatedSetupRecord | null>();
@@ -63,18 +71,26 @@ let mockScanListener:
   | ((event: { readonly data: string; readonly type: string }) => void)
   | null = null;
 let mockAppStateListener: ((state: AppStateStatus) => void) | null = null;
+let mockNetwork: HyperliquidNetwork = "testnet";
 const saveAccount = () => mockSave();
 const selectAccount = () => mockSelect();
 const switchTradingContext = () => mockSwitchContext();
 
 const mockRuntime = {
   load: () => mockLoad(),
-  saveMasterAccount: async (master: string, registrationName: string) => ({
+  saveMasterAccount: async (
+    _network: HyperliquidNetwork,
+    master: string,
+    registrationName: string,
+  ) => ({
     masterAccount: master,
     registrationName,
   }),
-  prepare: (master: string, registrationName: string) =>
-    mockPrepare(master, registrationName),
+  prepare: (
+    network: HyperliquidNetwork,
+    master: string,
+    registrationName: string,
+  ) => mockPrepare(network, master, registrationName),
   verify: () => mockVerify(),
   activationFor: () => mockActivationFor(),
   finish: () => mockFinish(),
@@ -157,7 +173,7 @@ jest.mock("../features/accounts/account-directory-provider", () => ({
 jest.mock("../core/context/provider", () => ({
   useTradingContext: () => ({
     current: {
-      network: "mainnet",
+      network: mockNetwork,
       masterAccount: null,
       targetAccount: null,
       signer: null,
@@ -169,6 +185,48 @@ jest.mock("../core/context/provider", () => ({
 }));
 
 describe("native resumable API-wallet setup", () => {
+  beforeEach(() => {
+    mockNetwork = "testnet";
+    mockPrepare.mockClear();
+  });
+
+  test("applies the compile-owned mainnet stage to setup", async () => {
+    mockNetwork = "mainnet";
+    mockLoad.mockResolvedValue({ status: "empty" });
+    mockPrepare.mockResolvedValue({ ...ATTEMPT, network: "mainnet" });
+
+    render(<SetupScreen />);
+
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(
+        await screen.findByText(
+          "Mainnet API-wallet setup remains unavailable until its release evidence is approved.",
+        ),
+      ).toBeTruthy();
+      const generate = screen.getByRole("button", {
+        name: "Generate API wallet",
+      });
+      expect(generate).toBeDisabled();
+      fireEvent.press(generate);
+      expect(mockPrepare).not.toHaveBeenCalled();
+    } else {
+      expect(
+        await screen.findByText("Enter your Hyperliquid wallet"),
+      ).toBeTruthy();
+      fireEvent.changeText(screen.getByPlaceholderText("0x…"), MASTER);
+      fireEvent.press(
+        screen.getByRole("button", { name: "Generate API wallet" }),
+      );
+      await waitFor(() =>
+        expect(mockPrepare).toHaveBeenCalledWith(
+          "mainnet",
+          MASTER,
+          REGISTRATION_NAME,
+        ),
+      );
+    }
+  });
+
   test("scans a master wallet address from the input action", async () => {
     mockLoad.mockResolvedValue({ status: "empty" });
     mockLaunchScanner.mockResolvedValue(undefined);
@@ -215,12 +273,17 @@ describe("native resumable API-wallet setup", () => {
     );
 
     expect(await screen.findByText(AGENT)).toBeTruthy();
-    expect(mockPrepare).toHaveBeenCalledWith(MASTER, REGISTRATION_NAME);
+    expect(mockPrepare).toHaveBeenCalledWith(
+      "testnet",
+      MASTER,
+      REGISTRATION_NAME,
+    );
   });
 
   test("generates, verifies, saves, and enters Trade", async () => {
     mockLoad.mockResolvedValue({
       status: "protection",
+      network: "testnet",
       masterAccount: MASTER,
       registrationName: REGISTRATION_NAME,
     });
@@ -245,7 +308,11 @@ describe("native resumable API-wallet setup", () => {
     );
 
     expect(await screen.findByText(AGENT)).toBeTruthy();
-    expect(mockPrepare).toHaveBeenCalledWith(MASTER, REGISTRATION_NAME);
+    expect(mockPrepare).toHaveBeenCalledWith(
+      "testnet",
+      MASTER,
+      REGISTRATION_NAME,
+    );
     expect(screen.getByTestId("api-wallet-address-qr-code")).toHaveProp(
       "data",
       AGENT,

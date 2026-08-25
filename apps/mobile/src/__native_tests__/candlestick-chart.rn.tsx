@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
 
 import { MarketKlinePriceChart } from "../features/trade/kline-price-chart";
+import { TRADE_CHART_FRAME_HEIGHT } from "../features/trade/market-chart-config";
 import type { TradeChartOverlay } from "../features/trade/trade-chart-overlays";
 
 let mockKlineChartProps: Record<string, unknown> = {};
@@ -155,6 +156,62 @@ describe("trade K-line price chart", () => {
     );
   });
 
+  test("keeps the chart frame and data rails mounted while candles load", () => {
+    const onIntervalChange = jest.fn();
+    const { rerender } = render(
+      <MarketKlinePriceChart
+        candles={undefined}
+        canonicalMarketId="perp:BTC"
+        compact
+        interval="15m"
+        liveRange={null}
+        loading
+        onIntervalChange={onIntervalChange}
+        overlays={overlays}
+        realtime
+        unavailable={false}
+      />,
+    );
+
+    const loadingFrame = screen.getByTestId("kline-chart-frame", {
+      includeHiddenElements: true,
+    });
+    expect(StyleSheet.flatten(loadingFrame.props.style).height).toBe(
+      TRADE_CHART_FRAME_HEIGHT.compact,
+    );
+    expect(screen.queryByText(/Loading the latest candle series/)).toBeNull();
+    expect(
+      screen.getByTestId("kline-summary-rail", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Mid at 12.1")).toBeTruthy();
+
+    rerender(
+      <MarketKlinePriceChart
+        candles={candles}
+        canonicalMarketId="perp:BTC"
+        compact
+        interval="15m"
+        liveRange={[candles[0]?.openTime ?? 0, candles[1]?.openTime ?? 0]}
+        loading={false}
+        onIntervalChange={onIntervalChange}
+        overlays={overlays}
+        realtime
+        unavailable={false}
+      />,
+    );
+
+    const loadedFrame = screen.getByTestId("kline-chart-frame", {
+      includeHiddenElements: true,
+    });
+    expect(StyleSheet.flatten(loadedFrame.props.style).height).toBe(
+      StyleSheet.flatten(loadingFrame.props.style).height,
+    );
+    expect(screen.getByTestId("kline-summary-rail")).toBeTruthy();
+    expect(screen.queryByText(/Loading the latest candle series/)).toBeNull();
+  });
+
   test("keeps the committed candle chart visible while a new interval loads", () => {
     const onIntervalChange = jest.fn();
     const { rerender } = render(
@@ -248,7 +305,7 @@ describe("trade K-line price chart", () => {
       />,
     );
 
-    expect(screen.getByText(/Loading the latest candle series/)).toBeTruthy();
+    expect(screen.queryByText(/Loading the latest candle series/)).toBeNull();
     expect(
       screen.queryByLabelText(/candlestick chart with 2 candles/),
     ).toBeNull();
