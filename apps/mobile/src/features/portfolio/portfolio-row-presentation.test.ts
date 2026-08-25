@@ -7,6 +7,7 @@ import {
   SPOT_DUPLICATE,
 } from "../markets/fixture";
 import {
+  portfolioAmountTone,
   portfolioMarketLabel,
   portfolioSideColor,
   portfolioSideLabel,
@@ -36,5 +37,12 @@ describe("portfolio row presentation", () => {
     expect(portfolioSideLabel("A")).toBe("Sell");
     expect(portfolioSideColor("A")).toBe("danger");
     expect(portfolioSideLabel("sell")).toBe("Sell");
+  });
+
+  test("maps signed amounts to buy and sell colors", () => {
+    expect(portfolioAmountTone("2.5")).toBe("success");
+    expect(portfolioAmountTone("-2.5")).toBe("danger");
+    expect(portfolioAmountTone("0.000")).toBe("default");
+    expect(portfolioAmountTone("-0.000")).toBe("default");
   });
 });

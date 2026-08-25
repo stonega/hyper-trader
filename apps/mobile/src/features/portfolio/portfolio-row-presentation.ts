@@ -4,6 +4,14 @@ import { marketPairLabel } from "../markets/discovery";
 
 export type PortfolioSideColor = "danger" | "default" | "success";
 
+export function portfolioAmountTone(
+  value: string,
+): "danger" | "default" | "success" {
+  const magnitude = value.startsWith("-") ? value.slice(1) : value;
+  if (/^0(?:\.0+)?$/.test(magnitude)) return "default";
+  return value.startsWith("-") ? "danger" : "success";
+}
+
 export function portfolioSideLabel(side: string): string {
   const normalized = side.trim().toLowerCase();
   if (normalized === "b" || normalized === "bid" || normalized === "buy") {

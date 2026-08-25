@@ -41,40 +41,43 @@ test("renders account performance in a tall, width-filling bar plot", () => {
   expect(screen.getByTestId("account-performance-chart")).toHaveStyle({
     height: 128,
   });
-  expect(screen.getByText("Latest")).toBeTruthy();
+  expect(screen.queryByText("Latest")).toBeNull();
   expect(screen.getByTestId("performance-point-value")).toHaveTextContent(
-    "102",
+    "$102",
   );
+  expect(screen.getAllByText("$100")).toHaveLength(2);
+  expect(screen.getByText("$105")).toBeTruthy();
+  expect(screen.getAllByText("$102")).toHaveLength(2);
   const latestTime = screen.getByTestId("performance-point-time").props
     .children;
   expect(screen.getAllByRole("button")).toHaveLength(3);
 
   jest.useFakeTimers();
-  fireEvent.press(screen.getByRole("button", { name: /Account value 100/ }));
+  fireEvent.press(screen.getByRole("button", { name: /Account value \$100/ }));
 
   expect(screen.queryByText("Selected")).toBeNull();
   expect(screen.getByTestId("performance-point-value")).toHaveTextContent(
-    "100",
+    "$100",
   );
   expect(screen.getByTestId("performance-point-time").props.children).not.toBe(
     latestTime,
   );
   expect(
-    screen.getByRole("button", { name: /Account value 100/ }).props
+    screen.getByRole("button", { name: /Account value \$100/ }).props
       .accessibilityState,
   ).toEqual({ selected: true });
 
   act(() => jest.advanceTimersByTime(6_000));
-  fireEvent.press(screen.getByRole("button", { name: /Account value 105/ }));
+  fireEvent.press(screen.getByRole("button", { name: /Account value \$105/ }));
   act(() => jest.advanceTimersByTime(9_999));
   expect(screen.getByTestId("performance-point-value")).toHaveTextContent(
-    "105",
+    "$105",
   );
 
   act(() => jest.advanceTimersByTime(1));
-  expect(screen.getByText("Latest")).toBeTruthy();
+  expect(screen.queryByText("Latest")).toBeNull();
   expect(screen.getByTestId("performance-point-value")).toHaveTextContent(
-    "102",
+    "$102",
   );
   expect(screen.queryByText("▁█▄")).toBeNull();
 });

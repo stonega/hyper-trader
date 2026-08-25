@@ -3,10 +3,23 @@ import { render, screen } from "@testing-library/react-native";
 import { View } from "react-native";
 
 import { PerformanceChart } from "../components/chart/performance-chart";
+import type { PortfolioRangeData } from "../features/portfolio/portfolio-model";
 import {
   PortfolioRowsPlaceholder,
   PortfolioSummaryCard,
 } from "../features/portfolio/portfolio-overview";
+
+const PORTFOLIO_DATA = {
+  range: "24h",
+  sourcePeriod: "day",
+  accountValueHistory: [],
+  pnlHistory: [],
+  accountValueSummary: null,
+  accountValue: "102",
+  absolutePnl: "2",
+  percentagePnl: "2",
+  gapCount: 0,
+} as const satisfies PortfolioRangeData;
 
 test("Portfolio keeps summary and performance labels visible while data loads", () => {
   render(
@@ -44,4 +57,35 @@ test("Portfolio keeps summary and performance labels visible while data loads", 
   expect(
     screen.getByLabelText("Loading Portfolio account details"),
   ).toBeTruthy();
+});
+
+test("Portfolio prefixes account value with a dollar sign", () => {
+  const view = render(
+    <PortfolioSummaryCard
+      data={PORTFOLIO_DATA}
+      loading={false}
+      marketFreshness="fresh"
+      portfolioFreshness="fresh"
+    />,
+  );
+
+  expect(screen.getByText("$102")).toBeTruthy();
+  expect(screen.getByText("PnL 2").props.className).toContain("text-success");
+  expect(screen.getByText("2%").props.className).toContain("text-success");
+
+  view.rerender(
+    <PortfolioSummaryCard
+      data={{
+        ...PORTFOLIO_DATA,
+        absolutePnl: "-2",
+        percentagePnl: "-2",
+      }}
+      loading={false}
+      marketFreshness="fresh"
+      portfolioFreshness="fresh"
+    />,
+  );
+
+  expect(screen.getByText("PnL -2").props.className).toContain("text-danger");
+  expect(screen.getByText("-2%").props.className).toContain("text-danger");
 });

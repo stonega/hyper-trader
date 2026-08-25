@@ -30,6 +30,10 @@ const BAR_HEIGHT_BY_GLYPH: Readonly<Record<string, number>> = {
 
 type PerformancePoint = PortfolioRangeData["accountValueHistory"][number];
 
+function formatAccountValue(value: string): string {
+  return value === "-" || value === "Unavailable" ? value : `$${value}`;
+}
+
 function formatPerformancePointTime(timestamp: number): string {
   return new Intl.DateTimeFormat(undefined, {
     day: "numeric",
@@ -152,7 +156,9 @@ function PerformancePointReadout({
   const timestamp =
     point === null ? null : formatPerformancePointTime(point[0]);
   const stateLabel = selected ? "Selected" : "Latest";
-  const value = loading ? "-" : (point?.[1] ?? "Unavailable");
+  const value = formatAccountValue(
+    loading ? "-" : (point?.[1] ?? "Unavailable"),
+  );
   const accessibilityLabel = loading
     ? "Latest account value is loading."
     : point === null
@@ -167,11 +173,6 @@ function PerformancePointReadout({
       style={styles.pointReadout}
       testID="performance-point-readout"
     >
-      {selected ? null : (
-        <Text className="text-xs uppercase tracking-wide text-muted">
-          {stateLabel}
-        </Text>
-      )}
       <Text
         adjustsFontSizeToFit
         className="font-mono text-base tabular-nums text-foreground"
@@ -214,7 +215,7 @@ function PerformanceBars({
       {points.map(([timestamp, value], index) => (
         <Pressable
           accessibilityHint="Shows this point in the chart header"
-          accessibilityLabel={`${formatPerformancePointTime(timestamp)}. Account value ${value}.`}
+          accessibilityLabel={`${formatPerformancePointTime(timestamp)}. Account value ${formatAccountValue(value)}.`}
           accessibilityRole="button"
           accessibilityState={{ selected: timestamp === selectedTimestamp }}
           key={timestamp}
@@ -279,7 +280,9 @@ function PerformanceValues({
           <Text className="text-xs uppercase tracking-wide text-muted">
             {label}
           </Text>
-          <Text className="text-sm tabular-nums text-foreground">{value}</Text>
+          <Text className="text-sm tabular-nums text-foreground">
+            {formatAccountValue(value)}
+          </Text>
         </View>
       ))}
     </View>

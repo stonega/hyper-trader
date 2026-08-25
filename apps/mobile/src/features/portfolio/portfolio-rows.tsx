@@ -22,6 +22,7 @@ import {
 } from "./portfolio-model";
 import {
   formatPortfolioRecordTime,
+  portfolioAmountTone,
   portfolioMarketLabel,
   portfolioSideColor,
   portfolioSideLabel,
@@ -79,11 +80,6 @@ function Value({
       <Text className={valueClassName}>{value}</Text>
     </View>
   );
-}
-
-function amountTone(value: string): "danger" | "default" | "success" {
-  if (value.startsWith("-")) return "danger";
-  return /^0(?:\.0+)?$/.test(value) ? "default" : "success";
 }
 
 function SideChip({ side }: { readonly side: string }): JSX.Element {
@@ -185,7 +181,7 @@ function PositionCard({
   const closeEnabled = actionAccess.allowed && position.closeEnabled;
   const positionSide = position.side === "long" ? "Long" : "Short";
   const positionSideColor = position.side === "long" ? "success" : "danger";
-  const pnlTone = amountTone(position.unrealizedPnl);
+  const pnlTone = portfolioAmountTone(position.unrealizedPnl);
   return (
     <Card variant="default" className="gap-4">
       <RecordHeader
@@ -678,7 +674,7 @@ export function PortfolioRows({
             {
               label: "Closed PnL",
               value: `${fill.closedPnl} USDC`,
-              tone: amountTone(fill.closedPnl),
+              tone: portfolioAmountTone(fill.closedPnl),
             },
           ],
         }))
@@ -693,7 +689,7 @@ export function PortfolioRows({
               {
                 label: "Payment",
                 value: `${funding.usdc} USDC`,
-                tone: amountTone(funding.usdc),
+                tone: portfolioAmountTone(funding.usdc),
               },
               { label: "Funding rate", value: funding.fundingRate },
               { label: "Position size", value: funding.size },
@@ -710,7 +706,7 @@ export function PortfolioRows({
               {
                 label: activity.kind === "fill" ? "Closed PnL" : "Payment",
                 value: `${activity.amount} USDC`,
-                tone: amountTone(activity.amount),
+                tone: portfolioAmountTone(activity.amount),
               },
             ],
           }));

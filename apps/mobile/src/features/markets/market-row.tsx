@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import Octicons from "@expo/vector-icons/Octicons";
 import type { MarketSummary } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { useThemeColor } from "heroui-native/hooks";
@@ -46,11 +46,11 @@ export const MarketRow = memo(function MarketRow({
             size="sm"
             variant="ghost"
           >
-            <Ionicons
+            <Octicons
               accessibilityElementsHidden
               color={warning}
               importantForAccessibility="no-hide-descendants"
-              name={isFavorite ? "star" : "star-outline"}
+              name={isFavorite ? "star-fill" : "star"}
               size={18}
             />
             <Button.Label className="text-warning">

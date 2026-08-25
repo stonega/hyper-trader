@@ -415,9 +415,7 @@ export default function MarketsScreen(): JSX.Element {
             accessibilityLiveRegion="polite"
             className="shrink-0 text-sm text-muted"
           >
-            {markets.length < total
-              ? `${markets.length} of ${total} markets`
-              : `${total} markets`}
+            {total} markets
           </Text>
           {showCatalogStatus ? (
             <CatalogStatus

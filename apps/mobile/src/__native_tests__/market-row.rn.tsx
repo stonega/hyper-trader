@@ -14,7 +14,7 @@ import {
 import { MarketCard } from "../features/markets/market-card";
 import { MarketRow } from "../features/markets/market-row";
 
-jest.mock("@expo/vector-icons/Ionicons", () => {
+jest.mock("@expo/vector-icons/Octicons", () => {
   const React = jest.requireActual<typeof import("react")>("react");
   const { Text } =
     jest.requireActual<typeof import("react-native")>("react-native");
@@ -49,10 +49,10 @@ test("uses the market selector icon and pair-name treatment", () => {
   expect(screen.queryByText("Native")).toBeNull();
   expect(screen.queryByLabelText(/HIP-3 venue/)).toBeNull();
   const priceSummary = within(screen.getByTestId("market-price-summary"));
-  expect(priceSummary.getByText("$10")).toBeTruthy();
+  expect(priceSummary.getByText("$10").props.className).toContain("font-mono");
   expect(priceSummary.getByText("24h +25.00%")).toBeTruthy();
   expect(
-    screen.getByText("star-outline", { includeHiddenElements: true }),
+    screen.getByText("star", { includeHiddenElements: true }),
   ).toBeTruthy();
   expect(
     screen.getByTestId("market-icon-image", { includeHiddenElements: true }),
@@ -84,7 +84,7 @@ test("keeps the provider visible for non-native perpetual markets", () => {
   expect(screen.getByLabelText("HIP-3 venue Omega Markets")).toBeTruthy();
   expect(screen.queryByText("HIP-3 perpetual")).toBeNull();
   expect(
-    screen.getByText("star", { includeHiddenElements: true }),
+    screen.getByText("star-fill", { includeHiddenElements: true }),
   ).toBeTruthy();
   expect(screen.getByText("Favorited")).toBeTruthy();
 });

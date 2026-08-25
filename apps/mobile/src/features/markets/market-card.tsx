@@ -93,7 +93,7 @@ export function MarketCard({
           className="flex-row flex-wrap items-baseline gap-x-3 gap-y-1"
           testID="market-price-summary"
         >
-          <Text className="text-2xl font-semibold tabular-nums text-foreground">
+          <Text className="font-mono text-2xl font-semibold tabular-nums text-foreground">
             {formatMarketPrice(market)}
           </Text>
           <Text className="text-sm tabular-nums text-muted">
