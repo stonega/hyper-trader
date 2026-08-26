@@ -41,20 +41,43 @@ describe("production release contract", () => {
     );
   });
 
-  test("applies only the reviewed noble-hashes mobile export alias", async () => {
+  test("applies only the reviewed mobile dependency patches", async () => {
     const rootPackage = await readJson(join(repositoryRoot, "package.json"));
-    const patchPath = "patches/@noble%2Fhashes@1.8.0.patch";
-    const patch = await readFile(join(repositoryRoot, patchPath), "utf8");
+    const noblePatchPath = "patches/@noble%2Fhashes@1.8.0.patch";
+    const chartPatchPath = "patches/react-native-kline-chart@0.1.1.patch";
+    const noblePatch = await readFile(
+      join(repositoryRoot, noblePatchPath),
+      "utf8",
+    );
+    const chartPatch = await readFile(
+      join(repositoryRoot, chartPatchPath),
+      "utf8",
+    );
 
     expect(rootPackage.patchedDependencies).toEqual({
-      "@noble/hashes@1.8.0": patchPath,
+      "@noble/hashes@1.8.0": noblePatchPath,
+      "react-native-kline-chart@0.1.1": chartPatchPath,
     });
-    expect(patch).toContain('    "./crypto.js": {');
-    expect(patch).toContain('        "import": "./esm/cryptoNode.js",');
-    expect(patch).toContain('      "import": "./esm/crypto.js",');
-    expect(patch).toContain('      "default": "./crypto.js"');
-    expect(patch.match(/^@@/gm)).toHaveLength(1);
-    expect(patch).not.toMatch(/^diff --git a\/(?!package\.json)/m);
+    expect(noblePatch).toContain('    "./crypto.js": {');
+    expect(noblePatch).toContain('        "import": "./esm/cryptoNode.js",');
+    expect(noblePatch).toContain('      "import": "./esm/crypto.js",');
+    expect(noblePatch).toContain('      "default": "./crypto.js"');
+    expect(noblePatch.match(/^@@/gm)).toHaveLength(1);
+    expect(noblePatch).not.toMatch(/^diff --git a\/(?!package\.json)/m);
+
+    expect(chartPatch).toContain("opaque?: boolean;");
+    expect(chartPatch).toContain("<Canvas opaque={opaque}");
+    expect(
+      [...chartPatch.matchAll(/^diff --git a\/(\S+)/gm)].map(
+        ([, path]) => path,
+      ),
+    ).toEqual([
+      "lib/commonjs/KlineChart.js",
+      "lib/module/KlineChart.js",
+      "lib/typescript/types.d.ts",
+      "src/KlineChart.tsx",
+      "src/types.ts",
+    ]);
   });
 
   test("declares every controlled Maestro fixture journey", async () => {

@@ -4,7 +4,7 @@ import type {
   HyperliquidNetwork,
   Market,
 } from "@hyper-trader/hyperliquid/public";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useIsFocused, useLocalSearchParams, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { useThemeColor } from "heroui-native/hooks";
 import type { JSX } from "react";
@@ -33,6 +33,7 @@ import {
   contextIdentityKey,
   type NormalizedTradingContext,
 } from "../../core/context/supervisor";
+import { useNativeRenderSurfaceActive } from "../../core/lifecycle/provider";
 import { runManualRefresh } from "../../core/query/manual-refresh";
 import { useSignerSession } from "../../core/session/provider";
 import { useAccountDirectory } from "../../features/accounts/account-directory-provider";
@@ -115,6 +116,8 @@ const LiveTradeChart = memo(function LiveTradeChart({
   readonly interval: TradeChartInterval;
   readonly onIntervalChange: (interval: TradeChartInterval) => void;
 }): JSX.Element {
+  const screenFocused = useIsFocused();
+  const nativeRenderSurfaceActive = useNativeRenderSurfaceActive();
   const candles = useTradeCandleData(network, market, interval);
   const openOrders = useTradeOpenOrders(context, target, market);
   const overlays = useMemo(
@@ -141,6 +144,7 @@ const LiveTradeChart = memo(function LiveTradeChart({
       onIntervalChange={onIntervalChange}
       overlays={overlays}
       realtime
+      renderSurface={screenFocused && nativeRenderSurfaceActive}
       unavailable={candles.isError && candles.data === undefined}
     />
   );

@@ -1,7 +1,7 @@
 import { focusManager, onlineManager } from "@tanstack/react-query";
 import * as Network from "expo-network";
 import type { JSX, PropsWithChildren } from "react";
-import { useEffect } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { AppState, Platform } from "react-native";
 
 import { warmResumeMarkers } from "../performance/warm-resume";
@@ -46,11 +46,20 @@ const networkSource: NetworkEventSource = {
   addNetworkStateListener: Network.addNetworkStateListener,
 };
 
+const NativeRenderSurfaceActiveContext = createContext(false);
+
+export function useNativeRenderSurfaceActive(): boolean {
+  return useContext(NativeRenderSurfaceActiveContext);
+}
+
 export function NativeLifecycleProvider({
   children,
 }: PropsWithChildren): JSX.Element {
   const signerSession = useSignerSession();
   const streams = useStreamRuntime();
+  const [renderSurfacesActive, setRenderSurfacesActive] = useState(
+    () => AppState.currentState === "active",
+  );
 
   useEffect(() => {
     onlineManager.setOnline(false);
@@ -58,6 +67,7 @@ export function NativeLifecycleProvider({
     const controller = createAppLifecycleController({
       initialOnline: false,
       setFocused(focused) {
+        setRenderSurfacesActive(focused);
         focusManager.setFocused(focused);
         if (focused) {
           warmResumeMarkers.markResumeStarted();
@@ -96,5 +106,9 @@ export function NativeLifecycleProvider({
     };
   }, [signerSession.lock, signerSession.read, streams]);
 
-  return <>{children}</>;
+  return (
+    <NativeRenderSurfaceActiveContext.Provider value={renderSurfacesActive}>
+      {children}
+    </NativeRenderSurfaceActiveContext.Provider>
+  );
 }

@@ -40,6 +40,7 @@
     "typescript": "~6.0.3"
   },
   "patchedDependencies": {
-    "@noble/hashes@1.8.0": "patches/@noble%2Fhashes@1.8.0.patch"
+    "@noble/hashes@1.8.0": "patches/@noble%2Fhashes@1.8.0.patch",
+    "react-native-kline-chart@0.1.1": "patches/react-native-kline-chart@0.1.1.patch"
   }
 }

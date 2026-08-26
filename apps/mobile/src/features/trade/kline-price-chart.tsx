@@ -78,6 +78,7 @@ function MarketKlinePriceChartComponent({
   historyError = false,
   compact = false,
   realtime = false,
+  renderSurface,
 }: {
   readonly canonicalMarketId: string;
   readonly candles: readonly Candle[] | undefined;
@@ -90,6 +91,7 @@ function MarketKlinePriceChartComponent({
   readonly historyError?: boolean;
   readonly compact?: boolean;
   readonly realtime?: boolean;
+  readonly renderSurface: boolean;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
   const [
@@ -259,7 +261,7 @@ function MarketKlinePriceChartComponent({
           ]}
           testID="kline-chart-frame"
         >
-          {model && chartWidth > 0 ? (
+          {model && chartWidth > 0 && renderSurface ? (
             <KlineChart
               backgroundColor={colors.background}
               bearishColor={colors.negative}
@@ -274,6 +276,7 @@ function MarketKlinePriceChartComponent({
               key={`${canonicalMarketId}:${displayedInterval}`}
               maColors={[colors.accent, colors.warning, colors.positive]}
               maPeriods={[5, 10, 20]}
+              opaque
               rightPaddingCandles={6}
               showCrosshair
               showMA={chartData.length >= 5}

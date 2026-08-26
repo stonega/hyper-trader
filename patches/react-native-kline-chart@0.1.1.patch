@@ -1,0 +1,87 @@
+diff --git a/lib/commonjs/KlineChart.js b/lib/commonjs/KlineChart.js
+index f679ceca3ac2025d7cc10398e4de6530bfb4ad5d..193290dca18ef0551008e0288bc9d27a8392577a 100644
+--- a/lib/commonjs/KlineChart.js
++++ b/lib/commonjs/KlineChart.js
+@@ -34,6 +34,7 @@ function KlineChart({
+   showCrosshair = true,
+   crosshairHaptics = true,
+   backgroundColor = _constants.BACKGROUND_COLOR,
++  opaque = false,
+   gridColor = _constants.GRID_COLOR,
+   textColor = _constants.TEXT_COLOR,
+   crosshairColor = _constants.CROSSHAIR_COLOR,
+@@ -503,6 +504,7 @@ function KlineChart({
+   return /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNativeGestureHandler.GestureDetector, {
+     gesture: gesture,
+     children: /*#__PURE__*/(0, _jsxRuntime.jsx)(_reactNativeSkia.Canvas, {
++      opaque: opaque,
+       style: {
+         width,
+         height
+diff --git a/lib/module/KlineChart.js b/lib/module/KlineChart.js
+index 1f966c82375beda8cb5bbc75d6adb4eedecf278a..cd02c2e84a44370bbe74fc88cd049fbeba0489a7 100644
+--- a/lib/module/KlineChart.js
++++ b/lib/module/KlineChart.js
+@@ -30,6 +30,7 @@ export function KlineChart({
+   showCrosshair = true,
+   crosshairHaptics = true,
+   backgroundColor = BACKGROUND_COLOR,
++  opaque = false,
+   gridColor = GRID_COLOR,
+   textColor = TEXT_COLOR,
+   crosshairColor = CROSSHAIR_COLOR,
+@@ -499,6 +500,7 @@ export function KlineChart({
+   return /*#__PURE__*/_jsx(GestureDetector, {
+     gesture: gesture,
+     children: /*#__PURE__*/_jsx(Canvas, {
++      opaque: opaque,
+       style: {
+         width,
+         height
+diff --git a/lib/typescript/types.d.ts b/lib/typescript/types.d.ts
+index 679c19a327044723b45c2564feb92a50c451b22b..4314567794cd57e6fa1a63eb86d35269641ac9ec 100644
+--- a/lib/typescript/types.d.ts
++++ b/lib/typescript/types.d.ts
+@@ -22,6 +22,8 @@ export type KlineChartProps = {
+     /** Light haptic when the crosshair moves to another candle while dragging. Default `true`. */
+     crosshairHaptics?: boolean;
+     backgroundColor?: string;
++    /** Render through an Android SurfaceView when the chart background is fully opaque. */
++    opaque?: boolean;
+     gridColor?: string;
+     textColor?: string;
+     crosshairColor?: string;
+diff --git a/src/KlineChart.tsx b/src/KlineChart.tsx
+index 4eab4b9ab0ccf907b4f59217e222c38ff7ef2c56..c4891fa57809b9cbff6b9ab73d4c1e9a950ae93f 100644
+--- a/src/KlineChart.tsx
++++ b/src/KlineChart.tsx
+@@ -49,6 +49,7 @@ export function KlineChart({
+   showCrosshair = true,
+   crosshairHaptics = true,
+   backgroundColor = BACKGROUND_COLOR,
++  opaque = false,
+   gridColor = GRID_COLOR,
+   textColor = TEXT_COLOR,
+   crosshairColor = CROSSHAIR_COLOR,
+@@ -567,7 +568,7 @@ export function KlineChart({
+ 
+   return (
+     <GestureDetector gesture={gesture}>
+-      <Canvas style={{ width, height }}>
++      <Canvas opaque={opaque} style={{ width, height }}>
+         <Picture picture={picture} />
+       </Canvas>
+     </GestureDetector>
+diff --git a/src/types.ts b/src/types.ts
+index 603adbc29373c20ed703143cbdb01e56ad775332..f4d55144903dedf597a023996d93e302a2d02670 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -23,6 +23,8 @@ export type KlineChartProps = {
+   /** Light haptic when the crosshair moves to another candle while dragging. Default `true`. */
+   crosshairHaptics?: boolean;
+   backgroundColor?: string;
++  /** Render through an Android SurfaceView when the chart background is fully opaque. */
++  opaque?: boolean;
+   gridColor?: string;
+   textColor?: string;
+   crosshairColor?: string;

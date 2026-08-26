@@ -47,6 +47,25 @@ The library does not expose a request-more-history callback. The renderer uses
 the validated window already owned by the app rather than making transport
 requests of its own.
 
+## Android surface lifecycle
+
+The chart always paints its complete frame with the opaque HeroUI `surface`
+color. A project-owned Bun patch exposes Skia's `opaque` canvas option through
+`react-native-kline-chart`; Android therefore renders this chart through a
+`SurfaceView` instead of the default `TextureView`, removing `SurfaceTexture`
+from the chart's rendering path.
+
+The Skia-backed `KlineChart` is also mounted only while both the Trade route and
+the native application window are focused. Android `AppState` blur events
+(including the notification shade), inactive/background transitions, and
+navigation away from Trade unmount the renderer. Returning to the focused Trade
+route mounts a fresh renderer with the retained validated candle series.
+
+Only the native drawing surface is suspended. The fixed-height chart frame,
+interval controls, exact OHLC summary, overlay labels, and retained candle model
+stay mounted, so lifecycle transitions neither shift the layout nor discard
+presentation data.
+
 ## Theme and layout
 
 The chart measures its native container and passes exact pixel dimensions to

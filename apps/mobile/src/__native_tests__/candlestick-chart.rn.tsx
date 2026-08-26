@@ -102,6 +102,7 @@ describe("trade K-line price chart", () => {
         onIntervalChange={jest.fn()}
         overlays={overlays}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -129,6 +130,7 @@ describe("trade K-line price chart", () => {
         liveRange={[candles[0]?.openTime ?? 0, candles[1]?.openTime ?? 0]}
         loading={false}
         onIntervalChange={jest.fn()}
+        renderSurface
         unavailable={false}
       />,
     );
@@ -149,11 +151,63 @@ describe("trade K-line price chart", () => {
         { close: 12, high: 13, low: 10, open: 10, time: 1_720_000_900_000 },
       ],
       height: 210,
+      opaque: true,
       width: 320,
     });
     expect(mockKlineChartProps.backgroundColor).toBe(
       StyleSheet.flatten(frame.props.style).backgroundColor,
     );
+  });
+
+  test("unmounts only the native surface while rendering is suspended", () => {
+    const { rerender } = render(
+      <MarketKlinePriceChart
+        candles={candles}
+        canonicalMarketId="perp:BTC"
+        compact
+        interval="15m"
+        liveRange={[candles[0]?.openTime ?? 0, candles[1]?.openTime ?? 0]}
+        loading={false}
+        onIntervalChange={jest.fn()}
+        renderSurface
+        unavailable={false}
+      />,
+    );
+    const frame = screen.getByTestId("kline-chart-frame", {
+      includeHiddenElements: true,
+    });
+    fireEvent(frame, "layout", {
+      nativeEvent: { layout: { height: 210, width: 320, x: 0, y: 0 } },
+    });
+    expect(
+      screen.getByTestId("kline-chart", { includeHiddenElements: true }),
+    ).toBeTruthy();
+
+    rerender(
+      <MarketKlinePriceChart
+        candles={candles}
+        canonicalMarketId="perp:BTC"
+        compact
+        interval="15m"
+        liveRange={[candles[0]?.openTime ?? 0, candles[1]?.openTime ?? 0]}
+        loading={false}
+        onIntervalChange={jest.fn()}
+        renderSurface={false}
+        unavailable={false}
+      />,
+    );
+
+    expect(
+      screen.queryByTestId("kline-chart", { includeHiddenElements: true }),
+    ).toBeNull();
+    expect(
+      StyleSheet.flatten(
+        screen.getByTestId("kline-chart-frame", {
+          includeHiddenElements: true,
+        }).props.style,
+      ).height,
+    ).toBe(TRADE_CHART_FRAME_HEIGHT.compact);
+    expect(screen.getByTestId("kline-summary-rail")).toBeTruthy();
   });
 
   test("keeps the chart frame and data rails mounted while candles load", () => {
@@ -169,6 +223,7 @@ describe("trade K-line price chart", () => {
         onIntervalChange={onIntervalChange}
         overlays={overlays}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -198,6 +253,7 @@ describe("trade K-line price chart", () => {
         onIntervalChange={onIntervalChange}
         overlays={overlays}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -224,6 +280,7 @@ describe("trade K-line price chart", () => {
         loading={false}
         onIntervalChange={onIntervalChange}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -238,6 +295,7 @@ describe("trade K-line price chart", () => {
         loading
         onIntervalChange={onIntervalChange}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -263,6 +321,7 @@ describe("trade K-line price chart", () => {
         loading={false}
         onIntervalChange={onIntervalChange}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -287,6 +346,7 @@ describe("trade K-line price chart", () => {
         loading={false}
         onIntervalChange={onIntervalChange}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
@@ -301,6 +361,7 @@ describe("trade K-line price chart", () => {
         loading
         onIntervalChange={onIntervalChange}
         realtime
+        renderSurface
         unavailable={false}
       />,
     );
