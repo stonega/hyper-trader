@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import { MAINNET_TRADING_RELEASE_STAGE } from "@hyper-trader/hyperliquid";
+
 import { custodyBindingId } from "../../platform/security/credential-vault";
 import type { SavedAccount } from "./account-scope";
 import {
@@ -129,7 +131,10 @@ describe("active account context restoration", () => {
       network: "mainnet",
       masterAccount: MASTER,
       targetAccount: MASTER,
-      signer: null,
+      signer:
+        MAINNET_TRADING_RELEASE_STAGE === "candidate"
+          ? { agentAddress: AGENT, generation: 1 }
+          : null,
     });
   });
 
