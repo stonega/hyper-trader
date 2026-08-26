@@ -9,137 +9,44 @@ import {
   type MainnetTradingReleaseStage,
 } from "../packages/hyperliquid/src/signing/boundary";
 
-export const MAINNET_CLOSURE_CHECK_IDS = [
-  "P1",
-  "P2",
-  "P3",
-  "P4",
-  "P5",
-  "P6",
-  "P7",
-  "M1",
-  "M2",
-  "M3",
-  "M4",
-  "M5",
-  "M6",
-  "M7",
-  "M8",
-  "N1",
-  "N2",
-  "N3",
-  "N4",
-  "N5",
-  "N6",
-  "N7",
-  "N8",
-  "R1",
-  "R2",
-  "R3",
-  "R4",
-  "R5",
-] as const;
+export const MAINNET_RELEASE_PLATFORMS = ["ios", "android"] as const;
 
-export const MAINNET_REVIEW_ROLES = [
-  "protocol_signing",
-  "mobile_custody_release",
-  "notification_privacy_operations",
-  "recovery_incident",
-] as const;
-
-export const MAINNET_CANARY_ACTIONS = [
-  "limit_order",
-  "cancel",
-  "reduce_only_close",
-] as const;
-
-export const MAX_MAINNET_CANARY_CUMULATIVE_NOTIONAL_USD = 100;
-export const MAX_MAINNET_CANARY_OPEN_NOTIONAL_USD = 50;
-export const MAX_MAINNET_CANARY_DURATION_MINUTES = 30;
-
-type ClosureCheckId = (typeof MAINNET_CLOSURE_CHECK_IDS)[number];
-type ReviewRole = (typeof MAINNET_REVIEW_ROLES)[number];
-type CanaryAction = (typeof MAINNET_CANARY_ACTIONS)[number];
-type ClosureDecision = "pending" | "pass" | "not_applicable";
+type MainnetReleasePlatform = (typeof MAINNET_RELEASE_PLATFORMS)[number];
 type ApprovalDecision = "pending" | "approved";
 type PassDecision = "pending" | "pass";
 
 export interface MainnetArtifactReference {
+  readonly platform: MainnetReleasePlatform;
   readonly buildId: string;
   readonly path: string;
   readonly sha256: string;
 }
 
-export interface MainnetClosureCheck {
-  readonly id: ClosureCheckId;
-  readonly decision: ClosureDecision;
-  readonly reviewerId: string;
-  readonly reviewedAt: string;
-  readonly receiptId: string;
-  readonly notApplicableReason: string | null;
-}
-
-export interface MainnetReviewApproval {
-  readonly role: ReviewRole;
-  readonly decision: ApprovalDecision;
-  readonly reviewerId: string;
-  readonly reviewedAt: string;
-  readonly receiptId: string;
-}
-
 export interface MainnetReleaseEvidenceManifest {
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 2;
   readonly evidenceRevision: string;
   readonly revision: {
     readonly preactivationCommitSha: string;
     readonly candidateCommitSha: string;
     readonly candidateTreeSha: string;
   };
-  readonly artifacts: {
-    readonly ios: MainnetArtifactReference;
-    readonly android: MainnetArtifactReference;
-  };
-  readonly evidenceBundle: {
-    readonly path: string;
-    readonly sha256: string;
-  };
-  readonly closureChecks: readonly MainnetClosureCheck[];
-  readonly approvals: readonly MainnetReviewApproval[];
-  readonly disposableTestnet: {
+  readonly artifacts: readonly MainnetArtifactReference[];
+  readonly automatedVerification: {
+    readonly command: "./scripts/check.sh";
     readonly decision: PassDecision;
-    readonly operatorId: string;
-    readonly reviewedAt: string;
+    readonly completedAt: string;
     readonly receiptId: string;
   };
-  readonly candidateDecision: {
-    readonly decision: ApprovalDecision;
-    readonly reviewerId: string;
-    readonly reviewedAt: string;
+  readonly releaseOwner: {
+    readonly ownerId: string;
+    readonly candidateDecision: ApprovalDecision;
+    readonly decidedAt: string;
     readonly receiptId: string;
-  };
-  readonly mainnetCanary: {
-    readonly decision: PassDecision;
-    readonly authorizationId: string;
-    readonly authorizedBy: string;
-    readonly authorizedAt: string;
-    readonly authorizationExpiresAt: string;
-    readonly operatorId: string;
-    readonly stopOwnerId: string;
-    readonly rollbackOwnerId: string;
-    readonly maxCumulativeNotionalUsd: number;
-    readonly maxOpenNotionalUsd: number;
-    readonly maxOpenOrders: number;
-    readonly maxLeverage: number;
-    readonly maxDurationMinutes: number;
-    readonly permittedActions: readonly CanaryAction[];
-    readonly startedAt: string | null;
-    readonly completedAt: string | null;
-    readonly receiptId: string | null;
   };
   readonly releaseDecision: {
     readonly decision: "stop" | "approved";
-    readonly reviewerId: string;
-    readonly reviewedAt: string;
+    readonly ownerId: string;
+    readonly decidedAt: string;
     readonly receiptId: string;
   };
 }
@@ -175,7 +82,7 @@ function exactKeys(
   value: JsonObject,
   expected: readonly string[],
   path: string,
-) {
+): void {
   const actual = Object.keys(value).sort();
   const wanted = [...expected].sort();
   if (
@@ -206,18 +113,10 @@ function textValue(value: unknown, path: string): string {
   return value;
 }
 
-function publicReason(value: unknown, path: string): string {
-  const parsed = textValue(value, path);
-  if (/0x[0-9a-fA-F]{40}|[0-9a-fA-F]{64}/u.test(parsed)) {
-    fail(path, "must not contain an address, digest, or secret-like hex value");
-  }
-  return parsed;
-}
-
 function identifier(value: unknown, path: string): string {
   const parsed = textValue(value, path);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:@/-]{1,127}$/u.test(parsed)) {
-    fail(path, "expected an opaque identifier, not free-form evidence");
+    fail(path, "expected an opaque identifier");
   }
   return parsed;
 }
@@ -250,29 +149,6 @@ function isoTime(value: unknown, path: string): string {
   return parsed;
 }
 
-function nullableIsoTime(value: unknown, path: string): string | null {
-  return value === null ? null : isoTime(value, path);
-}
-
-function nullableIdentifier(value: unknown, path: string): string | null {
-  return value === null ? null : identifier(value, path);
-}
-
-function finiteNumber(value: unknown, path: string): number {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    fail(path, "expected a finite number");
-  }
-  return value;
-}
-
-function positiveInteger(value: unknown, path: string): number {
-  const parsed = finiteNumber(value, path);
-  if (!Number.isSafeInteger(parsed) || parsed < 1) {
-    fail(path, "expected a positive safe integer");
-  }
-  return parsed;
-}
-
 function enumValue<const T extends string>(
   value: unknown,
   allowed: readonly T[],
@@ -284,74 +160,22 @@ function enumValue<const T extends string>(
   return value as T;
 }
 
-function parseArtifact(value: unknown, path: string): MainnetArtifactReference {
+function parseArtifact(
+  value: unknown,
+  index: number,
+): MainnetArtifactReference {
+  const path = `manifest.artifacts[${index}]`;
   const source = object(value, path);
-  exactKeys(source, ["buildId", "path", "sha256"], path);
+  exactKeys(source, ["platform", "buildId", "path", "sha256"], path);
   return {
+    platform: enumValue(
+      source.platform,
+      MAINNET_RELEASE_PLATFORMS,
+      `${path}.platform`,
+    ),
     buildId: identifier(source.buildId, `${path}.buildId`),
     path: textValue(source.path, `${path}.path`),
     sha256: sha256(source.sha256, `${path}.sha256`),
-  };
-}
-
-function parseClosureCheck(value: unknown, index: number): MainnetClosureCheck {
-  const path = `manifest.closureChecks[${index}]`;
-  const source = object(value, path);
-  exactKeys(
-    source,
-    [
-      "id",
-      "decision",
-      "reviewerId",
-      "reviewedAt",
-      "receiptId",
-      "notApplicableReason",
-    ],
-    path,
-  );
-  const decision = enumValue(
-    source.decision,
-    ["pending", "pass", "not_applicable"],
-    `${path}.decision`,
-  );
-  const reason =
-    source.notApplicableReason === null
-      ? null
-      : publicReason(source.notApplicableReason, `${path}.notApplicableReason`);
-  if (decision === "not_applicable" && reason === null) {
-    fail(`${path}.notApplicableReason`, "required for not_applicable");
-  }
-  if (decision !== "not_applicable" && reason !== null) {
-    fail(`${path}.notApplicableReason`, "must be null unless not_applicable");
-  }
-  return {
-    id: enumValue(source.id, MAINNET_CLOSURE_CHECK_IDS, `${path}.id`),
-    decision,
-    reviewerId: identifier(source.reviewerId, `${path}.reviewerId`),
-    reviewedAt: isoTime(source.reviewedAt, `${path}.reviewedAt`),
-    receiptId: identifier(source.receiptId, `${path}.receiptId`),
-    notApplicableReason: reason,
-  };
-}
-
-function parseApproval(value: unknown, index: number): MainnetReviewApproval {
-  const path = `manifest.approvals[${index}]`;
-  const source = object(value, path);
-  exactKeys(
-    source,
-    ["role", "decision", "reviewerId", "reviewedAt", "receiptId"],
-    path,
-  );
-  return {
-    role: enumValue(source.role, MAINNET_REVIEW_ROLES, `${path}.role`),
-    decision: enumValue(
-      source.decision,
-      ["pending", "approved"],
-      `${path}.decision`,
-    ),
-    reviewerId: identifier(source.reviewerId, `${path}.reviewerId`),
-    reviewedAt: isoTime(source.reviewedAt, `${path}.reviewedAt`),
-    receiptId: identifier(source.receiptId, `${path}.receiptId`),
   };
 }
 
@@ -366,18 +190,14 @@ export function parseMainnetReleaseEvidenceManifest(
       "evidenceRevision",
       "revision",
       "artifacts",
-      "evidenceBundle",
-      "closureChecks",
-      "approvals",
-      "disposableTestnet",
-      "candidateDecision",
-      "mainnetCanary",
+      "automatedVerification",
+      "releaseOwner",
       "releaseDecision",
     ],
     "manifest",
   );
-  if (source.schemaVersion !== 1) {
-    fail("manifest.schemaVersion", "expected 1");
+  if (source.schemaVersion !== 2) {
+    fail("manifest.schemaVersion", "expected 2");
   }
 
   const revision = object(source.revision, "manifest.revision");
@@ -386,78 +206,42 @@ export function parseMainnetReleaseEvidenceManifest(
     ["preactivationCommitSha", "candidateCommitSha", "candidateTreeSha"],
     "manifest.revision",
   );
-  const artifacts = object(source.artifacts, "manifest.artifacts");
-  exactKeys(artifacts, ["ios", "android"], "manifest.artifacts");
-  const evidenceBundle = object(
-    source.evidenceBundle,
-    "manifest.evidenceBundle",
-  );
-  exactKeys(evidenceBundle, ["path", "sha256"], "manifest.evidenceBundle");
-
-  if (!Array.isArray(source.closureChecks)) {
-    fail("manifest.closureChecks", "expected an array");
+  if (!Array.isArray(source.artifacts) || source.artifacts.length === 0) {
+    fail("manifest.artifacts", "expected at least one platform artifact");
   }
-  if (!Array.isArray(source.approvals)) {
-    fail("manifest.approvals", "expected an array");
-  }
-
-  const disposable = object(
-    source.disposableTestnet,
-    "manifest.disposableTestnet",
+  const automatedVerification = object(
+    source.automatedVerification,
+    "manifest.automatedVerification",
   );
   exactKeys(
-    disposable,
-    ["decision", "operatorId", "reviewedAt", "receiptId"],
-    "manifest.disposableTestnet",
+    automatedVerification,
+    ["command", "decision", "completedAt", "receiptId"],
+    "manifest.automatedVerification",
   );
-  const candidateDecision = object(
-    source.candidateDecision,
-    "manifest.candidateDecision",
-  );
-  exactKeys(
-    candidateDecision,
-    ["decision", "reviewerId", "reviewedAt", "receiptId"],
-    "manifest.candidateDecision",
-  );
-  const canary = object(source.mainnetCanary, "manifest.mainnetCanary");
-  exactKeys(
-    canary,
-    [
-      "decision",
-      "authorizationId",
-      "authorizedBy",
-      "authorizedAt",
-      "authorizationExpiresAt",
-      "operatorId",
-      "stopOwnerId",
-      "rollbackOwnerId",
-      "maxCumulativeNotionalUsd",
-      "maxOpenNotionalUsd",
-      "maxOpenOrders",
-      "maxLeverage",
-      "maxDurationMinutes",
-      "permittedActions",
-      "startedAt",
-      "completedAt",
-      "receiptId",
-    ],
-    "manifest.mainnetCanary",
-  );
-  if (!Array.isArray(canary.permittedActions)) {
-    fail("manifest.mainnetCanary.permittedActions", "expected an array");
+  if (automatedVerification.command !== "./scripts/check.sh") {
+    fail(
+      "manifest.automatedVerification.command",
+      "expected ./scripts/check.sh",
+    );
   }
+  const releaseOwner = object(source.releaseOwner, "manifest.releaseOwner");
+  exactKeys(
+    releaseOwner,
+    ["ownerId", "candidateDecision", "decidedAt", "receiptId"],
+    "manifest.releaseOwner",
+  );
   const releaseDecision = object(
     source.releaseDecision,
     "manifest.releaseDecision",
   );
   exactKeys(
     releaseDecision,
-    ["decision", "reviewerId", "reviewedAt", "receiptId"],
+    ["decision", "ownerId", "decidedAt", "receiptId"],
     "manifest.releaseDecision",
   );
 
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     evidenceRevision: identifier(
       source.evidenceRevision,
       "manifest.evidenceRevision",
@@ -476,126 +260,40 @@ export function parseMainnetReleaseEvidenceManifest(
         "manifest.revision.candidateTreeSha",
       ),
     },
-    artifacts: {
-      ios: parseArtifact(artifacts.ios, "manifest.artifacts.ios"),
-      android: parseArtifact(artifacts.android, "manifest.artifacts.android"),
-    },
-    evidenceBundle: {
-      path: textValue(evidenceBundle.path, "manifest.evidenceBundle.path"),
-      sha256: sha256(evidenceBundle.sha256, "manifest.evidenceBundle.sha256"),
-    },
-    closureChecks: source.closureChecks.map(parseClosureCheck),
-    approvals: source.approvals.map(parseApproval),
-    disposableTestnet: {
+    artifacts: source.artifacts.map(parseArtifact),
+    automatedVerification: {
+      command: "./scripts/check.sh",
       decision: enumValue(
-        disposable.decision,
+        automatedVerification.decision,
         ["pending", "pass"],
-        "manifest.disposableTestnet.decision",
+        "manifest.automatedVerification.decision",
       ),
-      operatorId: identifier(
-        disposable.operatorId,
-        "manifest.disposableTestnet.operatorId",
-      ),
-      reviewedAt: isoTime(
-        disposable.reviewedAt,
-        "manifest.disposableTestnet.reviewedAt",
+      completedAt: isoTime(
+        automatedVerification.completedAt,
+        "manifest.automatedVerification.completedAt",
       ),
       receiptId: identifier(
-        disposable.receiptId,
-        "manifest.disposableTestnet.receiptId",
+        automatedVerification.receiptId,
+        "manifest.automatedVerification.receiptId",
       ),
     },
-    candidateDecision: {
-      decision: enumValue(
-        candidateDecision.decision,
+    releaseOwner: {
+      ownerId: identifier(
+        releaseOwner.ownerId,
+        "manifest.releaseOwner.ownerId",
+      ),
+      candidateDecision: enumValue(
+        releaseOwner.candidateDecision,
         ["pending", "approved"],
-        "manifest.candidateDecision.decision",
+        "manifest.releaseOwner.candidateDecision",
       ),
-      reviewerId: identifier(
-        candidateDecision.reviewerId,
-        "manifest.candidateDecision.reviewerId",
-      ),
-      reviewedAt: isoTime(
-        candidateDecision.reviewedAt,
-        "manifest.candidateDecision.reviewedAt",
+      decidedAt: isoTime(
+        releaseOwner.decidedAt,
+        "manifest.releaseOwner.decidedAt",
       ),
       receiptId: identifier(
-        candidateDecision.receiptId,
-        "manifest.candidateDecision.receiptId",
-      ),
-    },
-    mainnetCanary: {
-      decision: enumValue(
-        canary.decision,
-        ["pending", "pass"],
-        "manifest.mainnetCanary.decision",
-      ),
-      authorizationId: identifier(
-        canary.authorizationId,
-        "manifest.mainnetCanary.authorizationId",
-      ),
-      authorizedBy: identifier(
-        canary.authorizedBy,
-        "manifest.mainnetCanary.authorizedBy",
-      ),
-      authorizedAt: isoTime(
-        canary.authorizedAt,
-        "manifest.mainnetCanary.authorizedAt",
-      ),
-      authorizationExpiresAt: isoTime(
-        canary.authorizationExpiresAt,
-        "manifest.mainnetCanary.authorizationExpiresAt",
-      ),
-      operatorId: identifier(
-        canary.operatorId,
-        "manifest.mainnetCanary.operatorId",
-      ),
-      stopOwnerId: identifier(
-        canary.stopOwnerId,
-        "manifest.mainnetCanary.stopOwnerId",
-      ),
-      rollbackOwnerId: identifier(
-        canary.rollbackOwnerId,
-        "manifest.mainnetCanary.rollbackOwnerId",
-      ),
-      maxCumulativeNotionalUsd: finiteNumber(
-        canary.maxCumulativeNotionalUsd,
-        "manifest.mainnetCanary.maxCumulativeNotionalUsd",
-      ),
-      maxOpenNotionalUsd: finiteNumber(
-        canary.maxOpenNotionalUsd,
-        "manifest.mainnetCanary.maxOpenNotionalUsd",
-      ),
-      maxOpenOrders: positiveInteger(
-        canary.maxOpenOrders,
-        "manifest.mainnetCanary.maxOpenOrders",
-      ),
-      maxLeverage: positiveInteger(
-        canary.maxLeverage,
-        "manifest.mainnetCanary.maxLeverage",
-      ),
-      maxDurationMinutes: positiveInteger(
-        canary.maxDurationMinutes,
-        "manifest.mainnetCanary.maxDurationMinutes",
-      ),
-      permittedActions: canary.permittedActions.map((action, index) =>
-        enumValue(
-          action,
-          MAINNET_CANARY_ACTIONS,
-          `manifest.mainnetCanary.permittedActions[${index}]`,
-        ),
-      ),
-      startedAt: nullableIsoTime(
-        canary.startedAt,
-        "manifest.mainnetCanary.startedAt",
-      ),
-      completedAt: nullableIsoTime(
-        canary.completedAt,
-        "manifest.mainnetCanary.completedAt",
-      ),
-      receiptId: nullableIdentifier(
-        canary.receiptId,
-        "manifest.mainnetCanary.receiptId",
+        releaseOwner.receiptId,
+        "manifest.releaseOwner.receiptId",
       ),
     },
     releaseDecision: {
@@ -604,13 +302,13 @@ export function parseMainnetReleaseEvidenceManifest(
         ["stop", "approved"],
         "manifest.releaseDecision.decision",
       ),
-      reviewerId: identifier(
-        releaseDecision.reviewerId,
-        "manifest.releaseDecision.reviewerId",
+      ownerId: identifier(
+        releaseDecision.ownerId,
+        "manifest.releaseDecision.ownerId",
       ),
-      reviewedAt: isoTime(
-        releaseDecision.reviewedAt,
-        "manifest.releaseDecision.reviewedAt",
+      decidedAt: isoTime(
+        releaseDecision.decidedAt,
+        "manifest.releaseDecision.decidedAt",
       ),
       receiptId: identifier(
         releaseDecision.receiptId,
@@ -618,22 +316,6 @@ export function parseMainnetReleaseEvidenceManifest(
       ),
     },
   };
-}
-
-function uniqueExactSet(
-  actual: readonly string[],
-  expected: readonly string[],
-  path: string,
-): void {
-  if (
-    actual.length !== expected.length ||
-    new Set(actual).size !== actual.length ||
-    [...actual]
-      .sort()
-      .some((value, index) => value !== [...expected].sort()[index])
-  ) {
-    fail(path, `expected each of ${expected.join(", ")} exactly once`);
-  }
 }
 
 function assertNotFuture(value: string, nowMs: number, path: string): void {
@@ -645,253 +327,81 @@ export function assertEvidenceStage(
   manifest: MainnetReleaseEvidenceManifest,
   nowMs = Date.now(),
 ): void {
-  uniqueExactSet(
-    manifest.closureChecks.map((check) => check.id),
-    MAINNET_CLOSURE_CHECK_IDS,
-    "manifest.closureChecks",
-  );
-  for (const check of manifest.closureChecks) {
-    if (check.decision === "pending") {
-      fail(`manifest.closureChecks.${check.id}`, "is still pending");
-    }
-    if ((check.id === "M1" || check.id === "M2") && check.decision !== "pass") {
-      fail(
-        `manifest.closureChecks.${check.id}`,
-        "physical platform custody evidence must pass",
-      );
-    }
-    assertNotFuture(
-      check.reviewedAt,
-      nowMs,
-      `manifest.closureChecks.${check.id}.reviewedAt`,
-    );
+  const artifactPlatforms = manifest.artifacts.map(({ platform }) => platform);
+  if (new Set(artifactPlatforms).size !== artifactPlatforms.length) {
+    fail("manifest.artifacts", "each platform may appear at most once");
   }
-
-  if (manifest.artifacts.ios.buildId === manifest.artifacts.android.buildId) {
-    fail("manifest.artifacts", "iOS and Android build IDs must be distinct");
+  const buildIds = manifest.artifacts.map(({ buildId }) => buildId);
+  if (new Set(buildIds).size !== buildIds.length) {
+    fail("manifest.artifacts", "build IDs must be distinct");
   }
-
-  uniqueExactSet(
-    manifest.approvals.map((approval) => approval.role),
-    MAINNET_REVIEW_ROLES,
-    "manifest.approvals",
-  );
-  for (const approval of manifest.approvals) {
-    if (approval.decision !== "approved") {
-      fail(`manifest.approvals.${approval.role}`, "is not approved");
-    }
-    assertNotFuture(
-      approval.reviewedAt,
-      nowMs,
-      `manifest.approvals.${approval.role}.reviewedAt`,
-    );
-  }
-  const approvalReviewers = manifest.approvals.map(
-    (approval) => approval.reviewerId,
-  );
-  if (new Set(approvalReviewers).size !== approvalReviewers.length) {
+  if (manifest.automatedVerification.decision !== "pass") {
     fail(
-      "manifest.approvals",
-      "the four review roles require independent reviewers",
-    );
-  }
-  if (manifest.disposableTestnet.decision !== "pass") {
-    fail("manifest.disposableTestnet.decision", "must pass before a candidate");
-  }
-  if (manifest.candidateDecision.decision !== "approved") {
-    fail(
-      "manifest.candidateDecision.decision",
-      "must approve private candidate use",
+      "manifest.automatedVerification.decision",
+      "the complete automated check must pass",
     );
   }
   assertNotFuture(
-    manifest.disposableTestnet.reviewedAt,
+    manifest.automatedVerification.completedAt,
     nowMs,
-    "manifest.disposableTestnet.reviewedAt",
+    "manifest.automatedVerification.completedAt",
   );
+  if (manifest.releaseOwner.candidateDecision !== "approved") {
+    fail(
+      "manifest.releaseOwner.candidateDecision",
+      "the release owner must approve the exact private candidate",
+    );
+  }
+  if (
+    Date.parse(manifest.releaseOwner.decidedAt) <
+    Date.parse(manifest.automatedVerification.completedAt)
+  ) {
+    fail(
+      "manifest.releaseOwner.decidedAt",
+      "must follow automated verification",
+    );
+  }
   assertNotFuture(
-    manifest.candidateDecision.reviewedAt,
+    manifest.releaseOwner.decidedAt,
     nowMs,
-    "manifest.candidateDecision.reviewedAt",
+    "manifest.releaseOwner.decidedAt",
   );
-  const latestPrerequisiteReview = Math.max(
-    Date.parse(manifest.disposableTestnet.reviewedAt),
-    ...manifest.closureChecks.map((check) => Date.parse(check.reviewedAt)),
-  );
-  for (const approval of manifest.approvals) {
-    if (Date.parse(approval.reviewedAt) < latestPrerequisiteReview) {
-      fail(
-        `manifest.approvals.${approval.role}.reviewedAt`,
-        "must follow the completed closure and disposable-testnet evidence",
-      );
-    }
-  }
-  const latestApproval = Math.max(
-    ...manifest.approvals.map((approval) => Date.parse(approval.reviewedAt)),
-  );
-  if (Date.parse(manifest.candidateDecision.reviewedAt) < latestApproval) {
+  if (manifest.releaseDecision.ownerId !== manifest.releaseOwner.ownerId) {
     fail(
-      "manifest.candidateDecision.reviewedAt",
-      "must follow all four approvals",
+      "manifest.releaseDecision.ownerId",
+      "must match the candidate release owner",
     );
   }
-  if (approvalReviewers.includes(manifest.candidateDecision.reviewerId)) {
-    fail(
-      "manifest.candidateDecision.reviewerId",
-      "release ownership must be independent of the four review roles",
-    );
-  }
-
-  const canary = manifest.mainnetCanary;
-  const authorizedAt = Date.parse(canary.authorizedAt);
-  const authorizationExpiresAt = Date.parse(canary.authorizationExpiresAt);
-  if (authorizationExpiresAt <= authorizedAt) {
-    fail(
-      "manifest.mainnetCanary.authorizationExpiresAt",
-      "must follow authorization",
-    );
-  }
-  if (authorizedAt < Date.parse(manifest.candidateDecision.reviewedAt)) {
-    fail(
-      "manifest.mainnetCanary.authorizedAt",
-      "must follow private-candidate approval",
-    );
-  }
-  if (canary.authorizedBy === canary.operatorId) {
-    fail(
-      "manifest.mainnetCanary.operatorId",
-      "the canary operator cannot authorize their own run",
-    );
-  }
-  if (
-    canary.stopOwnerId === canary.operatorId ||
-    canary.rollbackOwnerId === canary.operatorId
-  ) {
-    fail(
-      "manifest.mainnetCanary",
-      "stop and rollback ownership must be independent of the operator",
-    );
-  }
-  if (
-    canary.maxCumulativeNotionalUsd <= 0 ||
-    canary.maxCumulativeNotionalUsd > MAX_MAINNET_CANARY_CUMULATIVE_NOTIONAL_USD
-  ) {
-    fail(
-      "manifest.mainnetCanary.maxCumulativeNotionalUsd",
-      `must be within (0, ${MAX_MAINNET_CANARY_CUMULATIVE_NOTIONAL_USD}]`,
-    );
-  }
-  if (
-    canary.maxOpenNotionalUsd <= 0 ||
-    canary.maxOpenNotionalUsd > MAX_MAINNET_CANARY_OPEN_NOTIONAL_USD ||
-    canary.maxOpenNotionalUsd > canary.maxCumulativeNotionalUsd
-  ) {
-    fail(
-      "manifest.mainnetCanary.maxOpenNotionalUsd",
-      `must be within (0, ${MAX_MAINNET_CANARY_OPEN_NOTIONAL_USD}] and no greater than cumulative notional`,
-    );
-  }
-  if (canary.maxOpenOrders !== 1) {
-    fail("manifest.mainnetCanary.maxOpenOrders", "must equal 1");
-  }
-  if (canary.maxLeverage > 2) {
-    fail("manifest.mainnetCanary.maxLeverage", "must not exceed 2");
-  }
-  if (canary.maxDurationMinutes > MAX_MAINNET_CANARY_DURATION_MINUTES) {
-    fail(
-      "manifest.mainnetCanary.maxDurationMinutes",
-      `must not exceed ${MAX_MAINNET_CANARY_DURATION_MINUTES}`,
-    );
-  }
-  uniqueExactSet(
-    canary.permittedActions,
-    MAINNET_CANARY_ACTIONS,
-    "manifest.mainnetCanary.permittedActions",
-  );
 
   if (stage === "candidate") {
-    if (canary.decision !== "pending") {
-      fail(
-        "manifest.mainnetCanary.decision",
-        "must be pending before the canary",
-      );
-    }
-    if (
-      canary.startedAt !== null ||
-      canary.completedAt !== null ||
-      canary.receiptId !== null
-    ) {
-      fail(
-        "manifest.mainnetCanary",
-        "pending canary cannot claim execution evidence",
-      );
-    }
-    if (nowMs < authorizedAt || nowMs >= authorizationExpiresAt) {
-      fail("manifest.mainnetCanary", "authorization is not currently valid");
-    }
     if (manifest.releaseDecision.decision !== "stop") {
       fail(
         "manifest.releaseDecision.decision",
-        "must remain stop before canary",
+        "must remain stop while validating the private candidate",
       );
     }
     return;
   }
 
-  if (
-    canary.decision !== "pass" ||
-    canary.startedAt === null ||
-    canary.completedAt === null ||
-    canary.receiptId === null
-  ) {
-    fail(
-      "manifest.mainnetCanary",
-      "release requires completed passing evidence",
-    );
-  }
-  const startedAt = Date.parse(canary.startedAt);
-  const completedAt = Date.parse(canary.completedAt);
-  if (
-    startedAt < authorizedAt ||
-    completedAt > authorizationExpiresAt ||
-    completedAt <= startedAt
-  ) {
-    fail(
-      "manifest.mainnetCanary",
-      "execution must fit inside its authorization window",
-    );
-  }
-  if (completedAt - startedAt > canary.maxDurationMinutes * 60 * 1_000) {
-    fail(
-      "manifest.mainnetCanary",
-      "execution exceeded the authorized duration",
-    );
-  }
   if (manifest.releaseDecision.decision !== "approved") {
     fail(
       "manifest.releaseDecision.decision",
-      "must be approved after the canary",
+      "the release owner must approve public distribution",
     );
   }
   if (
-    manifest.releaseDecision.reviewerId !==
-    manifest.candidateDecision.reviewerId
+    Date.parse(manifest.releaseDecision.decidedAt) <
+    Date.parse(manifest.releaseOwner.decidedAt)
   ) {
     fail(
-      "manifest.releaseDecision.reviewerId",
-      "must match the private-candidate release owner",
-    );
-  }
-  if (Date.parse(manifest.releaseDecision.reviewedAt) < completedAt) {
-    fail(
-      "manifest.releaseDecision.reviewedAt",
-      "must follow canary completion",
+      "manifest.releaseDecision.decidedAt",
+      "must follow private-candidate approval",
     );
   }
   assertNotFuture(
-    manifest.releaseDecision.reviewedAt,
+    manifest.releaseDecision.decidedAt,
     nowMs,
-    "manifest.releaseDecision.reviewedAt",
+    "manifest.releaseDecision.decidedAt",
   );
 }
 
@@ -981,6 +491,7 @@ export function assertCandidateRevision(input: {
     );
   }
 
+  const capabilityPath = "packages/hyperliquid/src/signing/boundary.ts";
   const changedPaths = git(input.repositoryRoot, [
     "diff",
     "--name-only",
@@ -988,7 +499,6 @@ export function assertCandidateRevision(input: {
   ])
     .split("\n")
     .filter(Boolean);
-  const capabilityPath = "packages/hyperliquid/src/signing/boundary.ts";
   if (changedPaths.length !== 1 || changedPaths[0] !== capabilityPath) {
     fail(
       "repository.activationDiff",
@@ -1053,34 +563,19 @@ export async function assertArtifactDigests(input: {
   readonly manifestPath: string;
   readonly manifest: MainnetReleaseEvidenceManifest;
 }): Promise<void> {
-  const references = [
-    [
-      "artifacts.ios",
-      input.manifest.artifacts.ios.path,
-      input.manifest.artifacts.ios.sha256,
-    ],
-    [
-      "artifacts.android",
-      input.manifest.artifacts.android.path,
-      input.manifest.artifacts.android.sha256,
-    ],
-    [
-      "evidenceBundle",
-      input.manifest.evidenceBundle.path,
-      input.manifest.evidenceBundle.sha256,
-    ],
-  ] as const;
-  const resolvedPaths = references.map(([, path]) =>
+  const resolvedPaths = input.manifest.artifacts.map(({ path }) =>
     artifactPath(input.manifestPath, path),
   );
   if (new Set(resolvedPaths).size !== resolvedPaths.length) {
-    fail("manifest.artifacts", "artifact and evidence paths must be distinct");
+    fail("manifest.artifacts", "artifact paths must be distinct");
   }
-  for (let index = 0; index < references.length; index += 1) {
-    const [name, , expected] = references[index] as (typeof references)[number];
+  for (let index = 0; index < input.manifest.artifacts.length; index += 1) {
+    const artifact = input.manifest.artifacts[
+      index
+    ] as MainnetArtifactReference;
     const actual = await hashFile(resolvedPaths[index] as string);
-    if (actual !== expected) {
-      fail(`manifest.${name}.sha256`, "does not match the referenced file");
+    if (actual !== artifact.sha256) {
+      fail(`manifest.artifacts.${artifact.platform}.sha256`, "does not match");
     }
   }
 }
@@ -1090,83 +585,39 @@ function templateTime(): string {
 }
 
 export function createMainnetReleaseEvidenceTemplate(): MainnetReleaseEvidenceManifest {
-  const placeholderSha256 = "0".repeat(64);
-  const placeholderGitSha = "0".repeat(40);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     evidenceRevision: "replace-mainnet-evidence-revision",
     revision: {
-      preactivationCommitSha: placeholderGitSha,
-      candidateCommitSha: placeholderGitSha,
-      candidateTreeSha: placeholderGitSha,
+      preactivationCommitSha: "0".repeat(40),
+      candidateCommitSha: "0".repeat(40),
+      candidateTreeSha: "0".repeat(40),
     },
-    artifacts: {
-      ios: {
-        buildId: "replace-ios-build-id",
-        path: "replace/ios-release.ipa",
-        sha256: placeholderSha256,
-      },
-      android: {
+    artifacts: [
+      {
+        platform: "android",
         buildId: "replace-android-build-id",
         path: "replace/android-release.aab",
-        sha256: placeholderSha256,
+        sha256: "0".repeat(64),
       },
+    ],
+    automatedVerification: {
+      command: "./scripts/check.sh",
+      decision: "pending",
+      completedAt: templateTime(),
+      receiptId: "replace-automated-check-receipt",
     },
-    evidenceBundle: {
-      path: "replace/restricted-evidence-bundle.tar",
-      sha256: placeholderSha256,
-    },
-    closureChecks: MAINNET_CLOSURE_CHECK_IDS.map((id) => ({
-      id,
-      decision: "pending",
-      reviewerId: "replace-reviewer-id",
-      reviewedAt: templateTime(),
-      receiptId: "replace-receipt-id",
-      notApplicableReason: null,
-    })),
-    approvals: MAINNET_REVIEW_ROLES.map((role) => ({
-      role,
-      decision: "pending",
-      reviewerId: "replace-reviewer-id",
-      reviewedAt: templateTime(),
-      receiptId: "replace-receipt-id",
-    })),
-    disposableTestnet: {
-      decision: "pending",
-      operatorId: "replace-operator-id",
-      reviewedAt: templateTime(),
-      receiptId: "replace-receipt-id",
-    },
-    candidateDecision: {
-      decision: "pending",
-      reviewerId: "replace-release-owner-id",
-      reviewedAt: templateTime(),
-      receiptId: "replace-receipt-id",
-    },
-    mainnetCanary: {
-      decision: "pending",
-      authorizationId: "replace-authorization-id",
-      authorizedBy: "replace-authorizer-id",
-      authorizedAt: templateTime(),
-      authorizationExpiresAt: "1970-01-01T00:30:00.000Z",
-      operatorId: "replace-operator-id",
-      stopOwnerId: "replace-stop-owner-id",
-      rollbackOwnerId: "replace-rollback-owner-id",
-      maxCumulativeNotionalUsd: 100,
-      maxOpenNotionalUsd: 50,
-      maxOpenOrders: 1,
-      maxLeverage: 2,
-      maxDurationMinutes: 30,
-      permittedActions: [...MAINNET_CANARY_ACTIONS],
-      startedAt: null,
-      completedAt: null,
-      receiptId: null,
+    releaseOwner: {
+      ownerId: "replace-release-owner-id",
+      candidateDecision: "pending",
+      decidedAt: templateTime(),
+      receiptId: "replace-candidate-decision-receipt",
     },
     releaseDecision: {
       decision: "stop",
-      reviewerId: "replace-release-owner-id",
-      reviewedAt: templateTime(),
-      receiptId: "replace-receipt-id",
+      ownerId: "replace-release-owner-id",
+      decidedAt: templateTime(),
+      receiptId: "replace-release-decision-receipt",
     },
   };
 }
@@ -1181,6 +632,18 @@ async function readManifest(
     fail("manifest", "could not read strict JSON");
   }
   return parseMainnetReleaseEvidenceManifest(value);
+}
+
+async function runAutomatedVerification(repositoryRoot: string): Promise<void> {
+  const process = Bun.spawn(["bash", "scripts/check.sh"], {
+    cwd: repositoryRoot,
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  if ((await process.exited) !== 0) {
+    fail("automatedVerification", "./scripts/check.sh failed");
+  }
 }
 
 async function run(): Promise<void> {
@@ -1219,12 +682,14 @@ async function run(): Promise<void> {
   if (snapshot.releaseStage !== "candidate") {
     fail("source.releaseStage", `${command} verification requires candidate`);
   }
+
   const manifestPath = resolve(manifestArgument);
   const manifest = await readManifest(manifestPath);
   assertEvidenceStage(command, manifest);
   const repositoryRoot = resolve(import.meta.dir, "..");
   assertCandidateRevision({ repositoryRoot, manifest });
   await assertArtifactDigests({ manifestPath, manifest });
+  await runAutomatedVerification(repositoryRoot);
   const manifestDigest = await hashFile(manifestPath);
   console.log(
     `${command === "candidate" ? "Private candidate" : "Public release"} preflight passed for ${manifest.revision.candidateCommitSha}; manifest SHA-256 ${manifestDigest}.`,

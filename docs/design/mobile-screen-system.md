@@ -206,7 +206,7 @@ making the API wallet independently selectable.
 
 - In-app deposits, withdrawals, and internal transfers are excluded.
 - The master-account seed phrase and private key are never handled by Hyper Trader.
-- Private `candidate` builds may submit supported mainnet orders for explicit functional testing; public distribution remains disabled until API-wallet custody, signing, revocation, replay, nonce, recovery, physical-device, and bounded-canary evidence passes the separate release review.
+- `candidate` builds may submit supported Mainnet orders. Public distribution requires the automated repository aggregate, an exact target-platform artifact digest, target-device smoke testing, and the release owner's final preflight decision.
 - Read-only public market data may continue to use mainnet while authenticated development defaults to testnet.
 - Visual branding, illustration style, final typography, and motion language are not defined by this document.
 
@@ -214,7 +214,7 @@ making the API wallet independently selectable.
 
 - Hyperliquid remains the authority for market metadata, account state, action formats, asset identifiers, and API-wallet behavior.
 - Master-wallet approval occurs through an external signing handoff; the supported wallet-connection methods remain a planning decision.
-- API-wallet credentials can be protected with platform security facilities appropriate to iOS and Android; the custody design requires dedicated review.
+- API-wallet credentials are protected with platform security facilities appropriate to iOS and Android and remain on the user's device.
 - Reliable closed-app notifications require a backend that monitors public data and delivers platform push notifications without exchange authority.
 - Exact baseline devices, session timeout defaults, and notification retention periods will be set during technical and security planning.
 

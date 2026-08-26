@@ -1,244 +1,141 @@
-# Security review and live-integration gate
+# Security verification and live-integration gate
 
-## Gate state
+## Gate model
 
-This is the blocking release sign-off record for U1. U5-U7 may implement
-deterministic, offline components, but no distributed or release build may
-enable live external-wallet registration, signer access, or `/exchange`
-transport until all four review owners approve the same evidence revision.
-Missing, expired, or conditional approval means **stop** for distribution.
+Hyper Trader uses automated verification and one accountable release owner. A
+solo maintainer does not need separate protocol, mobile, privacy, or operations
+reviewers. Public distribution is permitted when the exact release candidate:
 
-An explicitly operator-authorized source development build may exercise the
-fixed testnet origin with a disposable API wallet. That narrow path is compiled
-only under `__DEV__`, retains every confirmation, custody, context, clock,
-nonce/journal, and mainnet-denial boundary, and is not release evidence by
-itself. It cannot be enabled by environment, remote configuration, OTA, or UI.
-The closure sequence and all 28 unfinished checks are tracked in
-[`2026-08-19-testnet-runtime-and-security-closure.md`](../plans/2026-08-19-testnet-runtime-and-security-closure.md).
+1. is a one-line activation child of a clean `preactivation` commit;
+2. passes `./scripts/check.sh`;
+3. has a target-platform artifact whose SHA-256 digest matches the release
+   manifest; and
+4. is explicitly approved by the release owner after artifact smoke testing.
 
-| Review | Required owner | Evidence revision | Decision/date |
-|---|---|---|---|
-| Protocol and signing | Hyperliquid protocol reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 network-generic action change; review pending |
-| Mobile custody and release | Mobile security reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 custody/schema change; review pending |
-| Notification privacy and operations | Privacy/service-security reviewer | pending mainnet revision | Prior document decision remains conditional; consolidated release review pending |
-| Recovery and incident response | Operations/recovery reviewer | pending mainnet revision | Prior document decision expired after the 2026-08-24 recovery-policy change; review pending |
+The executable contract is
+[`mainnet-release-preflight.md`](mainnet-release-preflight.md). The strict
+version-two manifest accepts one or more platform artifacts and contains no
+independent-reviewer or real-funds-canary fields.
 
-Approval expires after any custody, codec, nonce schema, account-proof, key
-provider, origin, native config-plugin, OTA, or credential-authority change.
-These decisions approve the version-one document contracts only. They are
-conditional for live integration: every applicable unchecked runtime or drill
-row below still means stop, and later evidence must update all four decisions to
-unconditional approval for the same revision before live U5-U7 paths activate.
+This governance simplification does not change trading behavior. Network,
+market, price, size, leverage, margin, slippage, signer binding, nonce, journal,
+and fixed-origin validation remain enforced at runtime. Every exchange action
+still requires explicit user confirmation and device authentication.
 
-U13 automated, device, external-system, and reviewer receipts are recorded in
-[`release-evidence.md`](release-evidence.md). That record deliberately leaves
-physical-device, Reown, push-provider, database-restore, credential-rotation,
-and live-testnet rows pending; this document's conditional gate therefore
-remains closed.
+## Non-custodial key boundary
 
-## Mainnet candidate testing decision
+The master-wallet seed phrase and private key never enter Hyper Trader. The
+locally generated API-wallet private key stays on the user's device in
+authenticated, device-only SecureStore storage. The app owns only the software
+responsibility for protecting and using that local credential; it does not hold
+user funds or operate a server-side wallet.
 
-The network-generic implementation is tracked in
-[`2026-08-24-mainnet-trading-readiness.md`](../plans/2026-08-24-mainnet-trading-readiness.md).
-`MAINNET_TRADING_RELEASE_STAGE` is `candidate` for private functional testing;
-mainnet signer access, nonce reservation, exchange transport, and the release
-action runtime all derive from that single compile-owned stage and are true.
-This allows real-funds testing of supported actions but does not approve public
-distribution or satisfy any unchecked review row.
+The device-side key lifecycle remains testable code:
 
-Opening mainnet requires all existing applicable rows below plus physical iOS
-and Android mainnet custody matrices, independent protocol/signing and mobile
-security approvals, the approved disposable-agent testnet sequence, and a
-separately authorized bounded-funds mainnet canary with named stop and rollback
-owners. Evidence must identify the frozen preactivation parent, its one-line
-candidate child, the candidate tree, both candidate build IDs/artifact digests,
-and the restricted evidence digest. The candidate is private and distribution
-remains **stop** until its canary passes and the final release preflight approves
-those same binaries. The executable contract is
-[`mainnet-release-preflight.md`](mainnet-release-preflight.md).
+- exact account, target, network, agent address, and generation binding;
+- biometric/passcode-gated reads;
+- five-minute non-sliding in-memory sessions;
+- clearing on background, context change, manual lock, invalidation, or error;
+- zeroing protected bytes after use;
+- local deletion, rotation, and externally verifiable API-wallet revocation;
+- no private key, signature, or complete signed action in logs or journals.
 
-## Required checklist
+## Mainnet source boundary
 
-### Protocol and action integrity
+`MAINNET_TRADING_RELEASE_STAGE` is the only compile-owned release switch:
 
-- [ ] API-agent address derivation, user-defined name, expiry representation,
-  named-slot behavior, authoritative registration query, and replacement match a
-  pinned official Python SDK/protocol revision.
-- [ ] `approveAgent`, market, limit, cancel, reduce-only close, leverage,
-  optional vault, and `expiresAfter` fixtures match exact bytes, hashes, domains,
-  recovered addresses, and signatures.
-- [ ] Each enabled HIP-3 order family passes a disposable-agent live-testnet
-  create-with-`cloid`, query-by-`cloid`, timeout-reconciliation, and no-duplicate
-  probe. A family without this evidence remains read-only regardless of offline
-  vector parity.
-- [ ] Mainnet and testnet hashes differ as expected while compiled mainnet
-  signer/transport capabilities remain false.
-- [ ] Independent SQLite connections prove nonce+journal atomicity, uniqueness,
-  clock rollback stop, lease recovery, and no second write after
-  `submission_started`.
-- [ ] Every action-specific reconciliation route reaches an authoritative
-  terminal or user-visible ambiguous state without duplicate submission.
-- [ ] Retired agent addresses remain tombstoned and replacement proves the old
-  address inactive before success is shown.
+- `preactivation` denies Mainnet signer access and `/exchange` transport; and
+- `candidate` enables the reviewed action runtime for Mainnet and Testnet.
 
-### Mobile custody and release integrity
+No environment variable, backend response, remote configuration, OTA update,
+deep link, notification, persisted state, or UI control can change this value.
+The source consistency check verifies that the runtime, signer, and transport
+capabilities cannot disagree.
 
-- [ ] iOS release builds prove passcode/device-only SecureStore access, Face ID
-  denial/lockout/enrollment change, background lock, surviving-Keychain reinstall
-  quarantine, and deletion.
-- [ ] Android release builds prove strong-biometric access, invalidation,
-  Keystore failure, backup exclusion, uninstall loss, and deletion.
-- [ ] The five-minute non-sliding session clears on every documented lifecycle,
-  context, error, and manual-lock event; reauthentication refreshes/revalidates a
-  draft.
-- [ ] Single-flight unlock tests prove epoch and binding fences discard late
-  SecureStore/authentication results after background, inactive, Android blur,
-  manual lock, and context change. Physical tests cover task switching and
-  notification/control-center focus loss while authentication is open.
-- [ ] Forged, replayed, expired, wrong-account, wrong-target, wrong-network, and
-  wrong-session wallet callbacks remain inert; authoritative registration is the
-  only activation proof.
-- [ ] Lost/compromised-device and rotation-during-unresolved-action exercises
-  preserve reconciliation, stop signing, and never reuse the old address.
-- [ ] Signing builds accept signed EAS Updates or set `updates.enabled: false`,
-  verify both generated native configurations, report `Updates.isEnabled ===
-  false`, and fail a remote-update probe. Fixed origins reject runtime overrides,
-  redirects, non-TLS connections, and TLS failure.
-- [ ] Lockfile, dependency provenance, Reown changes, native config plugins, and
-  update configuration have controlled review and credential owners. M8 evidence
-  includes the narrow `@noble/hashes@1.8.0` export-map patch review and
-  warning-free iOS and Android production exports described in
-  [`mobile-crypto-dependency-patch.md`](mobile-crypto-dependency-patch.md).
+## Automated verification coverage
 
-### Notification privacy and service security
+`./scripts/check.sh` is the mandatory release gate. It runs:
 
-- [ ] The service dependency graph reaches only the public Hyperliquid entry
-  point and contains no signer, signed action, private account, or `/exchange`
-  capability.
-- [ ] Account-scope proof v1 exact-byte fixtures cover link, account-rule
-  mutation, push-token rebind, and lost-installation revoke purposes plus forged,
-  replayed, expired, noncanonical, wrong-origin, wrong-installation,
-  wrong-account, wrong-target, wrong-network, wrong-operation-digest, over-broad
-  installation selection, and transaction-race cases.
-- [ ] Challenge consumption and link creation are atomic; no failed transaction
-  consumes a challenge and no successful path retains proof/signature bytes.
-- [ ] Installation credential authority and quotas are enforced; a bearer alone
-  can create or mutate only price rules and delete/revoke existing scoped data.
-  Every account-rule mutation and account-alert token rebind requires a fresh
-  operation-bound master proof.
-- [ ] Push-token ciphertext/AAD/key-version tests, KEK separation, rotation,
-  cross-provider rewrap, backup restore, and missing-key worker stop pass.
-- [ ] Revocation/outbox races prove the ten-second provider deadline,
-  thirty-second permit expiry, durable `provider_submission_started` fence,
-  drain-before-commit, and no provider call after commit; accepted or unknown
-  in-flight delivery remains observable.
-- [ ] Every deletion obtains an independent append-only ledger receipt before
-  completion. Restore proves backup watermark-to-current-head continuity,
-  versioned tombstone MAC verification, replay, and a hard worker stop for any
-  missing key, stale head, or sequence gap.
-- [ ] Locked payload inspection proves no account/trading detail or executable
-  action input; retention cleanup and tombstone replay pass.
+- formatting and lint checks;
+- strict TypeScript checks;
+- deterministic unit and integration tests;
+- React Native component tests;
+- notification PostgreSQL tests;
+- mobile end-to-end fixture contracts;
+- Mainnet source-capability consistency; and
+- tracked-file secret scanning.
 
-### Recovery and incident operations
+The release preflight reruns this command instead of trusting an unverified
+human checklist. A failing or skipped required command stops the release.
 
-- [ ] API-wallet loss, expiry, biometric invalidation, external revocation,
-  unconfirmed revocation, and account unlink each have an exercised stop and
-  recovery path.
-- [ ] Push provider, installation bearer, notification encryption key, update
-  signing key, Reown credential, TLS credential, and database disclosure drills
-  name an owner, disable boundary, rotation order, and verification query.
-- [ ] PostgreSQL forward/rollback migration and encrypted-backup restore replay
-  independently recovered tombstones before workers start; unavailable key
-  authority or ledger continuity keeps mutations, monitors, and workers off.
-- [ ] Diagnostics/support bundles contain no real secret, signature, complete
-  signed payload, push token, proof, or unrestricted account data.
-- [ ] A staged testnet agent replacement and disposable-agent live test run only
-  after explicit operator confirmation.
+## Action integrity
 
-## Credential and incident inventory
+- Action codecs use deterministic fixtures for agent authorization, market and
+  limit orders, cancellation, reduce-only close, leverage, optional vault, and
+  `expiresAfter`.
+- Mainnet and Testnet use distinct typed-data domains and fixed origins.
+- Nonce and secret-free journal reservation is atomic.
+- `submission_started` grants one transport attempt; an uncertain response is
+  never resubmitted automatically.
+- Reconciliation classifies accepted, rejected, expired, or ambiguous outcomes
+  from same-network authoritative evidence.
+- Retired agent addresses remain tombstoned and cannot be reused locally.
 
-Every row is part of evidence revision `u1-doc-v1`. “Not exercised” keeps the
-corresponding runtime gate closed; it is an explicit drill state, not approval.
+## Device-side protection
 
-| Authority | Accountable role | Runbook location and status | Emergency disable and rotation order | Verification probe | Last drill / evidence |
-|---|---|---|---|---|---|
-| EAS update signing | Release security | [`setup.md` OTA policy](setup.md#ota-policy), documented | Disable update channel; revoke key; issue certificate under a new runtime/store build; stage signed update | Valid signed staging update succeeds; unsigned and invalid updates fail; disabled mode reports `Updates.isEnabled === false` | Not exercised; `u1-doc-v1` |
-| Reown project and redirect configuration | Mobile release owner | [`api-wallet-custody.md` external approval](../design/api-wallet-custody.md#external-approval-and-registration-proof), documented | Disable connector setup; revoke project credential/sessions; rotate allowlist and project configuration; release reviewed build | Wrong-origin/session callbacks stay inert; exact attempt plus authoritative registration succeeds | Not exercised; `u1-doc-v1` |
-| Notification TLS | Service operator | [`architecture.md` fixed origins](../design/architecture.md#fixed-origins-and-release-integrity), documented | Remove service from routing; revoke certificate/key; rotate; restart reviewed endpoint | Exact-origin health succeeds; bad certificate, redirect, alternate host, and non-TLS fail | Not exercised; `u1-doc-v1` |
-| Expo push-provider credential | Notification operator | [`notification-service.md` incidents](../design/notification-service.md#incidents-and-credential-rotation), documented | Stop provider workers; revoke provider credential; audit tickets; rotate; stage one synthetic delivery | Provider authentication and receipt query succeed only with new credential | Not exercised; `u1-doc-v1` |
-| Installation bearer | Notification security operator | [`notification-service.md` installation authority](../design/notification-service.md#installation-authority), documented | Drain/revoke selected installation; reject old hash; issue new installation; re-prove account authority | Old bearer fails; new price rule works; account rule fails without fresh proof | Not exercised; `u1-doc-v1` |
-| Push-token KEK/DEKs | Notification security operator | [`notification-service.md` key custody](../design/notification-service.md#push-token-encryption-and-key-custody), documented | Stop decrypt/provider workers; rotate KEK/DEK versions; rewrap/re-encrypt; restore drill; retire old versions after window | Sample current/backup ciphertext authenticates with expected version; missing key keeps workers off | Not exercised; `u1-doc-v1` |
-| Tombstone-MAC key and deletion ledger | Recovery security operator | [`notification-service.md` retention](../design/notification-service.md#payload-and-retention-policy), documented | Stop mutations/monitors/workers; restore independent ledger and key versions; rotate with overlap; replay through head | Sequence is continuous from backup watermark; every MAC verifies; applied watermark equals head | Not exercised; `u1-doc-v1` |
-| PostgreSQL and backup authority | Database operator | [`setup.md` service restore](setup.md#notification-service-secrets-and-restore), documented | Stop mutations/workers; revoke sessions/credentials; rotate; restore; migrate; replay independent ledger | Schema version, ciphertext sample, retention, tombstone watermark, and worker-disabled-until-ready assertions pass | Not exercised; `u1-doc-v1` |
-| Account-proof verifier version | Service security operator | [`notification-service.md` exact proof](../design/notification-service.md#exact-account-scope-proof-v1), documented | Disable link/rule/token-rebind/recovery mutations; deploy reviewed verifier; invalidate outstanding challenges | Canonical fixtures pass; forged/replayed/wrong-operation proofs fail; no proof bytes persist | Not exercised; `u1-doc-v1` |
+- SecureStore access requires the configured local authentication policy.
+- Signer sessions are exact-binding and expire without sliding renewal.
+- Late authentication or SecureStore results are discarded after lifecycle or
+  context changes.
+- Android backup exclusion and iOS reinstall quarantine prevent silent key
+  restoration into a new installation context.
+- Fixed origins reject overrides, redirects, alternate ports, non-TLS schemes,
+  and TLS failures.
+- Signing-capable builds use the documented EAS Updates policy; an unsigned or
+  incompatible update cannot enable Mainnet authority.
 
-## Threat-scenario decisions
+## Notification-service isolation
 
-| Scenario | Required behavior and stop condition |
+The notification service uses public Hyperliquid data only. It has no signer,
+API-wallet key, signed action, private account endpoint, or `/exchange`
+capability. Account-scoped mutations require exact operation-bound proof;
+installation bearers alone cannot establish account ownership. Push tokens are
+encrypted at rest, revocation prevents new dispatch permits, and deletion
+tombstones survive restore.
+
+Notification-service availability is not a prerequisite for trading. A service
+outage or disabled credential must not grant or expand mobile signing authority.
+
+## Failure and recovery behavior
+
+Recovery is product behavior, not a separate approval role:
+
+| Condition | Required behavior |
 |---|---|
-| Lost device | External revoke/replace; recovered installations stay read-only until old agent is authoritatively inactive; drain notification installation. |
-| Compromised device | Clear memory, block nonce/signing, preserve secret-free reconciliation, start external emergency revocation; do not claim remote wipe. |
-| Biometric enrollment change | SecureStore invalidation makes the credential unusable; fresh key authorization is required. |
-| iOS Keychain survives reinstall | Missing install sentinel plus custody manifest quarantines records; reauthenticate, reselect, and reverify or delete. |
-| Forged wallet callback | Parse only; a live exact setup attempt and authoritative registration are both required. |
-| Rotation with unresolved action | Stop old signing; ordinary rotation waits. Emergency revocation leaves public-query-only reconciliation. |
-| Clock rollback | Block reservation until a fresh server sample satisfies the skew gate; reconciliation continues. |
-| Notification credential theft | Disable/drain affected authority, rotate the credential, and re-prove account links when installation authority is lost. |
-| Outbox/delete race | Reject new permits, drain active calls/leases, commit inactive+cancellation+tombstone; disclose pre-commit accepted pushes. |
-| Unsigned update | Signing-capable runtime rejects it; if code signing is absent, OTA is disabled. |
-| Endpoint override/redirect | Compile-owned allowlist rejects before request; no debug or remote escape in release. |
-| Accidental or unapproved mainnet context | Compile matrix denies before secret access and before `/exchange`; signer-free same-network reconciliation may continue for already-started records. |
+| Lost or compromised device | Revoke or replace the API wallet externally; a new installation must reauthorize. |
+| Biometric enrollment change | SecureStore invalidation blocks signing until a new credential is authorized. |
+| Rotation with unresolved action | Stop old signing while signer-free reconciliation continues. |
+| Clock rollback | Block nonce reservation until a fresh bounded server-time sample is available. |
+| Uncertain exchange response | Preserve the journal entry, reconcile authoritatively, and never issue an automatic duplicate. |
+| Endpoint override or redirect | Reject before sending the request. |
+| Source capability disabled | Block new signing and transport while allowing read-only reconciliation. |
+| Notification credential failure | Disable the affected notification worker without affecting trading authority. |
 
-## Trace matrix
+An exchange order cannot be undone by an application rollback. “Recovery” here
+means disabling new signing, deleting or revoking the API wallet, preserving
+secret-free records, and reconciling any action that may already have reached
+the exchange.
 
-This matrix is the replacement verification for U1. “Delete” means an explicit
-path, not merely expiry.
+## Release record
 
-| Asset/record/authority | Class and owner | Storage/use boundary | Delete/retire path | Stop condition |
-|---|---|---|---|---|
-| Master seed/private key | External secret; master wallet | Never enters Hyper Trader | Wallet owner only | Any request, persistence, or log blocks release |
-| OS passcode/biometric and Keychain/Keystore | External authority; device OS/user | OS-owned; app receives only success/failure and protected reads | User/OS enrollment change or device erase | Invalidation, lockout, or integrity error blocks signing |
-| Hyperliquid registration/time/account state | External public authority; protocol | Fixed-origin authenticated TLS queries | Protocol-owned; local cache expires | Mismatch, stale time, or unavailable proof keeps restricted/read-only |
-| API-wallet private key | Device secret; mobile custody | Authenticated device-only SecureStore; five-minute signer memory | Rotation/unlink/emergency deletion; no backup | Binding/auth/integrity failure or a disabled network capability blocks access |
-| In-memory signing session | Ephemeral secret; signer adapter | Exact binding only | Timeout, background, context, lock, invalidation, termination | Missing review or epoch mismatch |
-| External-wallet setup attempt | Durable non-secret; mobile | SQLite exact binding, 24 hours | Consume or expiry cleanup | User confirmation or callback alone never advances |
-| Custody manifest/install sentinel | Durable non-secret; mobile | SecureStore public manifest/app-data sentinel | Unlink cleanup or app removal | Missing sentinel + manifest quarantines |
-| Binding/registration record | Durable non-secret; mobile | Local target-scoped repository | Unlink after tombstone | Authoritative mismatch/read-only |
-| Public cache/preferences/recents | Durable non-secret; mobile | AsyncStorage, context-scoped where private preference leaks matter | Unlink/context cleanup or retention | Context mismatch discards rather than merges |
-| Nonce scope/action journal | Durable non-secret; mobile | SQLite; no signature/payload | Retention after terminal; preserve unresolved | Atomicity failure or marker uncertainty blocks transport |
-| Retired signer tombstone | Durable non-secret; mobile | SQLite hash chain bound to non-migrating SecureStore epoch/root | Installation lifetime only | Matching address or epoch/root rollback can never issue |
-| Installation bearer | Device secret; mobile/service authority | Separate SecureStore; server hash only | Atomic rotation or revoke | Bearer cannot establish account ownership |
-| Account-link challenge/signature | Ephemeral authority proof; master wallet | Challenge digest temporary; signature request-memory only | Atomic consume/expiry, <=24h row cleanup | Noncanonical/replay/wrong binding rejects |
-| Verified account link/rules | Durable non-secret; service | PostgreSQL installation/network/account scope | Unlink/revoke plus tombstone | Missing current proof prevents creation/rebind |
-| Expo push token | Service secret; notification operator | AES-GCM ciphertext; decrypt only before provider call | Token rotate/revoke/unlink plus tombstone | Auth/key/tag failure disables delivery |
-| Push DEK/KEK | Service secret; security operator | Wrapped DEK in DB; KEK external KMS/HSM/secrets manager | Versioned rotation after restore window | Missing/suspect key disables workers |
-| Dedupe/outbox/delivery | Durable non-secret; service | PostgreSQL, minimal metadata | 7/30-day cleanup or revoke cancellation | Draining forbids new dispatch permits |
-| Deletion tombstone | Durable non-secret; recovery operator | Independently replicated append-only ledger with sequence receipt | After all eligible backups expire | Current-head continuity and replay required before mutations/workers |
-| Tombstone-MAC key | Service secret; recovery security operator | Versioned external KMS/HSM or read-only secret mount | Rotate with verify-only overlap through backup+tombstone window | Missing version or invalid MAC disables service activity |
-| Push-provider credential | External secret/authority; service operator | Managed secret injection, provider submission only | Provider revoke/rotate | Theft disables provider workers globally |
-| Service TLS/database/backup credentials | External secrets; service operator | Deployment secret manager and least-privilege workload identity | Revoke/rotate and terminate affected sessions | Disclosure disables writes/workers until rotated |
-| Update signing key | External secret/authority; release security | Offline/managed release signer, never app/repo | Certificate/runtime-version rotation | Invalid/unsigned update rejected or OTA disabled |
-| Reown project config/session | External authority/ephemeral session; mobile release owner | Compiled reviewed configuration; session only in connector storage/memory | Disconnect, attempt expiry, provider rotation/new build | Unexpected redirect/origin/callback stops setup |
-| Fixed Hyperliquid origins | External authority; protocol/release owners | Compile-owned HTTPS/WSS constants | Source-reviewed release change only | Override, redirect, or TLS error rejects |
+For each submitted artifact, retain outside the repository:
 
-## Non-behavioral evidence exception
+- candidate commit and tree IDs;
+- target platform and EAS build ID;
+- artifact SHA-256 digest;
+- `./scripts/check.sh` result and timestamp;
+- device smoke-test result; and
+- release-owner decision and store submission receipt.
 
-U1 changes design and operational documentation only; it adds no runtime behavior
-or executable test surface. Deliberate exception: no unit, integration, or device
-tests are added or changed in U1. Existing repository test commands are inspected
-only for applicability. Replacement verification is:
-
-```sh
-# terminology and required-stop audit across the six U1 documents
-rg -n "mainnet|submission_started|reconcile|tombstone|account-link|SecureStore|signed EAS|OTA|fixed origin" \
-  docs/design/{api-wallet-custody,action-lifecycle,notification-service,architecture}.md \
-  docs/implementation/{security-review,setup}.md
-
-# local Markdown links in the six documents must resolve
-# (run the repository's bounded link-audit command recorded with the U1 result)
-```
-
-Reviewers compare every row above with the three design contracts and
-[`setup.md`](setup.md). Application tests become mandatory in the implementing
-units named by the plan; this exception cannot be carried into U5-U7 or the
-notification service units.
+These records may all belong to the same solo maintainer. They are evidence of
+what code and artifact were released, not signatures from a required committee.

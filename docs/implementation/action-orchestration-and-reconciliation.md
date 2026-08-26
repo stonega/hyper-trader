@@ -14,9 +14,9 @@ true. Both values derive from the single compile-owned mainnet release stage;
 the current functional-testing worktree is `candidate`, so mainnet signer
 access, nonce reservation, confirmation, signing, and fixed-origin exchange
 transport are available for every action family implemented by this pipeline.
-Mainnet actions use real funds. This source state is not a public-release
-approval: immutable artifacts, external evidence, the bounded canary, and the
-final release preflight are still required.
+Mainnet actions use real funds. Public distribution requires an immutable
+target-platform artifact, the automated repository aggregate, target-device
+smoke testing, and the single release-owner preflight.
 
 The one-line private-candidate transition and exact artifact/evidence preflights
 are documented in
@@ -189,8 +189,8 @@ native activity before a later confirmation can attempt SecureStore access.
 
 Distributed and release builds receive neither manager nor orchestrator while
 the compile-owned release-runtime gate is false, so submission remains
-unavailable while the release gate is conditional; secret-free restart recovery
-still runs. The action runtime exposes
+unavailable before source activation; secret-free restart recovery still runs.
+The action runtime exposes
 market orders, limit orders, full reduce-only closes, and exact `oid`
 cancellation on a capability-enabled network. Cancellation refreshes the
 reviewed market and its DEX-scoped open orders, then proceeds only when exactly
@@ -218,10 +218,9 @@ HYPER_TRADER_TESTNET_ORDER_WORKFLOW=offline-fixture \
   bun examples/testnet-order-workflow.ts
 ```
 
-`HYPER_TRADER_TESTNET_ORDER_WORKFLOW=live` fails closed while the security gate
-is conditional. A future disposable-agent run requires separate approval and
-must retain no-duplicate evidence without printing credentials, signatures,
-action bytes, or complete bodies.
+`HYPER_TRADER_TESTNET_ORDER_WORKFLOW=live` is not part of the default automated
+suite. Any live run must retain no-duplicate evidence without printing
+credentials, signatures, action bytes, or complete bodies.
 
 ## Verification boundary
 

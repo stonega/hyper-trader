@@ -10,8 +10,7 @@ import {
   assertEvidenceStage,
   assertSourceCapabilityConsistency,
   createMainnetReleaseEvidenceTemplate,
-  MAINNET_CLOSURE_CHECK_IDS,
-  MAINNET_REVIEW_ROLES,
+  MAINNET_RELEASE_PLATFORMS,
   type MainnetReleaseEvidenceManifest,
   parseMainnetReleaseEvidenceManifest,
 } from "./mainnet-release-readiness";
@@ -31,46 +30,22 @@ function approvedCandidateManifest(): MainnetReleaseEvidenceManifest {
   const template = createMainnetReleaseEvidenceTemplate();
   return {
     ...template,
-    closureChecks: template.closureChecks.map((check) => ({
-      ...check,
+    automatedVerification: {
+      ...template.automatedVerification,
       decision: "pass",
-      reviewerId: `reviewer-${check.id.toLowerCase()}`,
-      reviewedAt: "2026-08-25T10:00:00.000Z",
-      receiptId: `receipt-${check.id.toLowerCase()}`,
-    })),
-    approvals: template.approvals.map((approval) => ({
-      ...approval,
-      decision: "approved",
-      reviewerId: `reviewer-${approval.role}`,
-      reviewedAt: "2026-08-25T10:50:00.000Z",
-      receiptId: `approval-${approval.role}`,
-    })),
-    disposableTestnet: {
-      decision: "pass",
-      operatorId: "testnet-operator",
-      reviewedAt: "2026-08-25T10:45:00.000Z",
-      receiptId: "receipt-disposable-testnet",
+      completedAt: "2026-08-25T10:00:00.000Z",
+      receiptId: "receipt-automated-check",
     },
-    candidateDecision: {
-      decision: "approved",
-      reviewerId: "release-owner",
-      reviewedAt: "2026-08-25T11:00:00.000Z",
-      receiptId: "receipt-private-candidate-approval",
-    },
-    mainnetCanary: {
-      ...template.mainnetCanary,
-      authorizationId: "authorization-mainnet-canary",
-      authorizedBy: "canary-authorizer",
-      authorizedAt: "2026-08-25T11:30:00.000Z",
-      authorizationExpiresAt: "2026-08-25T12:30:00.000Z",
-      operatorId: "canary-operator",
-      stopOwnerId: "incident-stop-owner",
-      rollbackOwnerId: "release-rollback-owner",
+    releaseOwner: {
+      ownerId: "solo-release-owner",
+      candidateDecision: "approved",
+      decidedAt: "2026-08-25T10:30:00.000Z",
+      receiptId: "receipt-private-candidate",
     },
     releaseDecision: {
       decision: "stop",
-      reviewerId: "release-owner",
-      reviewedAt: "2026-08-25T11:00:00.000Z",
+      ownerId: "solo-release-owner",
+      decidedAt: "2026-08-25T10:30:00.000Z",
       receiptId: "receipt-release-stop",
     },
   };
@@ -80,18 +55,11 @@ function approvedReleaseManifest(): MainnetReleaseEvidenceManifest {
   const candidate = approvedCandidateManifest();
   return {
     ...candidate,
-    mainnetCanary: {
-      ...candidate.mainnetCanary,
-      decision: "pass",
-      startedAt: "2026-08-25T11:40:00.000Z",
-      completedAt: "2026-08-25T11:55:00.000Z",
-      receiptId: "receipt-mainnet-canary",
-    },
     releaseDecision: {
       decision: "approved",
-      reviewerId: "release-owner",
-      reviewedAt: "2026-08-25T11:58:00.000Z",
-      receiptId: "receipt-public-release-approval",
+      ownerId: "solo-release-owner",
+      decidedAt: "2026-08-25T11:00:00.000Z",
+      receiptId: "receipt-public-release",
     },
   };
 }
@@ -108,22 +76,22 @@ function git(repositoryRoot: string, ...args: string[]): string {
 }
 
 describe("mainnet release readiness manifest", () => {
-  test("generates a strict complete template without claiming evidence", () => {
+  test("generates a strict solo-owner template without claiming evidence", () => {
     const template = createMainnetReleaseEvidenceTemplate();
     const parsed = parseMainnetReleaseEvidenceManifest(
       JSON.parse(JSON.stringify(template)),
     );
 
-    expect(parsed.closureChecks.map(({ id }) => id)).toEqual(
-      MAINNET_CLOSURE_CHECK_IDS,
-    );
-    expect(parsed.approvals.map(({ role }) => role)).toEqual(
-      MAINNET_REVIEW_ROLES,
-    );
-    expect(
-      parsed.closureChecks.every(({ decision }) => decision === "pending"),
-    ).toBe(true);
+    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.artifacts.map(({ platform }) => platform)).toEqual([
+      "android",
+    ]);
+    expect(MAINNET_RELEASE_PLATFORMS).toEqual(["ios", "android"]);
+    expect(parsed.automatedVerification.decision).toBe("pending");
+    expect(parsed.releaseOwner.candidateDecision).toBe("pending");
     expect(parsed.releaseDecision.decision).toBe("stop");
+    expect("approvals" in parsed).toBe(false);
+    expect("mainnetCanary" in parsed).toBe(false);
   });
 
   test("requires one consistent compile-owned source stage", () => {
@@ -149,103 +117,60 @@ describe("mainnet release readiness manifest", () => {
     ).toThrow("must derive from one release stage");
   });
 
-  test("accepts a fully approved private candidate and keeps distribution stopped", () => {
+  test("accepts automated verification and one release owner", () => {
     expect(() =>
       assertEvidenceStage("candidate", approvedCandidateManifest(), NOW),
     ).not.toThrow();
   });
 
-  test("requires independent reviewers after closure and disposable-testnet evidence", () => {
+  test("requires automated verification before owner approval", () => {
     const candidate = approvedCandidateManifest();
     expect(() =>
       assertEvidenceStage(
         "candidate",
         {
           ...candidate,
-          approvals: candidate.approvals.map((approval) => ({
-            ...approval,
-            reviewerId: "same-reviewer",
-          })),
-        },
-        NOW,
-      ),
-    ).toThrow("independent reviewers");
-    expect(() =>
-      assertEvidenceStage(
-        "candidate",
-        {
-          ...candidate,
-          approvals: candidate.approvals.map((approval, index) =>
-            index === 0
-              ? { ...approval, reviewedAt: "2026-08-25T09:00:00.000Z" }
-              : approval,
-          ),
-        },
-        NOW,
-      ),
-    ).toThrow("must follow the completed closure");
-  });
-
-  test("requires all 28 rows and physical custody, even when other reviewers approve", () => {
-    const candidate = approvedCandidateManifest();
-    expect(() =>
-      assertEvidenceStage(
-        "candidate",
-        { ...candidate, closureChecks: candidate.closureChecks.slice(1) },
-        NOW,
-      ),
-    ).toThrow("exactly once");
-    expect(() =>
-      assertEvidenceStage(
-        "candidate",
-        {
-          ...candidate,
-          closureChecks: candidate.closureChecks.map((check) =>
-            check.id === "M1"
-              ? {
-                  ...check,
-                  decision: "not_applicable",
-                  notApplicableReason: "device unavailable",
-                }
-              : check,
-          ),
-        },
-        NOW,
-      ),
-    ).toThrow("physical platform custody evidence must pass");
-  });
-
-  test("enforces conservative canary limits and a live authorization window", () => {
-    const candidate = approvedCandidateManifest();
-    expect(() =>
-      assertEvidenceStage(
-        "candidate",
-        {
-          ...candidate,
-          mainnetCanary: {
-            ...candidate.mainnetCanary,
-            maxOpenNotionalUsd: 51,
+          automatedVerification: {
+            ...candidate.automatedVerification,
+            decision: "pending",
           },
         },
         NOW,
       ),
-    ).toThrow("maxOpenNotionalUsd");
+    ).toThrow("complete automated check must pass");
     expect(() =>
       assertEvidenceStage(
         "candidate",
         {
           ...candidate,
-          mainnetCanary: {
-            ...candidate.mainnetCanary,
-            authorizationExpiresAt: "2026-08-25T11:59:59.000Z",
+          releaseOwner: {
+            ...candidate.releaseOwner,
+            decidedAt: "2026-08-25T09:59:59.000Z",
           },
         },
         NOW,
       ),
-    ).toThrow("authorization is not currently valid");
+    ).toThrow("must follow automated verification");
   });
 
-  test("approves release only after a passing in-window canary on the same manifest", () => {
+  test("supports a single target platform and rejects duplicate artifacts", () => {
+    const candidate = approvedCandidateManifest();
+    const artifact = candidate.artifacts[0];
+    if (artifact === undefined) throw new Error("missing Android artifact");
+    expect(candidate.artifacts).toHaveLength(1);
+    expect(() =>
+      assertEvidenceStage(
+        "candidate",
+        {
+          ...candidate,
+          artifacts: [...candidate.artifacts, artifact],
+        },
+        NOW,
+      ),
+    ).toThrow("each platform may appear at most once");
+  });
+
+  test("approves release with the same accountable owner and no canary", () => {
     expect(() =>
       assertEvidenceStage("release", approvedReleaseManifest(), NOW),
     ).not.toThrow();
@@ -256,18 +181,21 @@ describe("mainnet release readiness manifest", () => {
         "release",
         {
           ...release,
-          releaseDecision: { ...release.releaseDecision, decision: "stop" },
+          releaseDecision: {
+            ...release.releaseDecision,
+            ownerId: "different-owner",
+          },
         },
         NOW,
       ),
-    ).toThrow("must be approved after the canary");
+    ).toThrow("must match the candidate release owner");
   });
 
-  test("rejects unknown manifest fields", () => {
+  test("rejects unknown or removed manifest fields", () => {
     const value = JSON.parse(
       JSON.stringify(createMainnetReleaseEvidenceTemplate()),
     ) as Record<string, unknown>;
-    value.runtimeOverride = true;
+    value.approvals = [];
     expect(() => parseMainnetReleaseEvidenceManifest(value)).toThrow(
       "expected exactly",
     );
@@ -320,50 +248,27 @@ describe("mainnet release readiness manifest", () => {
     );
   });
 
-  test("hashes exact distinct iOS, Android, and restricted evidence files", async () => {
+  test("hashes exact target-platform artifacts", async () => {
     const directory = await mkdtemp(
       join(tmpdir(), "hyper-trader-mainnet-artifacts-"),
     );
     temporaryDirectories.push(directory);
-    const files = {
-      ios: "candidate.ipa",
-      android: "candidate.aab",
-      evidence: "evidence.tar",
-    };
-    const contents = {
-      ios: "ios-artifact",
-      android: "android-artifact",
-      evidence: "restricted-evidence",
-    };
-    await Promise.all(
-      Object.entries(files).map(([name, path]) =>
-        writeFile(
-          join(directory, path),
-          contents[name as keyof typeof contents],
-        ),
-      ),
-    );
-    const digest = (value: string) =>
-      createHash("sha256").update(value).digest("hex");
+    const artifactPath = "candidate.aab";
+    const artifactContents = "android-artifact";
+    await writeFile(join(directory, artifactPath), artifactContents);
+    const digest = createHash("sha256").update(artifactContents).digest("hex");
     const candidate = approvedCandidateManifest();
+    const artifact = candidate.artifacts[0];
+    if (artifact === undefined) throw new Error("missing Android artifact");
     const manifest: MainnetReleaseEvidenceManifest = {
       ...candidate,
-      artifacts: {
-        ios: {
-          ...candidate.artifacts.ios,
-          path: files.ios,
-          sha256: digest(contents.ios),
+      artifacts: [
+        {
+          ...artifact,
+          path: artifactPath,
+          sha256: digest,
         },
-        android: {
-          ...candidate.artifacts.android,
-          path: files.android,
-          sha256: digest(contents.android),
-        },
-      },
-      evidenceBundle: {
-        path: files.evidence,
-        sha256: digest(contents.evidence),
-      },
+      ],
     };
     const manifestPath = join(directory, "manifest.json");
     await writeFile(manifestPath, JSON.stringify(manifest));
@@ -371,7 +276,7 @@ describe("mainnet release readiness manifest", () => {
     await expect(
       assertArtifactDigests({ manifestPath, manifest }),
     ).resolves.toBeUndefined();
-    await writeFile(join(directory, files.android), "tampered");
+    await writeFile(join(directory, artifactPath), "tampered");
     await expect(
       assertArtifactDigests({ manifestPath, manifest }),
     ).rejects.toThrow("does not match");

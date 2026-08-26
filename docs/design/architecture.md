@@ -234,21 +234,19 @@ an incident build later disables new signer access and transport. Remote
 configuration, backend responses, deep links, notifications, restored state,
 environment variables, and debug menus cannot change the compiled capability.
 
-`candidate` enables real mainnet submission for private functional testing; it
-does not approve public distribution. The exact artifacts must still satisfy
-the external evidence, bounded-canary, and final release preflight contract.
+`candidate` enables real mainnet submission. Public distribution additionally
+binds the exact target-platform artifact to the automated aggregate and the
+single release-owner preflight.
 
 The network-generic implementation, migrations, and deterministic parity tests
 are tracked in
 [`../plans/2026-08-24-mainnet-trading-readiness.md`](../plans/2026-08-24-mainnet-trading-readiness.md).
 Opening a private candidate requires one explicit reviewed source-line change
 from `preactivation` to `candidate`; mainnet capability and the release action
-runtime derive from that one value and cannot disagree. Independent protocol
-and mobile-security sign-off, physical-device custody evidence, staged
-disposable-agent testnet evidence, release attestation, and a separately
-authorized mainnet canary/rollback procedure remain mandatory. Public release
-requires the final preflight for the exact candidate binaries that ran the
-canary. Testnet approval is not mainnet evidence. See
+runtime derive from that one value and cannot disagree. The automated
+aggregate, target-device smoke test, artifact digest, and single release-owner
+decision remain mandatory. Public release requires the final preflight for the
+exact candidate artifact being submitted. See
 [`../implementation/mainnet-release-preflight.md`](../implementation/mainnet-release-preflight.md).
 
 ## Fixed origins and release integrity

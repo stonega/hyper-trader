@@ -1,10 +1,11 @@
 # Getting started
 
-Hyper Trader is a native iOS and Android Hyperliquid client. The current private
-functional-testing build enables network-isolated setup, custody, signing,
-submission, and recovery on Hyperliquid testnet and mainnet. Mainnet actions use
-real funds. This candidate is not approved for public distribution; independent
-review, physical-device evidence, and the bounded canary remain required.
+Hyper Trader is a native iOS and Android Hyperliquid client. The current
+functional build enables network-isolated setup, device-side key protection,
+signing, submission, and recovery on Hyperliquid testnet and mainnet. Mainnet
+actions use real funds. Public builds pass the automated repository gate,
+target-device smoke test, artifact-digest check, and release-owner decision
+before store submission.
 
 ## What you can do
 
@@ -21,11 +22,10 @@ review, physical-device evidence, and the bounded canary remain required.
 ## What is not enabled
 
 The native Reown handoff and account-alert proof path are not active. Deposits,
-withdrawals, and transfers are not implemented. The current candidate can
-access an exact authorized mainnet key and fixed-origin `/exchange` transport;
-it must remain privately distributed until the separate mainnet release
-decision is approved. Controls explain missing authority and do not simulate
-success.
+withdrawals, and transfers are not implemented. A candidate can access an exact
+authorized Mainnet key and fixed-origin `/exchange` transport after the user
+configures a local API wallet. Controls explain missing authority and do not
+simulate success.
 
 ## Safety
 

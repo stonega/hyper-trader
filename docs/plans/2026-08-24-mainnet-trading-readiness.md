@@ -6,7 +6,7 @@ Make Hyper Trader capable of submitting reviewed Hyperliquid mainnet actions
 without weakening the existing custody, context, nonce, journal, one-shot
 transport, or reconciliation guarantees. Testnet and mainnet authority remain
 strictly isolated. A release build may expose mainnet submission only after the
-external evidence and approval gate in this plan is complete.
+automated release preflight passes for its exact target-platform artifact.
 
 ## Baseline and implementation state
 
@@ -27,9 +27,9 @@ testing:
   fixed-origin `/exchange` submission, and same-network reconciliation are
   available to exact authorized contexts.
 
-The testnet security-closure record remains conditional. Mainnet approval is
-not inferred from deterministic tests, testnet evidence, this implementation,
-or the dirty functional-testing worktree. Public distribution remains stopped.
+Public distribution is decided by the version-two automated preflight and one
+accountable release owner. A dirty worktree or an artifact not bound to the
+candidate digest remains ineligible.
 
 ## Non-negotiable mainnet invariants
 
@@ -48,10 +48,9 @@ or the dirty functional-testing worktree. Public distribution remains stopped.
    submitted again.
 7. Mainnet private keys, signatures, canonical bytes, signed envelopes, and
    complete provider responses remain memory-only and are never logged.
-8. Mainnet release activation requires an immutable build, independent
-   protocol and mobile-security approval, physical-device custody evidence, a
-   disposable-agent testnet run, and a separately authorized low-risk mainnet
-   canary with a rollback owner.
+8. Mainnet release activation requires an immutable target-platform build, a
+   passing `./scripts/check.sh`, target-device smoke testing, and an explicit
+   decision from the single accountable release owner.
 
 ## Delivery plan
 
@@ -60,8 +59,7 @@ or the dirty functional-testing worktree. Public distribution remains stopped.
 - [x] Record the current mainnet capability and testnet-only call sites.
 - [x] Confirm current official exchange-envelope, API-wallet, nonce, and network
   signing-domain behavior.
-- [ ] Assign protocol, mobile-security, release, and incident owners for the
-  immutable evidence revision.
+- [x] Use one accountable release owner for the immutable evidence revision.
 
 ### M1 — Generalize compile-owned capabilities
 
@@ -131,38 +129,29 @@ or the dirty functional-testing worktree. Public distribution remains stopped.
   exports, and the production aggregate on the current working tree. M7 repeats
   them on the immutable release revision.
 - [x] Make activation a one-line direct-child source change and add a strict
-  preflight that binds all 28 closure rows, four approvals, commit/tree IDs,
-  iOS/Android build IDs and artifact digests, the restricted evidence digest,
-  canary authorization/limits, and final decision.
+  preflight that binds commit/tree IDs, target-platform build IDs and artifact
+  digests, the automated aggregate, and the release-owner decision.
 
-### M7 — External release evidence and activation
+### M7 — Automated release evidence and activation
 
-- [ ] Close the existing 28-row testnet runtime/security evidence revision.
-- [ ] Complete physical iOS and Android mainnet custody matrices on release
-  artifacts.
-- [ ] Obtain independent protocol/signing and mobile-security approval for the
-  exact mainnet revision.
-- [ ] Run the approved disposable-agent testnet sequence and review redacted
-  evidence.
-- [ ] From the frozen preactivation commit, make the one-line direct-child stage
-  change to `candidate`; build private iOS/Android artifacts; then pass the
-  candidate preflight with a current, separately approved bounded-canary
-  authorization.
-- [ ] Run the canary on those private artifacts, verify reconciliation and
-  external revocation, record rollback readiness, then pass the release
-  preflight only after every required row is signed and the final decision is
-  `approved` for the same commit, tree, artifacts, and build IDs.
+- [x] Replace committee approvals and real-funds canary fields with the
+  version-two automation-first manifest.
+- [ ] Run `./scripts/check.sh` on a clean preactivation revision.
+- [ ] Make the one-line direct-child stage change to `candidate`.
+- [ ] Build the target-platform release artifact and bind its build ID and
+  SHA-256 digest to the candidate.
+- [ ] Smoke-test that artifact on the target platform.
+- [ ] Record the release owner's `approved` decision and pass the release
+  preflight for the same commit, tree, and artifact.
 
 ## Definition of ready
 
 The codebase is mainnet-capable when M1-M6 pass on an immutable revision while
-the mainnet release capability remains closed. Mainnet is release-ready only
-when M7 is complete and the final preflight passes for the same candidate that
-ran the canary. The compile-owned capability is opened only in the private
-candidate by the one-line reviewed direct-child source change; public
-distribution remains stopped until the canary and final decision complete.
-Until that private-candidate boundary is authorized, public mainnet data remains
-available but mainnet signer access and `/exchange` submission must fail closed.
+the mainnet release capability remains closed. Mainnet is release-ready when M7
+and the final automated preflight pass for the same artifact. The compile-owned
+capability is opened only by the one-line direct-child source change. Before
+that change, public mainnet data remains available but mainnet signer access and
+`/exchange` submission fail closed.
 
 The executable manifest contract and exact operator sequence are documented in
 [`mainnet-release-preflight.md`](../implementation/mainnet-release-preflight.md).

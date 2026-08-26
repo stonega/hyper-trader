@@ -1,5 +1,11 @@
 # Testnet runtime and security-approval closure plan
 
+> Historical plan: the multi-reviewer approval workflow in this document was
+> superseded by the automation-first, single-owner release contract in
+> [`mainnet-release-preflight.md`](../implementation/mainnet-release-preflight.md).
+> The technical scenarios remain useful coverage references but are not a
+> committee sign-off requirement.
+
 ## Objective and current state
 
 Enable real order testing only in source development builds while closing the
