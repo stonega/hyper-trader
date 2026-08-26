@@ -25,7 +25,7 @@ The authenticated and read-only experiences share four bottom tabs:
 1. **Markets** — discovery, favorites, recents, search, filters, and market selection.
 2. **Trade** — the default landing tab and the complete market-inspection and order-entry surface.
 3. **Portfolio** — performance, positions, orders, balances, fills, and funding activity.
-4. **Settings** — accounts, API wallets, security, notifications, trading preferences, privacy, and support.
+4. **Settings** — accounts, API wallets, security, trading preferences, privacy, and support.
 
 The bottom tab capsule overlays each full-height scene. Only the capsule owns a
 surface; the surrounding area remains transparent. Every tab's primary scroll
@@ -45,7 +45,7 @@ flowchart TB
   Trade -->|Review order| Review
   Review -->|Confirm| Submit[Submit and check status]
   Submit -->|Accepted| Trade
-  Settings[Settings] --> Context[Account, network, security, and alerts]
+  Settings[Settings] --> Context[Account, network, and security]
   Context --> Trade
 ```
 
@@ -65,7 +65,9 @@ making the API wallet independently selectable.
 - **Unified account view.** Spot and perpetual activity share one portfolio overview with filters rather than separate account experiences. Governs R30, R33.
 - **Global multi-account support.** Multiple master accounts are supported, with isolated API-wallet credentials, nonce state, preferences, and cached data. Governs R2, R3, R33, R36–R39.
 - **Automatic API-wallet binding.** The visible API-wallet identity is derived from the active account binding and is never an independent user selection. Governs R2, R3, R36–R39.
-- **Configurable native alerts.** Push notifications cover execution, risk, price, and funding events while keeping all signing authority on-device. Governs R42–R46.
+- **Release-gated native alerts.** Notification internals retain their strict
+  authority boundaries, but user controls remain hidden until the service and
+  physical-device delivery evidence are ready. Governs R42–R46.
 
 ## Requirements
 
@@ -132,15 +134,19 @@ making the API wallet independently selectable.
 - R38. Settings must present API-wallet authorization state independently from runtime signing. Device authentication is requested from a confirmed action only when its signing session needs to be unlocked; Settings must not present that runtime unlock as incomplete account verification.
 - R39. Network settings must keep public data, account data, API-wallet authorization, nonce state, alerts, and action history isolated between testnet and mainnet. Selecting a network may restore only its unique saved account; ambiguous account choices require explicit selection.
 - R40. Trading preferences may provide safe defaults but must not suppress action review or silently bypass market-specific validation.
-- R41. Settings must keep appearance and notifications concise, combine help/privacy/diagnostics/risk content, remember Portfolio range from Portfolio, and never mix runtime signing checks into account status.
+- R41. Settings must keep appearance concise, combine help/privacy/diagnostics/risk content, remember Portfolio range from Portfolio, and never mix runtime signing checks into account status.
 
 ### Notifications
 
-- R42. Settings must expose only notification types that work end to end. Price alerts are available now; account-alert controls remain hidden until their proof and delivery flows are connected.
+- R42. Settings must not expose notification controls until the notification
+  service, provider credentials, and physical-device delivery flows work end to
+  end and have release evidence.
 - R43. Notification rules must be scoped to the intended account, network, market, and event type.
 - R44. Opening a notification must restore the matching account, network, and market context only after confirming the target context still exists, then navigate automatically after any required context-switch confirmation.
 - R45. The notification service may store public account identifiers, device push tokens, and alert rules but must never receive API-wallet keys, seed phrases, signed actions, or exchange authority.
-- R46. Users must be able to revoke a device token, unlink an account, and remove its server-side alert data from Settings.
+- R46. When notification controls are released, users must be able to revoke a
+  device token, unlink an account, and remove its server-side alert data from
+  Settings.
 
 ## Key flows
 

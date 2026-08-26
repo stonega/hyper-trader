@@ -12,6 +12,7 @@ import { MARKET_FIXTURE } from "../features/markets/fixture";
 import { PORTFOLIO_FIXTURE } from "../features/portfolio/portfolio.fixture";
 import {
   type CloseDraft,
+  type NormalizedPortfolio,
   normalizePortfolioSnapshot,
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
@@ -55,8 +56,10 @@ function rows(
 
 function InteractivePositionRows({
   onReviewClose,
+  portfolioSnapshot = portfolio,
 }: {
   readonly onReviewClose: ReviewClose;
+  readonly portfolioSnapshot?: NormalizedPortfolio;
 }) {
   const [editor, setEditor] = useState<PortfolioEditor | null>(null);
   return (
@@ -68,7 +71,7 @@ function InteractivePositionRows({
       markets={MARKET_FIXTURE}
       onCancel={cancelNoop}
       onReviewClose={onReviewClose}
-      portfolio={portfolio}
+      portfolio={portfolioSnapshot}
       setEditor={setEditor}
     />
   );
@@ -188,7 +191,7 @@ test("opens a reduce-only Limit form and removes the Margin action", async () =>
   expect(screen.getByLabelText("Limit close for DUP")).toBeTruthy();
   fireEvent.changeText(screen.getByLabelText("Limit price for DUP"), "10.25");
   fireEvent.changeText(screen.getByLabelText("Close size for DUP"), "1.25");
-  fireEvent.press(screen.getByRole("button", { name: "Review limit close" }));
+  fireEvent.press(screen.getByRole("button", { name: "Close" }));
 
   await waitFor(() => expect(onReviewClose).toHaveBeenCalledTimes(1));
   expect(onReviewClose.mock.calls[0]?.[1]).toMatchObject({
@@ -197,4 +200,32 @@ test("opens a reduce-only Limit form and removes the Margin action", async () =>
     size: "1.25",
     timeInForce: "Gtc",
   });
+});
+
+test("restores a precision-safe current midpoint in the Limit close form", () => {
+  const portfolioWithMid = normalizePortfolioSnapshot({
+    ...PORTFOLIO_FIXTURE,
+    markets: PORTFOLIO_FIXTURE.markets.map((market) =>
+      market.canonicalId === "perp:0:4"
+        ? { ...market, midPx: "79112.4" as const }
+        : market,
+    ),
+  });
+  render(
+    <InteractivePositionRows
+      onReviewClose={jest.fn(async () => undefined)}
+      portfolioSnapshot={portfolioWithMid}
+    />,
+  );
+
+  fireEvent.press(screen.getByRole("button", { name: "Limit" }));
+  const input = screen.getByLabelText("Limit price for DUP");
+  fireEvent.changeText(input, "1");
+  fireEvent.press(
+    screen.getByRole("button", { name: "Use current mid price for DUP" }),
+  );
+
+  expect(screen.getByLabelText("Limit price for DUP").props.value).toBe(
+    "79112",
+  );
 });

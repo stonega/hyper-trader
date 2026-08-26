@@ -16,7 +16,10 @@ import type {
   PerpMarket,
 } from "@hyper-trader/hyperliquid/public";
 import { isDecimalString } from "@hyper-trader/hyperliquid/public";
-import { aggressiveOrderPrice } from "../actions/aggressive-order-price";
+import {
+  aggressiveOrderPrice,
+  roundedPriceInputValue,
+} from "../actions/aggressive-order-price";
 import {
   type PerformanceSummary,
   percentageOf,
@@ -541,14 +544,33 @@ export function createCloseDraft(position: PortfolioPositionRow): CloseDraft {
   if (!position.closeEnabled) {
     throw new Error("This position does not have current close authority.");
   }
+  const market = position.market;
+  const referencePrice = market?.midPx ?? market?.markPx ?? null;
+  const defaultLimitPrice =
+    market !== null && market.pricePrecision !== null && referencePrice !== null
+      ? portfolioMarketClosePrice({
+          market,
+          side: position.side === "long" ? "sell" : "buy",
+          slippageBps: "0",
+        })
+      : (market?.markPx ?? position.entryPrice ?? "");
   return {
     positionId: position.id,
     behavior: "market",
     size: position.absoluteSize,
-    limitPrice: position.market?.markPx ?? position.entryPrice ?? "",
+    limitPrice: defaultLimitPrice,
     timeInForce: "Gtc",
     slippageBps: "50",
   };
+}
+
+export function portfolioLimitCloseMidPrice(
+  position: PortfolioPositionRow,
+): DecimalString | null {
+  return roundedPriceInputValue({
+    price: position.market?.midPx,
+    precision: position.market?.pricePrecision ?? null,
+  });
 }
 
 function parsedPositive(value: string, label: string): bigint {

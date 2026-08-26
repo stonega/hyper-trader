@@ -176,6 +176,40 @@ describe("order panel directional review actions", () => {
     expect(screen.queryByText(/Long|Short/)).toBeNull();
   });
 
+  test("fills a precision-safe current midpoint from the limit-price field", () => {
+    const market = {
+      ...NATIVE_DUPLICATE,
+      midPx: "79112.5" as const,
+      markPx: "79112.5" as const,
+    };
+    const onDraftChange = jest.fn();
+    render(
+      <OrderPanel
+        authority={authority}
+        draft={{
+          ...createTradeDraft({ account, context, market }),
+          limitPrice: "1",
+          orderType: "limit",
+          size: "1",
+        }}
+        gate={gate}
+        invalidationMessage={null}
+        market={market}
+        onDraftChange={onDraftChange}
+        onLeverageChange={jest.fn(async () => undefined)}
+        onReview={jest.fn(async () => undefined)}
+      />,
+    );
+
+    const mid = screen.getByRole("button", { name: "Use current mid price" });
+    expect(mid.props.className).toContain("h-10");
+    fireEvent.press(mid);
+
+    expect(onDraftChange).toHaveBeenCalledWith(
+      expect.objectContaining({ limitPrice: "79113" }),
+    );
+  });
+
   test("lets a stale account start the automatic review preflight", async () => {
     const onReview = jest.fn(async (_draft: TradeDraft) => undefined);
     render(

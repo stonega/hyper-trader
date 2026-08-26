@@ -180,6 +180,21 @@ describe("Trade control applicability", () => {
       }),
     ).toMatchObject({ orderType: "market", slippageBps: "50" });
   });
+
+  test("rounds the default Trade limit price to market precision", () => {
+    expect(
+      createTradeDraft({
+        market: {
+          ...NATIVE_DUPLICATE,
+          midPx: "79112.5",
+          markPx: "79112.5",
+        },
+        context,
+        account,
+        preferences: { defaultOrderType: "limit", defaultSlippageBps: 50 },
+      }),
+    ).toMatchObject({ limitPrice: "79113", orderType: "limit" });
+  });
 });
 
 describe("Trade draft ownership", () => {
@@ -367,7 +382,7 @@ describe("Trade fail-closed gates", () => {
     expect(
       evaluateTradeGate({
         market: NATIVE_DUPLICATE,
-        context: { ...context, network: "mainnet", signer: null },
+        context: { ...context, signer: null },
         authority: { ...readyAuthority, signerState: "missing" },
         nowMs: NOW,
       }),
@@ -375,7 +390,7 @@ describe("Trade fail-closed gates", () => {
       enabled: false,
       code: "read_only",
       reason:
-        "The selected Mainnet API wallet is unavailable on this device. Repair it in Settings.",
+        "The selected Testnet API wallet is unavailable on this device. Repair it in Settings.",
     });
     expect(
       evaluateTradeGate({

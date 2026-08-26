@@ -251,7 +251,9 @@ and device authentication succeed.
 Every visible order-book price is an accessible 48-point selection target.
 Selecting one invalidates any pending review preparation, switches the current
 draft to `limit`, and fills the exact decimal price. Review remains an explicit
-separate action.
+separate action. The limit-price field's Mid action fills the current validated
+midpoint rounded to the selected market's price precision; it is unavailable
+when the midpoint is absent.
 
 Applicable controls are intentionally narrow:
 

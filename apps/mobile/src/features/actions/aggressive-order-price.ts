@@ -21,6 +21,42 @@ function formatCoefficient(coefficient: bigint, scale: number): DecimalString {
 }
 
 /**
+ * Formats a live reference as the nearest valid editable order price. Unlike an
+ * aggressive market-order bound, this value is intentionally side-neutral.
+ */
+export function roundedPriceInputValue(input: {
+  readonly price: string | null | undefined;
+  readonly precision: PricePrecisionInputs | null;
+}): DecimalString | null {
+  if (
+    input.price === null ||
+    input.price === undefined ||
+    input.precision === null ||
+    !isDecimalString(input.price) ||
+    input.price.startsWith("-")
+  ) {
+    return null;
+  }
+  const [whole = "0", fraction = ""] = input.price.split(".");
+  const coefficient = BigInt(`${whole}${fraction}`);
+  if (coefficient <= 0n) return null;
+
+  const wholeDigits = coefficient.toString().length - fraction.length;
+  const targetScale = Math.max(
+    0,
+    Math.min(
+      input.precision.maxDecimalPlaces,
+      input.precision.maxSignificantFigures - wholeDigits,
+    ),
+  );
+  const numerator = coefficient * powerOfTen(targetScale);
+  const denominator = powerOfTen(fraction.length);
+  let rounded = numerator / denominator;
+  if ((numerator % denominator) * 2n >= denominator) rounded += 1n;
+  return rounded > 0n ? formatCoefficient(rounded, targetScale) : null;
+}
+
+/**
  * Derives the IOC limit used to implement a market order while keeping the
  * rounded price inside the user's maximum slippage.
  */

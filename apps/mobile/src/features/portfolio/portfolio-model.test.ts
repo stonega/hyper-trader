@@ -326,6 +326,28 @@ describe("portfolio quick-action intents", () => {
     });
   });
 
+  test("rounds the default limit-close price to current market precision", () => {
+    const position = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE).positions[0];
+    if (position?.market === null || position === undefined) {
+      throw new Error("fixture position missing");
+    }
+    const market = {
+      ...position.market,
+      midPx: "79112.5" as const,
+      markPx: "79112.5" as const,
+    };
+
+    expect(createCloseDraft({ ...position, market }).limitPrice).toBe("79113");
+    expect(
+      createCloseDraft({
+        ...position,
+        market,
+        side: "short",
+        size: "-2.5",
+      }).limitPrice,
+    ).toBe("79112");
+  });
+
   test("allows an edited partial close only as a reduce-only limit action", () => {
     const position = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE).positions[0];
     if (!position) throw new Error("fixture position missing");

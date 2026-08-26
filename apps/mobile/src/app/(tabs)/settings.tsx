@@ -29,6 +29,7 @@ import {
   buildRedactedDiagnosticExport,
   diagnosticExportJson,
 } from "../../features/diagnostics/diagnostic-export";
+import { NOTIFICATION_SETTINGS_AVAILABLE } from "../../features/notifications/availability";
 import { useNotificationRuntime } from "../../features/notifications/provider";
 import { AboutCard } from "../../features/settings/about-card";
 import { useAppearancePreference } from "../../features/settings/appearance-provider";
@@ -462,16 +463,21 @@ export default function SettingsScreen(): JSX.Element {
         )}
       </SettingsSection>
 
-      <SettingsSection title="Notifications" description="Manage price alerts.">
-        <Button
-          animation={reducedMotion ? "disable-all" : undefined}
-          className="min-h-12 w-full"
-          onPress={() => router.push("/notification-settings")}
-          variant="secondary"
+      {NOTIFICATION_SETTINGS_AVAILABLE ? (
+        <SettingsSection
+          title="Notifications"
+          description="Manage price alerts."
         >
-          Manage notifications
-        </Button>
-      </SettingsSection>
+          <Button
+            animation={reducedMotion ? "disable-all" : undefined}
+            className="min-h-12 w-full"
+            onPress={() => router.push("/notification-settings")}
+            variant="secondary"
+          >
+            Manage notifications
+          </Button>
+        </SettingsSection>
+      ) : null}
 
       <SettingsSection
         title="Appearance"

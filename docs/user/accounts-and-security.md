@@ -133,8 +133,8 @@ review or market, precision, balance, leverage, margin, reduce-only, price, size
 fee, or slippage validation.
 
 Appearance is device-global and does not alter trading identity or authority.
-Portfolio remembers its range from the Portfolio screen. Price alerts use a
-market picker; unavailable account-alert controls are not shown.
+Portfolio remembers its range from the Portfolio screen. Notification controls
+remain hidden until their service and device-delivery path are released.
 
 ## Redacted diagnostics
 

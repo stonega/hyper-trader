@@ -33,7 +33,7 @@ The progressive Trade drafting and review handoff is documented in
 ## Confirmation sequence
 
 Trade uses its side-specific **Buy / Long** or **Sell / Short** control as the
-explicit order confirmation. Portfolio uses **Market**, **Review limit close**,
+explicit order confirmation. Portfolio uses **Market**, **Close**,
 and **Cancel** as its explicit confirmations. The pressed control first shows
 `Reviewing…` without opening a sheet. That explicit confirmation starts this
 sequence:

@@ -10,6 +10,7 @@ import { useState } from "react";
 import { View } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
+import { PriceInputWithMid } from "../../components/price-input-with-mid";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   type CloseDraft,
@@ -19,6 +20,7 @@ import {
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
   portfolioFundingId,
+  portfolioLimitCloseMidPrice,
 } from "./portfolio-model";
 import {
   formatPortfolioRecordTime,
@@ -179,6 +181,7 @@ function PositionCard({
   const reducedMotion = useReducedMotion();
   const active = editor?.positionId === position.id ? editor : null;
   const closeEnabled = actionAccess.allowed && position.closeEnabled;
+  const midPrice = portfolioLimitCloseMidPrice(position);
   const positionSide = position.side === "long" ? "Long" : "Short";
   const positionSideColor = position.side === "long" ? "success" : "danger";
   const pnlTone = portfolioAmountTone(position.unrealizedPnl);
@@ -242,7 +245,7 @@ function PositionCard({
                 setEditor({
                   kind: "limit_close",
                   positionId: position.id,
-                  limitPrice: position.market?.midPx ?? draft.limitPrice,
+                  limitPrice: draft.limitPrice,
                   size: draft.size,
                 });
               }}
@@ -272,12 +275,16 @@ function PositionCard({
               isInvalid={error !== null}
             >
               <Label>Limit price (USDC)</Label>
-              <Input
+              <PriceInputWithMid
+                accessibilityHint="Uses this market's current decimal and significant-figure limits."
                 accessibilityLabel={`Limit price for ${position.coin}`}
-                keyboardType="decimal-pad"
+                isDisabled={closePending}
+                midButtonAccessibilityLabel={`Use current mid price for ${position.coin}`}
+                midPrice={midPrice}
                 onChangeText={(limitPrice) =>
                   setEditor({ ...active, limitPrice })
                 }
+                returnKeyType="next"
                 value={active.limitPrice}
               />
             </TextField>
@@ -335,9 +342,7 @@ function PositionCard({
                 variant="primary"
               >
                 <Button.Label>
-                  {reviewingCloseBehavior === "limit"
-                    ? "Reviewing…"
-                    : "Review limit close"}
+                  {reviewingCloseBehavior === "limit" ? "Reviewing…" : "Close"}
                 </Button.Label>
               </Button>
               <Button

@@ -25,6 +25,25 @@ If native dependency resolution changes, clear Metro once:
 bun --cwd apps/mobile start --clear
 ```
 
+## EAS Build
+
+The mobile app is linked to `@stonegate/hyper-trader`. Run EAS commands from
+`apps/mobile`; `eas.json` requires EAS CLI 22.4.0 or newer and keeps app-version
+management on EAS.
+
+Use the `preview` profile for internal physical-device validation:
+
+```sh
+cd apps/mobile
+bunx eas-cli build --platform android --profile preview
+bunx eas-cli build --platform ios --profile preview
+```
+
+The `production` profile auto-increments the remote app version. Do not start a
+production build until the security review, mainnet preflight, and release
+evidence requirements are satisfied. EAS initialization does not change the OTA
+policy: `updates.enabled` remains `false` in `app.json`.
+
 ## HeroUI Native and Uniwind
 
 The official HeroUI Native scaffold provides the required peer versions.

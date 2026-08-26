@@ -13,9 +13,11 @@ import { useEffect, useRef, useState } from "react";
 import { type StyleProp, View, type ViewStyle } from "react-native";
 
 import { AppText as Text } from "../../components/app-text";
+import { PriceInputWithMid } from "../../components/price-input-with-mid";
 import { COMPACT_SEGMENT_HIT_SLOP } from "../../components/ui/control-metrics";
 import { UnderlineTabs } from "../../components/ui/underline-tabs";
 import { useReducedMotion } from "../../components/use-reduced-motion";
+import { roundedPriceInputValue } from "../actions/aggressive-order-price";
 import {
   canStartTradeReview,
   controlsForMarket,
@@ -138,6 +140,10 @@ export function OrderPanel({
   const structurallyOrderable = hasSupportedOrderMetadata(market);
   const controls = controlsForMarket(market, draft.orderType);
   const referencePrice = market.midPx ?? market.markPx ?? null;
+  const midPrice = roundedPriceInputValue({
+    price: market.midPx,
+    precision: market.pricePrecision,
+  });
   const account = authority.account;
   const leverage = market.family === "spot" ? 1 : (account?.leverage ?? null);
   const maximumLeverage =
@@ -448,12 +454,11 @@ export function OrderPanel({
         {controls.price ? (
           <TextField animation={reducedMotion ? "disable-all" : undefined}>
             <Label>Limit price</Label>
-            <Input
+            <PriceInputWithMid
               accessibilityHint="Uses the selected market's current decimal and significant-figure limits."
-              className="font-mono"
-              keyboardType="decimal-pad"
+              midButtonAccessibilityLabel="Use current mid price"
+              midPrice={midPrice}
               onChangeText={(limitPrice) => update({ limitPrice })}
-              placeholder="0"
               returnKeyType="next"
               value={draft.limitPrice}
             />

@@ -25,7 +25,10 @@ import {
 } from "../../core/actions/draft-context";
 import { marketMetadataFingerprint } from "../../core/actions/metadata-fingerprint";
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
-import { aggressiveOrderPrice } from "../actions/aggressive-order-price";
+import {
+  aggressiveOrderPrice,
+  roundedPriceInputValue,
+} from "../actions/aggressive-order-price";
 import {
   type ActionReviewSnapshot,
   createActionReview,
@@ -213,6 +216,16 @@ export function tradeReferencePrice(market: Market): string {
   return market.midPx ?? market.markPx ?? "";
 }
 
+export function tradeLimitPriceInputValue(market: Market): string {
+  const referencePrice = tradeReferencePrice(market);
+  return (
+    roundedPriceInputValue({
+      price: referencePrice,
+      precision: market.pricePrecision,
+    }) ?? referencePrice
+  );
+}
+
 export function hasSupportedOrderMetadata(market: Market): boolean {
   return (
     market.family !== "outcome" &&
@@ -280,7 +293,7 @@ export function createTradeDraft(input: {
     side: "buy",
     orderType,
     size: "",
-    limitPrice: tradeReferencePrice(input.market),
+    limitPrice: tradeLimitPriceInputValue(input.market),
     leverage:
       input.market.family === "perp" ? (input.account?.leverage ?? null) : null,
     timeInForce: "Gtc",

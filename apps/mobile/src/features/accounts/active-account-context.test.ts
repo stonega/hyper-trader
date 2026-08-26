@@ -74,7 +74,7 @@ describe("active account context restoration", () => {
     });
   });
 
-  test("recovers legacy-stripped mainnet metadata from matching local activation and custody", () => {
+  test("recovers legacy-stripped mainnet metadata without exposing a preactivation signer", () => {
     const mainnetBinding = { ...binding, network: "mainnet" as const };
     const mainnetActiveBinding = {
       ...activeBinding,
@@ -129,7 +129,7 @@ describe("active account context restoration", () => {
       network: "mainnet",
       masterAccount: MASTER,
       targetAccount: MASTER,
-      signer: { agentAddress: AGENT, generation: 1 },
+      signer: null,
     });
   });
 

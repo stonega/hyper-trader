@@ -11,7 +11,10 @@
       "enabled": false
     },
     "extra": {
-      "backendOrigin": "https://hyper-trader-backend.stoneflare.workers.dev"
+      "backendOrigin": "https://hyper-trader-backend.stoneflare.workers.dev",
+      "eas": {
+        "projectId": "fef3cbd7-9d32-46af-8afa-3907e785513c"
+      }
     },
     "userInterfaceStyle": "automatic",
     "ios": {
@@ -82,6 +85,7 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "owner": "stonegate"
   }
 }

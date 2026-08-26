@@ -179,11 +179,12 @@ action boundary:
   stops submission. Full market close size is fixed to the current absolute
   position.
   A user may switch to a reduce-only GTC limit order and edit a partial size or
-  limit price before review. Pressing Market or Review limit close is the
-  explicit confirmation boundary. It shows `Reviewing…` while authoritative
-  review runs and requests exact target-bound device authentication only after
-  review succeeds. The sending/status sheet appears only after authentication;
-  no redundant review sheet opens first.
+  limit price before review. The price field's Mid action restores the current
+  validated midpoint rounded to the market's price precision. Pressing Market
+  or Close is the explicit confirmation boundary. It shows `Reviewing…` while
+  authoritative review runs and requests exact target-bound device authentication
+  only after review succeeds. The sending/status sheet appears only after
+  authentication; no redundant review sheet opens first.
 - Position cards expose only Market and Limit close actions. Market retains the
   primary action treatment and starts a full-position close. Limit expands an
   inline reduce-only price and size form. Routine account snapshots and market

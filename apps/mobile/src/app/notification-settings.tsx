@@ -1,4 +1,4 @@
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Input } from "heroui-native/input";
@@ -17,11 +17,19 @@ import { marketDisplayLabel } from "../features/markets/discovery";
 import { MarketSwitcher } from "../features/markets/market-switcher";
 import { useMarketPreferences } from "../features/markets/preferences-provider";
 import { useMarketCatalogPresentation } from "../features/markets/query";
+import { NOTIFICATION_SETTINGS_AVAILABLE } from "../features/notifications/availability";
 import { notificationSettingsConsumesBack } from "../features/notifications/model";
 import { useNotificationRuntime } from "../features/notifications/provider";
 import { randomNotificationHex } from "../features/notifications/random-id";
 
 export default function NotificationSettingsScreen(): JSX.Element {
+  if (!NOTIFICATION_SETTINGS_AVAILABLE) {
+    return <Redirect href="/(tabs)/settings" />;
+  }
+  return <NotificationSettingsContent />;
+}
+
+function NotificationSettingsContent(): JSX.Element {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const reducedMotion = useReducedMotion();

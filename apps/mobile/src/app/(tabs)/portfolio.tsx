@@ -592,7 +592,7 @@ export default function PortfolioScreen(): JSX.Element {
               </ScrollView>
             </View>
 
-            {actionError ? (
+            {actionError && editor === null ? (
               <Text
                 accessibilityRole="alert"
                 className="text-sm leading-5 text-danger"

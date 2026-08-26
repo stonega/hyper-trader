@@ -6,6 +6,12 @@ The native iOS and Android notification flow is implemented in
 Expo web. The mobile app uses the public notification service for durable rules
 and delivery state; it never evaluates durable alert rules locally.
 
+User-managed notifications are currently release-gated. Settings does not show
+notification controls, and direct navigation to `/notification-settings`
+returns to Settings. The runtime and safe `/notification` entry boundary remain
+mounted so the implementation and existing-installation failure behavior stay
+testable without exposing an unavailable workflow.
+
 ## Build configuration
 
 Install dependencies through the SDK-compatible resolver:
@@ -117,7 +123,7 @@ unlocks, changes account context, or claims that an alert was delivered.
 
 ## Phase, Back, motion, and accessibility
 
-Notification settings use one phase model:
+When the release gate is enabled, notification settings use one phase model:
 
 ```text
 overview -> request permission -> register token -> sync rule -> overview

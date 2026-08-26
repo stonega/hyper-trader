@@ -15,8 +15,8 @@ review, physical-device evidence, and the bounded canary remain required.
 - Use Trade to inspect current market data and submit supported actions after an
   exact signer, current account state, immutable review, and explicit
   confirmation.
-- Inspect the Portfolio, account/security settings, redacted diagnostics, and
-  notification setup without granting trading authority.
+- Inspect the Portfolio, account/security settings, appearance preferences, and
+  redacted diagnostics without granting additional trading authority.
 
 ## What is not enabled
 
@@ -35,8 +35,6 @@ success.
   approving any future order.
 - Prefer testnet for the first authenticated pass; use the private mainnet
   candidate only when real-funds testing is intentional.
-- Treat push alerts as informational. Opened alerts fetch current state and ask
-  before changing account or network.
 - A build or screen claiming approved mainnet signing without the matching
   release evidence, silent context switching, unsigned updates, or secret
   recovery is unsafe and should not be used.
