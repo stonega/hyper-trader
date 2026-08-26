@@ -29,7 +29,7 @@ export interface ActionCapability {
 export type MainnetTradingReleaseStage = "preactivation" | "candidate";
 
 export const MAINNET_TRADING_RELEASE_STAGE: MainnetTradingReleaseStage =
-  "preactivation";
+  "candidate";
 
 export function actionCapabilitiesForReleaseStage(
   stage: MainnetTradingReleaseStage,
