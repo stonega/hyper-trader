@@ -52,6 +52,7 @@ import {
   PortfolioSnapshotNotReadyError,
   type PortfolioSnapshotReader,
 } from "./portfolio/portfolio-snapshot-reader";
+import { PRIVACY_POLICY_PATH, privacyPolicyResponse } from "./privacy-policy";
 
 const JSON_CONTENT_TYPE = "application/json";
 const MAX_MARKET_CATALOG_RESPONSE_BYTES = 8 * 1024 * 1024;
@@ -124,6 +125,12 @@ export function createMarketCatalogRequestHandler(
         return jsonResponse(400, { error: "query_not_allowed" });
       if (request.method === "GET" && url.pathname === "/health") {
         return jsonResponse(200, { status: "ok" });
+      }
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        url.pathname === PRIVACY_POLICY_PATH
+      ) {
+        return privacyPolicyResponse(request.method, origin);
       }
       if (summaryMatch?.[1]) {
         return await marketSummaryResponse(
@@ -213,6 +220,12 @@ export function createNotificationRequestHandler(
         return jsonResponse(400, { error: "query_not_allowed" });
       if (request.method === "GET" && url.pathname === "/health") {
         return jsonResponse(200, { status: "ok" });
+      }
+      if (
+        (request.method === "GET" || request.method === "HEAD") &&
+        url.pathname === PRIVACY_POLICY_PATH
+      ) {
+        return privacyPolicyResponse(request.method, origin);
       }
       if (
         request.method !== "GET" &&

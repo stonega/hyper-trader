@@ -216,6 +216,49 @@ describe("bounded public notification API", () => {
     ).toBe(404);
   });
 
+  test("serves the public privacy policy from both backend handlers", async () => {
+    const serviceOrigin = "https://notify.example.com";
+    const standalone = createMarketCatalogRequestHandler({
+      serviceOrigin,
+      marketCatalog: { readPublished: async () => null },
+    });
+    const notifications = createNotificationRequestHandler({
+      application: new FakeApplication(),
+      serviceOrigin,
+    });
+
+    const responses = [
+      await standalone(new Request(`${serviceOrigin}/privacy`)),
+      await notifications(new Request(`${serviceOrigin}/privacy`), {
+        ip: "192.0.2.1",
+      }),
+    ];
+
+    for (const response of responses) {
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe(
+        "text/html; charset=utf-8",
+      );
+      expect(response.headers.get("content-security-policy")).toContain(
+        "frame-ancestors 'none'",
+      );
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      const html = await response.text();
+      expect(html).toContain("<title>Privacy Policy | Hyper Trader</title>");
+      expect(html).toContain("<h1>Privacy policy</h1>");
+      expect(html).toContain("Data retention and deletion");
+      expect(html).toContain("Developer:</strong> Stonegate");
+      expect(html).toContain(`${serviceOrigin}/privacy`);
+    }
+
+    const head = await standalone(
+      new Request(`${serviceOrigin}/privacy`, { method: "HEAD" }),
+    );
+    expect(head.status).toBe(200);
+    expect(head.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await head.text()).toBe("");
+  });
+
   test("serves a generation-pinned public market catalog without bearer auth", async () => {
     const application = new FakeApplication();
     const marketCatalog: MarketCatalog = {

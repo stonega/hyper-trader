@@ -63,7 +63,8 @@ bun run market-catalog
 ```
 
 The executable applies forward migrations, synchronizes testnet and mainnet
-catalog generations, and exposes `/health`,
+catalog generations, and exposes `/health`, the public HTML privacy policy at
+`/privacy`,
 `/v1/market-catalog/{testnet|mainnet}`,
 `/v1/market-summaries/{testnet|mainnet}`, and the bounded Portfolio aggregation
 routes `/v1/portfolio-snapshots/{live|history}`. Market summaries are public,

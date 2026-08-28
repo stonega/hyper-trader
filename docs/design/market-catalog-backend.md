@@ -62,6 +62,12 @@ reader that already selected the former generation to finish safely.
 
 ## Public API and mobile behavior
 
+`GET /privacy` serves the public Hyper Trader privacy policy as a responsive
+HTML document for app-store disclosure and in-app access. It accepts no query
+parameters, requires no bearer, and is also available through `HEAD` for link
+verification. The response uses a restrictive content-security policy and
+contains no scripts or third-party page assets.
+
 `GET /v1/market-summaries/:network` is the Markets browse path. It accepts
 bounded search, family, availability, lifecycle, sort, canonical-ID, limit, and
 generation-bound cursor parameters. The default and mobile page size is 24 and
