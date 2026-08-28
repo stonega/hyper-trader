@@ -39,10 +39,19 @@ bunx eas-cli build --platform android --profile preview
 bunx eas-cli build --platform ios --profile preview
 ```
 
-The `production` profile auto-increments the remote app version. Do not start a
-production build until the security review, mainnet preflight, and release
-evidence requirements are satisfied. EAS initialization does not change the OTA
-policy: `updates.enabled` remains `false` in `app.json`.
+The `production` profile auto-increments the remote app version. On Android it
+produces a signed APK for direct installation instead of an app bundle. Build it
+without Google Play submission by omitting the auto-submit flag:
+
+```sh
+cd apps/mobile
+bunx eas-cli build --platform android --profile production
+```
+
+Do not run `eas submit` for this artifact. Do not start a production build until
+the security review, mainnet preflight, and release evidence requirements are
+satisfied. EAS initialization does not change the OTA policy: `updates.enabled`
+remains `false` in `app.json`.
 
 ## HeroUI Native and Uniwind
 
