@@ -219,6 +219,7 @@ export function createHyperliquidReconciliationEvidenceSource(input: {
       switch (record.actionType) {
         case "market_order":
         case "limit_order":
+        case "position_tpsl":
         case "cancel":
           return loadOrderEvidence({ client, clock: input.clock, record });
         case "reduce_only_close":

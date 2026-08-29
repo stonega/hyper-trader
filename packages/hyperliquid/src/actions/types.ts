@@ -34,6 +34,20 @@ export interface ReduceOnlyCloseIntent {
   readonly cloid: Cloid;
 }
 
+export type PositionTpslKind = "take_profit" | "stop_loss";
+
+export interface PositionTpslIntent {
+  readonly type: "position_tpsl";
+  readonly assetId: number;
+  readonly side: OrderSide;
+  readonly size: DecimalString;
+  readonly triggerPrice: DecimalString;
+  readonly aggressiveLimitPrice: DecimalString;
+  readonly triggerKind: PositionTpslKind;
+  readonly existingOid: number | null;
+  readonly cloid: Cloid;
+}
+
 export type CancelTarget =
   | { readonly kind: "oid"; readonly oid: number }
   | { readonly kind: "cloid"; readonly cloid: Cloid };
@@ -60,11 +74,12 @@ export type TradingActionIntent =
   | MarketOrderIntent
   | LimitOrderIntent
   | ReduceOnlyCloseIntent
+  | PositionTpslIntent
   | CancelIntent
   | BulkCancelIntent
   | UpdateLeverageIntent;
 
-export interface OrderWire {
+export interface LimitOrderWire {
   readonly a: number;
   readonly b: boolean;
   readonly p: DecimalString;
@@ -74,10 +89,34 @@ export interface OrderWire {
   readonly c: Cloid;
 }
 
+export interface TriggerOrderWire {
+  readonly a: number;
+  readonly b: boolean;
+  readonly p: DecimalString;
+  readonly s: DecimalString;
+  readonly r: true;
+  readonly t: {
+    readonly trigger: {
+      readonly isMarket: true;
+      readonly triggerPx: DecimalString;
+      readonly tpsl: "tp" | "sl";
+    };
+  };
+  readonly c: Cloid;
+}
+
+export type OrderWire = LimitOrderWire | TriggerOrderWire;
+
 export interface OrderAction {
   readonly type: "order";
   readonly orders: readonly OrderWire[];
-  readonly grouping: "na";
+  readonly grouping: "na" | "positionTpsl";
+}
+
+export interface ModifyOrderAction {
+  readonly type: "modify";
+  readonly oid: number;
+  readonly order: TriggerOrderWire;
 }
 
 export interface CancelByOidAction {
@@ -105,6 +144,7 @@ export interface UpdateLeverageAction {
 
 export type ExchangeAction =
   | OrderAction
+  | ModifyOrderAction
   | CancelByOidAction
   | CancelByCloidAction
   | UpdateLeverageAction;

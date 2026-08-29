@@ -7,6 +7,13 @@ actions use real funds. Public builds pass the automated repository gate,
 target-device smoke test, artifact-digest check, and release-owner decision
 before store submission.
 
+## First launch
+
+Hyper Trader first explains why trading uses a dedicated API wallet. Choose
+**Set up API wallet** to enter the protected setup flow, or **Skip for now** to
+open Trade in read-only mode. Either choice closes first-use onboarding. You can
+start or resume API-wallet setup later from Settings.
+
 ## What you can do
 
 - Explore the validated runtime catalog, including native perpetuals, HIP-3

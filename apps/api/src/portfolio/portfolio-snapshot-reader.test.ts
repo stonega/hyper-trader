@@ -96,6 +96,9 @@ describe("backend Portfolio snapshot reader", () => {
     expect(calls.filter((type) => type === "clearinghouseState")).toHaveLength(
       2,
     );
+    expect(calls.filter((type) => type === "frontendOpenOrders")).toHaveLength(
+      2,
+    );
     expect(calls).toContain("portfolio");
   });
 
@@ -121,7 +124,10 @@ describe("backend Portfolio snapshot reader", () => {
       endpoint: "https://example.com/info",
       budgetFor: () => ({ requestType: "test", baseWeight: 1, totalWeight: 1 }),
       async request(body) {
-        if (body.type === "clearinghouseState" || body.type === "openOrders") {
+        if (
+          body.type === "clearinghouseState" ||
+          body.type === "frontendOpenOrders"
+        ) {
           active += 1;
           maximum = Math.max(maximum, active);
           await new Promise((resolve) => setTimeout(resolve, 1));

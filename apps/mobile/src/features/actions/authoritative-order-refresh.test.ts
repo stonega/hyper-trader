@@ -3,6 +3,7 @@ import type {
   AccountTarget,
   ActiveAssetData,
   ClearinghouseState,
+  FrontendOpenOrder,
   HyperliquidClient,
   Market,
   MarketCatalogRequestOptions,
@@ -44,6 +45,10 @@ function review(
     cloid: "0x00000000000000000000000000000001",
   },
   slippageBps: number | null = null,
+  trigger: {
+    readonly price: `${number}`;
+    readonly direction: "above" | "below";
+  } | null = null,
 ) {
   return createActionReview({
     binding,
@@ -90,8 +95,15 @@ function review(
               ],
             }
           : {}),
+        ...(intent.type === "position_tpsl" && intent.existingOid !== null
+          ? {
+              openOrders: [
+                { assetId: intent.assetId, oid: intent.existingOid },
+              ],
+            }
+          : {}),
       },
-      controls: { slippageBps, trigger: null },
+      controls: { slippageBps, trigger },
       intent,
     },
   });
@@ -103,6 +115,8 @@ function client(
   catalogScopes?: string[],
   market: Market = NATIVE_DUPLICATE,
   openOrders: readonly OpenOrder[] = PORTFOLIO_FIXTURE.perpStates[0].openOrders,
+  frontendOpenOrders: readonly FrontendOpenOrder[] = PORTFOLIO_FIXTURE
+    .perpStates[0].openOrders,
 ): HyperliquidClient {
   return {
     network: "testnet",
@@ -134,6 +148,9 @@ function client(
       },
       async getOpenOrders(target: AccountTarget, dex: string) {
         return { target, sourceDex: dex, data: openOrders };
+      },
+      async getFrontendOpenOrders(target: AccountTarget, dex: string) {
+        return { target, sourceDex: dex, data: frontendOpenOrders };
       },
     },
   } as unknown as HyperliquidClient;
@@ -443,6 +460,68 @@ describe("development authoritative order refresh", () => {
       code: "cancel_target_not_open",
       message: "The reviewed order is no longer open.",
     });
+  });
+
+  test("revalidates an exact position-linked trigger before editing", async () => {
+    const candidate = review(
+      {
+        type: "position_tpsl",
+        assetId: NATIVE_DUPLICATE.orderAssetId,
+        side: "sell",
+        size: "2.5",
+        triggerPrice: "12",
+        aggressiveLimitPrice: "11.4",
+        triggerKind: "take_profit",
+        existingOid: 170,
+        cloid: "0x00000000000000000000000000000004",
+      },
+      500,
+      { price: "12", direction: "above" },
+    );
+    const context = {
+      context: {
+        network: "testnet" as const,
+        masterAccount: binding.masterAccount,
+        targetAccount: binding.targetAccount,
+        signer: {
+          agentAddress: binding.agentAddress,
+          generation: binding.generation,
+        },
+      },
+      epoch: 4,
+    };
+    const refreshed = await refreshReviewedOrder({
+      review: candidate,
+      clock: unusedClock,
+      client: client(PORTFOLIO_FIXTURE.perpStates[0].state),
+      readCurrentContext: () => context,
+      now: () => NOW + 1_000,
+    });
+    expect(refreshed.account.openOrders).toEqual([
+      { assetId: NATIVE_DUPLICATE.orderAssetId, oid: 170 },
+    ]);
+    expect(validateTradingAction(refreshed).intent).toEqual(refreshed.intent);
+
+    const existing = PORTFOLIO_FIXTURE.perpStates[0].openOrders.find(
+      (order) => order.oid === 170,
+    );
+    if (!existing) throw new Error("The protective-order fixture is missing.");
+    await expect(
+      refreshReviewedOrder({
+        review: candidate,
+        clock: unusedClock,
+        client: client(
+          PORTFOLIO_FIXTURE.perpStates[0].state,
+          ["118", "117"],
+          undefined,
+          NATIVE_DUPLICATE,
+          PORTFOLIO_FIXTURE.perpStates[0].openOrders,
+          [{ ...existing, side: "B" }],
+        ),
+        readCurrentContext: () => context,
+        now: () => NOW + 1_000,
+      }),
+    ).rejects.toMatchObject({ code: "position_tpsl_target_not_open" });
   });
 
   test("rejects a review after the context epoch changes", () => {

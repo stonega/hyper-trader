@@ -38,6 +38,7 @@ import type {
   PortfolioOpenOrderRow,
   PortfolioPositionRow,
   PortfolioRange,
+  PositionTpslDraft,
 } from "../../features/portfolio/portfolio-model";
 import {
   PortfolioRowsPlaceholder,
@@ -54,7 +55,9 @@ import {
 import {
   buildPortfolioCancelReview,
   buildPortfolioCloseReview,
+  buildPortfolioPositionTpslReview,
   portfolioCloseScopeKey,
+  portfolioPositionTpslScopeKey,
 } from "../../features/portfolio/portfolio-review";
 import {
   type PortfolioActionAccess,
@@ -411,6 +414,95 @@ export default function PortfolioScreen(): JSX.Element {
     }
   };
 
+  const reviewPositionTpsl = async (
+    position: PortfolioPositionRow,
+    draft: PositionTpslDraft,
+  ) => {
+    let operation: ReturnType<
+      ReturnType<typeof createTradeOperationFence>["begin"]
+    > | null = null;
+    try {
+      if (
+        !actionsEnabled ||
+        portfolio === null ||
+        targetResolution.target === null
+      ) {
+        throw new Error(actionGate ?? "Current account evidence is required.");
+      }
+      if (cancelInFlight.current || closeInFlight.current !== null) {
+        throw new Error("Another Portfolio action is already being prepared.");
+      }
+      assertActionCurrent();
+      Keyboard.dismiss();
+      const capturedScope = reviewScopeRef.current;
+      const capturedProtectionScope = portfolioPositionTpslScopeKey({
+        portfolio,
+        position,
+        draft,
+        context: current,
+        target: targetResolution.target,
+      });
+      operation = closeOperationFence.current.begin(
+        position.canonicalMarketId ?? position.id,
+        capturedProtectionScope,
+      );
+      closeInFlight.current = operation;
+      const capture = tradingContext.capture();
+      const cloid = cloidFromRandomBytes(
+        await expoCryptographicRandomBytes(16),
+      );
+      if (
+        !closeOperationFence.current.canCommit(
+          operation,
+          capturedProtectionScope,
+        ) ||
+        capturedScope !== reviewScopeRef.current ||
+        !tradingContext.canCommit(capture)
+      ) {
+        throw new Error(
+          "The position or account snapshot changed while protection was prepared.",
+        );
+      }
+      const review = buildPortfolioPositionTpslReview({
+        portfolio,
+        position,
+        draft,
+        cloid,
+        target: targetResolution.target,
+        context: current,
+        capturedContextEpoch: capture.epoch,
+        nowMs: Date.now(),
+      });
+      if (
+        !closeOperationFence.current.canCommit(
+          operation,
+          capturedProtectionScope,
+        ) ||
+        capturedScope !== reviewScopeRef.current ||
+        !tradingContext.canCommit(capture)
+      ) {
+        throw new Error(
+          "The protection details changed while review was prepared. Try again with current values.",
+        );
+      }
+      setInteraction({ editor: null, invalidationMessage: null });
+      setActionError(null);
+      const result = await actionRuntime.reviewAndSubmit(review);
+      if (result.phase === "failed_before_submission") {
+        throw new Error(
+          result.message ??
+            "The protective order could not be reviewed with current market and account details.",
+        );
+      }
+    } catch (error) {
+      reportActionError(error);
+    } finally {
+      if (operation !== null && closeInFlight.current === operation) {
+        closeInFlight.current = null;
+      }
+    }
+  };
+
   const selectedRange = portfolio?.ranges[range] ?? null;
   const selectRange = (nextRange: PortfolioRange) => {
     setRange(nextRange);
@@ -612,6 +704,7 @@ export default function PortfolioScreen(): JSX.Element {
                 markets={catalog?.markets ?? []}
                 onCancel={reviewCancel}
                 onReviewClose={reviewClose}
+                onReviewPositionTpsl={reviewPositionTpsl}
                 portfolio={portfolio}
                 setEditor={setEditor}
               />

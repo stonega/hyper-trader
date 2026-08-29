@@ -54,6 +54,16 @@ def actions():
             "orders": [{"a": 1, "b": False, "p": "99", "s": "2", "r": True, "t": {"limit": {"tif": "Ioc"}}, "c": CLOID}],
             "grouping": "na",
         },
+        "positionTpslCreate": {
+            "type": "order",
+            "orders": [{"a": 1, "b": False, "p": "104.5", "s": "2", "r": True, "t": {"trigger": {"isMarket": True, "triggerPx": "110", "tpsl": "tp"}}, "c": CLOID}],
+            "grouping": "positionTpsl",
+        },
+        "positionTpslModify": {
+            "type": "modify",
+            "oid": 77,
+            "order": {"a": 1, "b": False, "p": "85.5", "s": "2", "r": True, "t": {"trigger": {"isMarket": True, "triggerPx": "90", "tpsl": "sl"}}, "c": CLOID},
+        },
     }
 
 
@@ -140,4 +150,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

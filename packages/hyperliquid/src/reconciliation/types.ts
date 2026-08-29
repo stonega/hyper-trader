@@ -10,6 +10,7 @@ export const JOURNAL_ACTION_TYPES = [
   "bulk_cancel",
   "update_leverage",
   "reduce_only_close",
+  "position_tpsl",
 ] as const satisfies readonly JournalActionType[];
 
 export type JournalResultClass =

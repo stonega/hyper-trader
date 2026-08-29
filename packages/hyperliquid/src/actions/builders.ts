@@ -16,9 +16,11 @@ import type {
   LimitOrderIntent,
   LimitTimeInForce,
   MarketOrderIntent,
+  ModifyOrderAction,
   OrderAction,
   OrderSide,
   OrderWire,
+  PositionTpslIntent,
   ReduceOnlyCloseIntent,
   TradingActionIntent,
   UpdateLeverageAction,
@@ -92,6 +94,38 @@ function orderWire(input: {
   };
 }
 
+function positionTpslOrderWire(
+  intent: Omit<PositionTpslIntent, "type" | "existingOid">,
+): Extract<OrderWire, { readonly t: { readonly trigger: unknown } }> {
+  if (!VALID_SIDES.has(intent.side)) {
+    invalid("side", "expected buy or sell");
+  }
+  if (
+    intent.triggerKind !== "take_profit" &&
+    intent.triggerKind !== "stop_loss"
+  ) {
+    invalid("triggerKind", "expected take_profit or stop_loss");
+  }
+  return {
+    a: validateAssetId(intent.assetId),
+    b: intent.side === "buy",
+    p: validatePositiveDecimal(
+      intent.aggressiveLimitPrice,
+      "aggressiveLimitPrice",
+    ),
+    s: validatePositiveDecimal(intent.size, "size"),
+    r: true,
+    t: {
+      trigger: {
+        isMarket: true,
+        triggerPx: validatePositiveDecimal(intent.triggerPrice, "triggerPrice"),
+        tpsl: intent.triggerKind === "take_profit" ? "tp" : "sl",
+      },
+    },
+    c: parseCloid(intent.cloid),
+  };
+}
+
 function singleOrderAction(order: OrderWire): OrderAction {
   return { type: "order", orders: [order], grouping: "na" };
 }
@@ -141,6 +175,23 @@ export function buildReduceOnlyCloseAction(
       tif: "Ioc",
     }),
   );
+}
+
+export function buildPositionTpslAction(
+  intent: Omit<PositionTpslIntent, "type"> | PositionTpslIntent,
+): OrderAction | ModifyOrderAction {
+  if ("type" in intent && intent.type !== "position_tpsl") {
+    invalid("type", "expected position_tpsl");
+  }
+  const order = positionTpslOrderWire(intent);
+  if (intent.existingOid === null) {
+    return { type: "order", orders: [order], grouping: "positionTpsl" };
+  }
+  return {
+    type: "modify",
+    oid: validateOid(intent.existingOid, "existingOid"),
+    order,
+  };
 }
 
 function validateOid(oid: number, path: string): number {
@@ -249,6 +300,8 @@ export function buildExchangeAction(
       return buildLimitOrderAction(intent);
     case "reduce_only_close":
       return buildReduceOnlyCloseAction(intent);
+    case "position_tpsl":
+      return buildPositionTpslAction(intent);
     case "cancel":
       return buildCancelAction(intent);
     case "bulk_cancel":

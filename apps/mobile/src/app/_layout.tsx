@@ -69,6 +69,13 @@ export default function RootLayout(): JSX.Element {
                                 <StatusBar style="auto" />
                                 <Stack screenOptions={{ headerShown: false }}>
                                   <Stack.Screen
+                                    name="onboarding"
+                                    options={{
+                                      animation: "none",
+                                      gestureEnabled: false,
+                                    }}
+                                  />
+                                  <Stack.Screen
                                     name="notification-settings"
                                     options={{
                                       animation: "none",

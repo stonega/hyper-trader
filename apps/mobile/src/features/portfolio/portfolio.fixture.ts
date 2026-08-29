@@ -1,6 +1,6 @@
 import type {
   ClearinghouseState,
-  OpenOrder,
+  FrontendOpenOrder,
   PortfolioPeriod,
   SpotClearinghouseState,
   UserFill,
@@ -58,13 +58,39 @@ const state = (
   withdrawable: "118",
 });
 
-const order = (coin: string, oid: number): OpenOrder => ({
+const order = (coin: string, oid: number): FrontendOpenOrder => ({
   coin,
   limitPrice: "10.25",
   oid,
   side: "B",
   size: "1.25",
   timestamp: 1_720_000_001_000 + oid,
+  originalSize: "1.25",
+  triggerCondition: "N/A",
+  isTrigger: false,
+  triggerPrice: "0",
+  isPositionTpsl: false,
+  reduceOnly: false,
+  orderType: "Limit",
+});
+
+const protection = (
+  kind: "take_profit" | "stop_loss",
+  oid: number,
+): FrontendOpenOrder => ({
+  coin: "DUP",
+  limitPrice: kind === "take_profit" ? "11.4" : "8.55",
+  oid,
+  side: "A",
+  size: "2.5",
+  timestamp: 1_720_000_002_000 + oid,
+  originalSize: "2.5",
+  triggerCondition: kind === "take_profit" ? "Price above 12" : "Price below 9",
+  isTrigger: true,
+  triggerPrice: kind === "take_profit" ? "12" : "9",
+  isPositionTpsl: true,
+  reduceOnly: true,
+  orderType: kind === "take_profit" ? "Take Profit Market" : "Stop Market",
 });
 
 const spotState: SpotClearinghouseState = {
@@ -150,7 +176,11 @@ export const PORTFOLIO_FIXTURE = {
       dexName: "",
       dexFullName: null,
       state: state(1_720_000_030_000, [position("DUP", "2.5", "cross")]),
-      openOrders: [order("DUP", 71)],
+      openOrders: [
+        order("DUP", 71),
+        protection("take_profit", 170),
+        protection("stop_loss", 171),
+      ],
     },
     {
       dexName: "omega",

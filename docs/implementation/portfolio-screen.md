@@ -55,7 +55,8 @@ Portfolio does not guess. The query function itself accepts any explicit
 types without changing normalization.
 
 For an exact target, mobile requests one backend live aggregate containing
-clearinghouse state and open orders for the bounded set of validated perpetual
+clearinghouse state and frontend open orders, including documented trigger
+metadata, for the bounded set of validated perpetual
 DEXes associated with the account's recent orders, fills, or funding, plus the
 native DEX and spot balances. A separate backend history aggregate contains
 fills, recent funding, and portfolio periods and loads only after live account
@@ -185,6 +186,16 @@ action boundary:
   authoritative review runs and requests exact target-bound device authentication
   only after review succeeds. The sending/status sheet appears only after
   authentication; no redundant review sheet opens first.
+- Every open position shows its current take-profit and stop-loss trigger price.
+  Each value has its own compact ghost pencil control with a 40-point visual
+  target and additional hit slop; it is intentionally not presented as a
+  primary action. The editor changes one protection order at a time. A missing
+  trigger creates one full-size reduce-only market trigger with
+  `positionTpsl` grouping, while an existing trigger modifies the exact
+  reviewed `oid`. Long take profit must remain above the current reference and
+  long stop loss below it; short positions reverse those directions. The
+  execution limit is codec-owned and bounded to five percent from the trigger.
+  **Set protection** or **Save change** is the explicit confirmation boundary.
 - Position cards expose only Market and Limit close actions. Market retains the
   primary action treatment and starts a full-position close. Limit expands an
   inline reduce-only price and size form. Routine account snapshots and market
@@ -211,10 +222,11 @@ market fingerprint and price, every position field, and every draft field. A
 context, price, metadata, account, target, or editor change rejects the late
 result before review opens.
 
-Builder-market closes remain unavailable until the documented live testnet
-safety checks pass. TP/SL remains visible but unavailable because protective
-orders are not yet supported by the shared action boundary. The screen does not
-create an alternative trigger path.
+Builder-market closes and protection changes remain unavailable until the
+documented live testnet safety checks pass. Native perpetual TP/SL create and
+modify operations use the same reviewed signer, nonce, journal, transport, and
+reconciliation boundary as close and cancel; the screen does not create an
+alternative trigger path.
 
 ## Action gates, phase, and Back behavior
 
@@ -259,7 +271,9 @@ changes account authority.
 
 ## Verification boundary
 
-Deterministic tests cover mixed native/HIP-3/spot normalization, ambiguity-aware
+Deterministic tests cover mixed native/HIP-3/spot normalization, current TP/SL
+selection and presentation, compact edit controls, create/modify trigger wire
+parity, long/short direction and price-bound validation, ambiguity-aware
 market identity, all target discriminators, query-key isolation, wrong-owner,
 detached-row and stale-snapshot rejection, native close authority, exact
 slippage bounds and precision, close operation fences, full and partial close

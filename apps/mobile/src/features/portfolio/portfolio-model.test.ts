@@ -6,8 +6,10 @@ import {
   buildCancelIntent,
   buildCloseIntent,
   buildLeverageIntent,
+  buildPositionTpslIntent,
   combineNormalizedPortfolio,
   createCloseDraft,
+  createPositionTpslDraft,
   normalizePortfolioHistorySnapshot,
   normalizePortfolioLiveSnapshot,
   normalizePortfolioSnapshot,
@@ -19,6 +21,7 @@ import {
   buildPortfolioCancelReview,
   buildPortfolioCloseReview,
   buildPortfolioLeverageReview,
+  buildPortfolioPositionTpslReview,
   portfolioCloseScopeKey,
 } from "./portfolio-review";
 
@@ -58,6 +61,10 @@ describe("portfolio normalization", () => {
     ]);
     expect(portfolio.fills).toHaveLength(1);
     expect(portfolio.funding).toHaveLength(1);
+    expect(portfolio.positions[0]).toMatchObject({
+      takeProfit: { oid: 170, triggerPrice: "12" },
+      stopLoss: { oid: 171, triggerPrice: "9" },
+    });
     expect(portfolio.activity.map((item) => item.kind)).toEqual([
       "funding",
       "fill",
@@ -245,6 +252,13 @@ describe("portfolio normalization", () => {
               side: "A",
               size: "1",
               timestamp: 1_720_000_001_073,
+              originalSize: "1",
+              triggerCondition: "N/A",
+              isTrigger: false,
+              triggerPrice: "0",
+              isPositionTpsl: false,
+              reduceOnly: false,
+              orderType: "Limit",
             },
           ],
         },
@@ -323,6 +337,33 @@ describe("portfolio quick-action intents", () => {
       size: "2.5",
       aggressiveLimitPrice: "9.95",
       cloid: "0x11111111111111111111111111111111",
+    });
+  });
+
+  test("builds a full-position protective edit with a bounded market trigger", () => {
+    const portfolio = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE);
+    const position = portfolio.positions.find(
+      (candidate) => candidate.canonicalMarketId === "perp:0:4",
+    );
+    if (!position) throw new Error("fixture position missing");
+    const draft = createPositionTpslDraft(position, "take_profit");
+
+    expect(
+      buildPositionTpslIntent(
+        { ...draft, triggerPrice: "13" },
+        position,
+        "0x33333333333333333333333333333333",
+      ),
+    ).toEqual({
+      type: "position_tpsl",
+      assetId: 4,
+      side: "sell",
+      size: "2.5",
+      triggerPrice: "13",
+      aggressiveLimitPrice: "12.35",
+      triggerKind: "take_profit",
+      existingOid: 170,
+      cloid: "0x33333333333333333333333333333333",
     });
   });
 
@@ -450,7 +491,7 @@ describe("portfolio quick-action intents", () => {
   test("builds exact cancel and applicable leverage intents", () => {
     const portfolio = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE);
     const order = portfolio.openOrders.find(
-      (candidate) => candidate.canonicalMarketId === "perp:0:4",
+      (candidate) => candidate.oid === 71,
     );
     const position = portfolio.positions.find(
       (candidate) => candidate.canonicalMarketId === "perp:0:4",
@@ -473,7 +514,7 @@ describe("portfolio quick-action intents", () => {
   test("hands cancel, close, and margin to the shared immutable review contract", () => {
     const portfolio = normalizePortfolioSnapshot(PORTFOLIO_FIXTURE);
     const order = portfolio.openOrders.find(
-      (candidate) => candidate.canonicalMarketId === "perp:0:4",
+      (candidate) => candidate.oid === 71,
     );
     const position = portfolio.positions.find(
       (candidate) => candidate.canonicalMarketId === "perp:0:4",
@@ -509,6 +550,16 @@ describe("portfolio quick-action intents", () => {
       capturedContextEpoch: 4,
       nowMs,
     });
+    const takeProfit = buildPortfolioPositionTpslReview({
+      portfolio,
+      position,
+      draft: createPositionTpslDraft(position, "take_profit"),
+      cloid: "0x55555555555555555555555555555555",
+      target: REVIEW_TARGET,
+      context: REVIEW_CONTEXT,
+      capturedContextEpoch: 4,
+      nowMs,
+    });
 
     expect(cancel.validated.intent).toEqual({
       type: "cancel",
@@ -525,6 +576,13 @@ describe("portfolio quick-action intents", () => {
     expect(margin.presentation).toMatchObject({
       action: "Update leverage",
       leverageAndMargin: "7× · isolated",
+    });
+    expect(takeProfit.presentation).toMatchObject({
+      action: "Position take profit",
+      price: "12",
+      size: "2.5",
+      reduceOnly: "Yes",
+      slippage: "5%",
     });
     expect(Object.isFrozen(close)).toBe(true);
 

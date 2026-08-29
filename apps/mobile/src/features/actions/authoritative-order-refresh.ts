@@ -4,6 +4,7 @@ import {
   assertTradingActionCapability,
   type ClockGateInput,
   createHyperliquidClient,
+  type FrontendOpenOrder,
   type HyperliquidClient,
   MINIMUM_ORDER_NOTIONAL,
   type OpenOrder,
@@ -298,6 +299,39 @@ function cancelOpenOrderEvidence(input: {
   return [{ assetId: input.market.orderAssetId, oid: targetOid }];
 }
 
+function positionTpslOpenOrderEvidence(input: {
+  readonly review: ActionReviewSnapshot;
+  readonly market: Market;
+  readonly openOrders: readonly FrontendOpenOrder[];
+}): NonNullable<TradingActionValidationInput["account"]["openOrders"]> {
+  const intent = input.review.validated.intent;
+  if (intent.type !== "position_tpsl" || intent.existingOid === null) {
+    return [];
+  }
+  const expectedOrderType =
+    intent.triggerKind === "take_profit" ? "Take Profit" : "Stop";
+  const expectedSide = intent.side === "buy" ? "B" : "A";
+  const matches = input.openOrders.filter(
+    (order) =>
+      order.coin === input.market.coin &&
+      order.oid === intent.existingOid &&
+      order.side === expectedSide &&
+      order.isPositionTpsl &&
+      order.isTrigger &&
+      order.reduceOnly &&
+      order.orderType.startsWith(expectedOrderType),
+  );
+  if (matches.length === 0) {
+    throw Object.assign(new Error("The protective order is no longer open."), {
+      code: "position_tpsl_target_not_open",
+    });
+  }
+  if (matches.length !== 1) {
+    throw new Error("The protective-order evidence is ambiguous.");
+  }
+  return [{ assetId: input.market.orderAssetId, oid: intent.existingOid }];
+}
+
 export async function refreshReviewedOrder(input: {
   readonly review: ActionReviewSnapshot;
   readonly clock: AuthoritativeServerClock;
@@ -311,10 +345,11 @@ export async function refreshReviewedOrder(input: {
     review.validated.intent.type !== "market_order" &&
     review.validated.intent.type !== "limit_order" &&
     review.validated.intent.type !== "reduce_only_close" &&
+    review.validated.intent.type !== "position_tpsl" &&
     review.validated.intent.type !== "cancel"
   ) {
     throw new Error(
-      "This development runtime currently submits reviewed market, limit, full reduce-only close, and order cancellation actions only.",
+      "This runtime currently submits reviewed market, limit, protective, full reduce-only close, and order cancellation actions only.",
     );
   }
   const client =
@@ -360,7 +395,17 @@ export async function refreshReviewedOrder(input: {
       }),
     };
   } else {
-    const account = await loadAccountSnapshot({ client, target, market });
+    const [account, positionTpslOrders] = await Promise.all([
+      loadAccountSnapshot({ client, target, market }),
+      intent.type === "position_tpsl" && intent.existingOid !== null
+        ? client.accounts
+            .getFrontendOpenOrders(
+              target,
+              market.family === "perp" ? market.dexName : "",
+            )
+            .then(({ data }) => data)
+        : Promise.resolve([]),
+    ]);
     const accountVersion = sameReviewedAccount(review, market, account)
       ? review.validation.account.version
       : changedVersion(review.validation.account.version);
@@ -376,6 +421,15 @@ export async function refreshReviewedOrder(input: {
         : {}),
       positionSize: account.positionSize,
       version: accountVersion,
+      ...(intent.type === "position_tpsl" && intent.existingOid !== null
+        ? {
+            openOrders: positionTpslOpenOrderEvidence({
+              review,
+              market,
+              openOrders: positionTpslOrders,
+            }),
+          }
+        : {}),
     };
   }
   const current = input.readCurrentContext();

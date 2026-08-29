@@ -311,6 +311,7 @@ export function decideReconciliation(input: {
   switch (input.record.actionType) {
     case "market_order":
     case "limit_order":
+    case "position_tpsl":
       return decideCreate(input.record, input.evidence);
     case "reduce_only_close":
       return decideClose(input.record, input.evidence);

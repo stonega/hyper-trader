@@ -16,6 +16,7 @@ import {
   normalizePortfolioSnapshot,
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
+  type PositionTpslDraft,
 } from "../features/portfolio/portfolio-model";
 import {
   type PortfolioEditor,
@@ -31,9 +32,14 @@ const noop = jest.fn();
 type ReviewCancel = (order: PortfolioOpenOrderRow) => Promise<void>;
 const cancelNoop = jest.fn<ReviewCancel>(async () => undefined);
 const reviewCloseNoop = jest.fn(async () => undefined);
+const reviewPositionTpslNoop = jest.fn(async () => undefined);
 type ReviewClose = (
   position: PortfolioPositionRow,
   draft: CloseDraft,
+) => Promise<void>;
+type ReviewPositionTpsl = (
+  position: PortfolioPositionRow,
+  draft: PositionTpslDraft,
 ) => Promise<void>;
 
 function rows(
@@ -48,6 +54,7 @@ function rows(
       markets={MARKET_FIXTURE}
       onCancel={cancelNoop}
       onReviewClose={reviewCloseNoop}
+      onReviewPositionTpsl={reviewPositionTpslNoop}
       portfolio={portfolio}
       setEditor={noop}
     />
@@ -56,9 +63,11 @@ function rows(
 
 function InteractivePositionRows({
   onReviewClose,
+  onReviewPositionTpsl = reviewPositionTpslNoop,
   portfolioSnapshot = portfolio,
 }: {
   readonly onReviewClose: ReviewClose;
+  readonly onReviewPositionTpsl?: ReviewPositionTpsl;
   readonly portfolioSnapshot?: NormalizedPortfolio;
 }) {
   const [editor, setEditor] = useState<PortfolioEditor | null>(null);
@@ -71,6 +80,7 @@ function InteractivePositionRows({
       markets={MARKET_FIXTURE}
       onCancel={cancelNoop}
       onReviewClose={onReviewClose}
+      onReviewPositionTpsl={onReviewPositionTpsl}
       portfolio={portfolioSnapshot}
       setEditor={setEditor}
     />
@@ -122,6 +132,7 @@ test("keeps the pressed Cancel button in Reviewing during progressive confirmati
       markets={MARKET_FIXTURE}
       onCancel={onCancel}
       onReviewClose={reviewCloseNoop}
+      onReviewPositionTpsl={reviewPositionTpslNoop}
       portfolio={portfolio}
       setEditor={noop}
     />,
@@ -157,6 +168,7 @@ test("keeps the pressed Market button in Reviewing while preflight is pending", 
       markets={MARKET_FIXTURE}
       onCancel={cancelNoop}
       onReviewClose={onReviewClose}
+      onReviewPositionTpsl={reviewPositionTpslNoop}
       portfolio={portfolio}
       setEditor={noop}
     />,
@@ -199,6 +211,40 @@ test("opens a reduce-only Limit form and removes the Margin action", async () =>
     limitPrice: "10.25",
     size: "1.25",
     timeInForce: "Gtc",
+  });
+});
+
+test("shows position protection and edits it from a compact icon action", async () => {
+  const onReviewPositionTpsl = jest.fn<ReviewPositionTpsl>(
+    async () => undefined,
+  );
+  render(
+    <InteractivePositionRows
+      onReviewClose={reviewCloseNoop}
+      onReviewPositionTpsl={onReviewPositionTpsl}
+    />,
+  );
+
+  expect(screen.getByText("12")).toBeTruthy();
+  expect(screen.getByText("9")).toBeTruthy();
+  const edit = screen.getByRole("button", {
+    name: "Edit take profit for DUP",
+  });
+  expect(edit.props.className).toContain("w-10");
+  expect(edit.props.className).toContain("min-w-10");
+
+  fireEvent.press(edit);
+  const input = screen.getByLabelText("Take profit trigger price for DUP");
+  expect(input.props.value).toBe("12");
+  fireEvent.changeText(input, "13");
+  fireEvent.press(screen.getByRole("button", { name: "Save change" }));
+
+  await waitFor(() => expect(onReviewPositionTpsl).toHaveBeenCalledTimes(1));
+  expect(onReviewPositionTpsl.mock.calls[0]?.[1]).toEqual({
+    positionId: ":DUP",
+    kind: "take_profit",
+    triggerPrice: "13",
+    existingOid: 170,
   });
 });
 

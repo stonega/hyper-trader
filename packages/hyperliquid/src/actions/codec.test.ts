@@ -15,6 +15,7 @@ import {
   buildCancelAction,
   buildLimitOrderAction,
   buildMarketOrderAction,
+  buildPositionTpslAction,
   buildReduceOnlyCloseAction,
   buildUpdateLeverageAction,
 } from "./builders";
@@ -83,10 +84,78 @@ function buildVectors(): Readonly<Record<string, ExchangeAction>> {
       aggressiveLimitPrice: "99",
       cloid,
     }),
+    positionTpslCreate: buildPositionTpslAction({
+      assetId: 1,
+      side: "sell",
+      size: "2",
+      triggerPrice: "110",
+      aggressiveLimitPrice: "104.5",
+      triggerKind: "take_profit",
+      existingOid: null,
+      cloid,
+    }),
+    positionTpslModify: buildPositionTpslAction({
+      assetId: 1,
+      side: "sell",
+      size: "2",
+      triggerPrice: "90",
+      aggressiveLimitPrice: "85.5",
+      triggerKind: "stop_loss",
+      existingOid: 77,
+      cloid,
+    }),
   };
 }
 
 describe("Hyperliquid L1 action codec", () => {
+  test("encodes position-linked trigger creates and edits with exact wire fields", () => {
+    const create = buildPositionTpslAction({
+      assetId: 1,
+      side: "sell",
+      size: "2",
+      triggerPrice: "110",
+      aggressiveLimitPrice: "104.5",
+      triggerKind: "take_profit",
+      existingOid: null,
+      cloid,
+    });
+    expect(create).toEqual({
+      type: "order",
+      orders: [
+        {
+          a: 1,
+          b: false,
+          p: "104.5",
+          s: "2",
+          r: true,
+          t: {
+            trigger: { isMarket: true, triggerPx: "110", tpsl: "tp" },
+          },
+          c: cloid,
+        },
+      ],
+      grouping: "positionTpsl",
+    });
+    expect(() =>
+      encodeL1Action({ action: create, nonce: 100, expiresAfter: 200 }),
+    ).not.toThrow();
+
+    const edit = buildPositionTpslAction({
+      assetId: 1,
+      side: "sell",
+      size: "2",
+      triggerPrice: "90",
+      aggressiveLimitPrice: "85.5",
+      triggerKind: "stop_loss",
+      existingOid: 77,
+      cloid,
+    });
+    expect(edit).toMatchObject({ type: "modify", oid: 77 });
+    expect(() =>
+      encodeL1Action({ action: edit, nonce: 100, expiresAfter: 200 }),
+    ).not.toThrow();
+  });
+
   test("matches every redacted official Python SDK 0.24.0 action vector", () => {
     expect(fixture.provenance.sdkCommit).toBe(
       "2fdb18f9517675ea03695a0962bd19eece9c83f0",

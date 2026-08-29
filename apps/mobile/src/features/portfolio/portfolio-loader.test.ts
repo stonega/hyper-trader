@@ -3,7 +3,7 @@ import type {
   AccountDataResult,
   AccountTarget,
   ClearinghouseState,
-  OpenOrder,
+  FrontendOpenOrder,
   PortfolioPeriod,
   SpotClearinghouseState,
   UserFill,
@@ -71,10 +71,10 @@ function deferredReader(rejectedCalls: ReadonlySet<string> = new Set()) {
         result(target, CLEARINGHOUSE_STATE, dex),
       );
     },
-    getOpenOrders(target, dex) {
+    getFrontendOpenOrders(target, dex) {
       return schedule(
         `orders:${dex || "native"}`,
-        result<readonly OpenOrder[]>(target, [], dex),
+        result<readonly FrontendOpenOrder[]>(target, [], dex),
       );
     },
     getSpotClearinghouseState(target) {

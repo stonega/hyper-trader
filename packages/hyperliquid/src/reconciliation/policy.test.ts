@@ -39,6 +39,34 @@ describe("action-specific reconciliation", () => {
         },
       }),
     ).toEqual({ kind: "terminal", state: "accepted" });
+
+    expect(
+      decideReconciliation({
+        record: {
+          ...base,
+          actionType: "position_tpsl",
+          cloid: "0x00000000000000000000000000000001",
+          targetOid: null,
+          normalizedSecretFreeIntent: {},
+        },
+        evidence: {
+          context: base,
+          serverTimeMs: 1_500,
+          complete: true,
+          order: {
+            kind: "order",
+            assetId: 0,
+            cloid: "0x00000000000000000000000000000001",
+            oid: 45,
+            status: "open",
+          },
+          openOrders: [],
+          fills: [],
+          position: null,
+          stateVersion: 8,
+        },
+      }),
+    ).toEqual({ kind: "terminal", state: "accepted" });
   });
 
   test("marks contradictory create evidence ambiguous", () => {

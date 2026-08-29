@@ -36,7 +36,10 @@ transition with an immediate position update.
 
 ```mermaid
 flowchart TB
-  Launch[Launch] --> Trade[Trade]
+  FreshLaunch[First launch] --> Onboarding[API-wallet onboarding]
+  Onboarding -->|Set up API wallet| Setup[Trading setup]
+  Onboarding -->|Skip for now| Trade[Trade]
+  ReturningLaunch[Returning launch] --> Trade
   Trade -->|Set up when needed| Setup[Trading setup]
   Setup --> Trade
   Markets[Markets] -->|Select market| Trade
@@ -56,7 +59,7 @@ making the API wallet independently selectable.
 
 ## Key product decisions
 
-- **Contextual setup.** First launch opens read-only Trade directly. Setup appears only when the user chooses to add an account or review an action that needs one. Governs R13–R19.
+- **Hybrid first-use onboarding.** First launch offers API-wallet setup as the primary action and read-only Trade as an immediate skip path. Completing either choice prevents the onboarding screen from replaying; setup remains available contextually. Governs R13–R19.
 - **Testnet-first context.** A fresh read-only session and its public-data streams initialize on testnet. The network selector preserves an exact active account, restores the sole saved account on the selected network, and requires explicit account selection when that network has multiple accounts. Account data, cache, and signing authority never merge across networks.
 - **Session authentication.** Device authentication unlocks a short-lived trading session; every state-changing action still receives an explicit review. Governs R18, R26, R32, R38.
 - **Trade-first home.** Trade reopens the last-used market and provides a searchable market switcher. Governs R1, R20.
@@ -95,13 +98,13 @@ making the API wallet independently selectable.
 
 ### Trading setup
 
-- R13. First launch must open read-only Trade without requiring an onboarding choice.
-- R14. Setup education must appear contextually only when the user chooses to add trading access.
+- R13. First launch must show one onboarding screen with **Set up API wallet** as the primary action and **Skip for now** as the read-only secondary action.
+- R14. Completing either first-use choice must persist that onboarding has been seen. Later education appears contextually without replaying the onboarding screen.
 - R15. Trading setup must present two user tasks: enter the public master address and generate the protected API wallet; then add that address on Hyperliquid. Verification runs automatically when the app returns, with a manual retry fallback.
 - R16. Hyper Trader must never request or persist a master-account seed phrase or private key.
 - R17. Loss, expiry, or revocation of an API-wallet credential must be handled by rotation or reauthorization; secret material must never be displayed as a recovery mechanism.
 - R18. Trading setup may use device authentication while protecting the generated API wallet, but setup completion must not appear to require another verification. A temporary signing session is unlocked only when a confirmed action needs a signature.
-- R19. A skipped or failed setup must remain resumable from Trade, Portfolio, and Settings without adding a first-run gate.
+- R19. A skipped or failed setup must remain resumable from Trade, Portfolio, and Settings without replaying first-use onboarding.
 
 ### Trade
 
@@ -120,7 +123,7 @@ making the API wallet independently selectable.
 
 - R29. Portfolio must lead with total account value, absolute and percentage PnL, and a selectable time-range performance chart.
 - R30. Portfolio must present one account overview with filters for positions, open orders, spot balances, fills, funding, and other supported activity.
-- R31. Position rows must expose direct Market and Limit close actions. Market starts a full-position close review, while Limit opens an inline reduce-only price and size form. Unavailable controls, including margin changes and TP/SL, must not be rendered.
+- R31. Position rows must expose direct Market and Limit close actions. Market starts a full-position close review, while Limit opens an inline reduce-only price and size form. Native perpetual positions must also show current position-linked take-profit and stop-loss trigger prices, with one compact edit icon beside each price. Margin changes and protective-order writes for unsupported market families must not be rendered.
 - R32. Direct portfolio actions must use the same validation, review, session-unlock, signing, result, and reconciliation rules as Trade.
 - R33. Portfolio must isolate loading, cached data, and action state by master account, sub-account or vault context, and network.
 - R33a. Portfolio endpoint fan-out must run in the backend; mobile keeps private aggregates in memory and uses account WebSocket events only to trigger an authoritative refresh.
@@ -150,10 +153,10 @@ making the API wallet independently selectable.
 
 ## Key flows
 
-- F1. Read-only first launch
+- F1. First-use choice
   - **Trigger:** A new user opens the app.
-  - **Steps:** The app opens Trade with current public market data and offers setup only where trading access is needed.
-  - **Outcome:** The user can explore Markets and Trade without creating an account credential.
+  - **Steps:** The app explains the separate API-wallet boundary and offers **Set up API wallet** or **Skip for now**. Either choice completes onboarding. Setup opens the existing authorization flow; skip opens read-only Trade.
+  - **Outcome:** The user can start setup immediately or explore without creating a credential, and later launches open Trade directly.
   - **Covers:** R4, R13, R14, R19.
 
 - F2. Trading setup
@@ -185,12 +188,13 @@ making the API wallet independently selectable.
 - AE1. **Covers R3, R25.** Given an ETH order draft for account A on testnet, when the user switches to account B, then the draft is invalidated and cannot appear in B's review.
 - AE2. **Covers R7–R10.** Given a newly listed validated HIP-3 market, when metadata refresh completes, then it appears in search without an app update and uses its returned constraints.
 - AE3. **Covers R10, R24.** Given a delisted market or invalid precision metadata, when the user opens Trade, then market data may remain visible but order submission is disabled with a specific unavailable state.
-- AE4. **Covers R19.** Given a user rejects master-wallet approval, when the user returns to Trade, then read-only exploration still works and setup can be resumed later.
+- AE4. **Covers R13, R14, R19.** Given a fresh install, when the user selects **Skip for now**, then read-only Trade opens, setup remains available, and a later launch does not replay onboarding.
 - AE5. **Covers R26.** Given a valid order draft and an expired signing session, when device authentication succeeds, then the app revalidates and restores the draft before signing.
 - AE6. **Covers R27.** Given submission times out after signing, when the exchange outcome is not yet known, then the app shows a reconciling state and does not invite an unsafe duplicate submission.
 - AE7. **Covers R32.** Given a user taps Market or submits the Limit form from Portfolio, when review opens, then account, network, market, side, size, order behavior, and estimated impact remain visible before confirmation.
 - AE8. **Covers R44.** Given a notification for account B arrives while account A is active, when the user opens it, then the app identifies the context switch before showing B's data.
 - AE9. **Covers R45, R46.** Given a user unlinks an account from a device, when removal completes, then the device token and associated alert rules are revoked without affecting on-device signing credentials for other accounts.
+- AE10. **Covers R19.** Given a user rejects master-wallet approval, when the user returns to Trade, then read-only exploration still works and setup can be resumed later without replaying onboarding.
 
 ## Success criteria
 

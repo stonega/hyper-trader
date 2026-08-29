@@ -121,15 +121,19 @@ function reviewPresentation(
   const isOrder =
     intent.type === "market_order" ||
     intent.type === "limit_order" ||
-    intent.type === "reduce_only_close";
+    intent.type === "reduce_only_close" ||
+    intent.type === "position_tpsl";
   const price =
     intent.type === "limit_order"
       ? intent.limitPrice
-      : intent.type === "market_order" || intent.type === "reduce_only_close"
-        ? intent.aggressiveLimitPrice
-        : "Not applicable";
+      : intent.type === "position_tpsl"
+        ? intent.triggerPrice
+        : intent.type === "market_order" || intent.type === "reduce_only_close"
+          ? intent.aggressiveLimitPrice
+          : "Not applicable";
   const reduceOnly =
     intent.type === "reduce_only_close" ||
+    intent.type === "position_tpsl" ||
     (intent.type === "limit_order" && intent.reduceOnly);
   const action = actionLabel(intent);
   const leverageAndMargin =
@@ -164,6 +168,10 @@ function actionLabel(intent: TradingActionIntent): string {
       return `Limit order · ${intent.timeInForce}`;
     case "reduce_only_close":
       return "Full reduce-only close";
+    case "position_tpsl":
+      return intent.triggerKind === "take_profit"
+        ? "Position take profit"
+        : "Position stop loss";
     case "cancel":
       return "Cancel order";
     case "update_leverage":
@@ -299,7 +307,8 @@ function withoutCloid(
   if (
     intent.type === "market_order" ||
     intent.type === "limit_order" ||
-    intent.type === "reduce_only_close"
+    intent.type === "reduce_only_close" ||
+    intent.type === "position_tpsl"
   ) {
     const { cloid: _cloid, ...rest } = intent;
     return rest;
@@ -342,6 +351,7 @@ function identityFields(intent: TradingActionIntent): {
     case "market_order":
     case "limit_order":
     case "reduce_only_close":
+    case "position_tpsl":
       return {
         cloid: intent.cloid.toLowerCase(),
         assetId: intent.assetId,

@@ -244,6 +244,7 @@ export function assertPreparedActionFields(
     case "market_order":
     case "limit_order":
     case "reduce_only_close":
+    case "position_tpsl":
       if (!hasCloid || !hasAsset || hasOid) {
         throw new TypeError(
           `${input.actionType} requires assetId and cloid, and forbids targetOid.`,

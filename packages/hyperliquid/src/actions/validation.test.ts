@@ -290,6 +290,123 @@ describe("action boundary validation", () => {
     ).toThrow("full position size");
   });
 
+  test("validates a position-linked take-profit create and stop-loss edit", () => {
+    const base = {
+      context,
+      market,
+      account: {
+        availableMargin: "100",
+        leverage: 5,
+        marginMode: "cross" as const,
+        positionSize: "2",
+        version: 5,
+      },
+    };
+    const takeProfit = validateTradingAction({
+      ...base,
+      controls: {
+        slippageBps: 500,
+        trigger: { price: "110", direction: "above" as const },
+      },
+      intent: {
+        type: "position_tpsl",
+        assetId: 0,
+        side: "sell",
+        size: "2.000",
+        triggerPrice: "110.00",
+        aggressiveLimitPrice: "104.5",
+        triggerKind: "take_profit",
+        existingOid: null,
+        cloid: "0x0000000000000000000000000000000b",
+      },
+    });
+    expect(takeProfit.intent).toMatchObject({
+      type: "position_tpsl",
+      triggerPrice: "110",
+      aggressiveLimitPrice: "104.5",
+      size: "2",
+    });
+
+    expect(() =>
+      validateTradingAction({
+        ...base,
+        account: {
+          ...base.account,
+          openOrders: [{ assetId: 0, oid: 77 }],
+        },
+        controls: {
+          slippageBps: 500,
+          trigger: { price: "90", direction: "below" },
+        },
+        intent: {
+          type: "position_tpsl",
+          assetId: 0,
+          side: "sell",
+          size: "2",
+          triggerPrice: "90",
+          aggressiveLimitPrice: "85.5",
+          triggerKind: "stop_loss",
+          existingOid: 77,
+          cloid: "0x0000000000000000000000000000000c",
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("rejects unsafe protective-order direction, size, and stale edits", () => {
+    const input = {
+      context,
+      market,
+      account: {
+        availableMargin: "100",
+        leverage: 5,
+        positionSize: "2",
+        version: 5,
+      },
+      controls: {
+        slippageBps: 500,
+        trigger: { price: "90", direction: "below" as const },
+      },
+      intent: {
+        type: "position_tpsl" as const,
+        assetId: 0,
+        side: "sell" as const,
+        size: "2",
+        triggerPrice: "90",
+        aggressiveLimitPrice: "85.5",
+        triggerKind: "take_profit" as const,
+        existingOid: null,
+        cloid: "0x0000000000000000000000000000000d" as const,
+      },
+    };
+    expect(() => validateTradingAction(input)).toThrow("direction");
+    expect(() =>
+      validateTradingAction({
+        ...input,
+        controls: {
+          ...input.controls,
+          trigger: { price: "110", direction: "above" },
+        },
+        intent: { ...input.intent, triggerPrice: "110", size: "1" },
+      }),
+    ).toThrow("full position size");
+    expect(() =>
+      validateTradingAction({
+        ...input,
+        controls: {
+          ...input.controls,
+          trigger: { price: "110", direction: "above" },
+        },
+        intent: {
+          ...input.intent,
+          triggerPrice: "110",
+          aggressiveLimitPrice: "104.5",
+          existingOid: 77,
+        },
+      }),
+    ).toThrow("no longer open");
+  });
+
   test("requires an explicit exact current context", () => {
     const forged = {
       context: { ...context },

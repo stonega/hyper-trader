@@ -1,9 +1,10 @@
 import type {
   AccountTarget,
   ClearinghouseState,
+  FrontendOpenOrder,
   LimitTimeInForce,
-  OpenOrder,
   PortfolioPeriod,
+  PositionTpslIntent,
   SpotClearinghouseState,
   TradingActionIntent,
   UserFill,
@@ -45,7 +46,7 @@ export interface PortfolioPerpSource {
   readonly dexName: string;
   readonly dexFullName: string | null;
   readonly state: ClearinghouseState;
-  readonly openOrders: readonly OpenOrder[];
+  readonly openOrders: readonly FrontendOpenOrder[];
 }
 
 export interface PortfolioSourceSnapshot {
@@ -83,6 +84,14 @@ export interface PortfolioPositionRow {
   readonly actionsEnabled: boolean;
   readonly closeEnabled: boolean;
   readonly marginActionEnabled: boolean;
+  readonly protectionEnabled: boolean;
+  readonly takeProfit: PortfolioPositionProtection | null;
+  readonly stopLoss: PortfolioPositionProtection | null;
+}
+
+export interface PortfolioPositionProtection {
+  readonly oid: number;
+  readonly triggerPrice: DecimalString;
 }
 
 export interface PortfolioOpenOrderRow {
@@ -99,6 +108,11 @@ export interface PortfolioOpenOrderRow {
   readonly availableMargin: DecimalString;
   readonly accountVersion: number;
   readonly cancelEnabled: boolean;
+  readonly isTrigger: boolean;
+  readonly triggerPrice: DecimalString;
+  readonly isPositionTpsl: boolean;
+  readonly reduceOnly: boolean;
+  readonly orderType: string;
 }
 
 export interface PortfolioRangeData {
@@ -182,6 +196,13 @@ export interface CloseDraft {
   readonly limitPrice: string;
   readonly timeInForce: LimitTimeInForce;
   readonly slippageBps: string;
+}
+
+export interface PositionTpslDraft {
+  readonly positionId: string;
+  readonly kind: "take_profit" | "stop_loss";
+  readonly triggerPrice: string;
+  readonly existingOid: number | null;
 }
 
 const PERIODS: Readonly<Record<string, PortfolioRange>> = {
@@ -309,6 +330,40 @@ function marginMode(value: string): "cross" | "isolated" | null {
   return value === "cross" || value === "isolated" ? value : null;
 }
 
+function protectiveOrder(input: {
+  readonly orders: readonly FrontendOpenOrder[];
+  readonly coin: string;
+  readonly side: "long" | "short";
+  readonly kind: PositionTpslDraft["kind"];
+  readonly gaps: string[];
+  readonly source: string;
+}): PortfolioPositionProtection | null {
+  const expectedSide = input.side === "long" ? "A" : "B";
+  const expectedType = input.kind === "take_profit" ? "Take Profit" : "Stop";
+  const matches = input.orders
+    .filter(
+      (order) =>
+        order.coin === input.coin &&
+        order.side === expectedSide &&
+        order.isPositionTpsl &&
+        order.isTrigger &&
+        order.reduceOnly &&
+        order.orderType.startsWith(expectedType),
+    )
+    .sort(
+      (left, right) => right.timestamp - left.timestamp || right.oid - left.oid,
+    );
+  if (matches.length > 1) {
+    input.gaps.push(
+      `Multiple ${input.kind === "take_profit" ? "take-profit" : "stop-loss"} orders matched ${input.coin} on ${input.source}; the latest is shown.`,
+    );
+  }
+  const order = matches[0];
+  return order === undefined
+    ? null
+    : Object.freeze({ oid: order.oid, triggerPrice: order.triggerPrice });
+}
+
 function performanceRanges(
   periods: readonly PortfolioPeriod[],
   gaps: string[],
@@ -411,6 +466,8 @@ export function normalizePortfolioLiveSnapshot(
         market !== null &&
         market.lifecycle === "active" &&
         market.orderAvailability === "enabled";
+      const side = position.size.startsWith("-") ? "short" : "long";
+      const source = venue(perp);
       positions.push(
         Object.freeze({
           id: `${perp.dexName}:${position.coin}`,
@@ -420,7 +477,7 @@ export function normalizePortfolioLiveSnapshot(
           coin: position.coin,
           size: position.size,
           absoluteSize: absoluteDecimal(position.size),
-          side: position.size.startsWith("-") ? "short" : "long",
+          side,
           entryPrice: position.entryPrice,
           liquidationPrice: position.liquidationPrice,
           positionValue: position.positionValue,
@@ -435,6 +492,23 @@ export function normalizePortfolioLiveSnapshot(
           actionsEnabled: active,
           closeEnabled: active && market?.dexIndex === 0,
           marginActionEnabled: active,
+          protectionEnabled: active && market?.dexIndex === 0,
+          takeProfit: protectiveOrder({
+            orders: perp.openOrders,
+            coin: position.coin,
+            side,
+            kind: "take_profit",
+            gaps,
+            source,
+          }),
+          stopLoss: protectiveOrder({
+            orders: perp.openOrders,
+            coin: position.coin,
+            side,
+            kind: "stop_loss",
+            gaps,
+            source,
+          }),
         }),
       );
     }
@@ -465,6 +539,11 @@ export function normalizePortfolioLiveSnapshot(
             market !== null &&
             market.lifecycle === "active" &&
             market.orderAvailability === "enabled",
+          isTrigger: order.isTrigger,
+          triggerPrice: order.triggerPrice,
+          isPositionTpsl: order.isPositionTpsl,
+          reduceOnly: order.reduceOnly,
+          orderType: order.orderType,
         }),
       );
     }
@@ -564,6 +643,23 @@ export function createCloseDraft(position: PortfolioPositionRow): CloseDraft {
   };
 }
 
+export function createPositionTpslDraft(
+  position: PortfolioPositionRow,
+  kind: PositionTpslDraft["kind"],
+): PositionTpslDraft {
+  if (!position.protectionEnabled) {
+    throw new Error("Protective orders are unavailable for this position.");
+  }
+  const existing =
+    kind === "take_profit" ? position.takeProfit : position.stopLoss;
+  return {
+    positionId: position.id,
+    kind,
+    triggerPrice: existing?.triggerPrice ?? "",
+    existingOid: existing?.oid ?? null,
+  };
+}
+
 export function portfolioLimitCloseMidPrice(
   position: PortfolioPositionRow,
 ): DecimalString | null {
@@ -610,7 +706,8 @@ export function buildCloseIntent(
     position.market.family !== "perp" ||
     position.market.dexIndex !== 0 ||
     position.market.lifecycle !== "active" ||
-    position.market.orderAvailability !== "enabled"
+    position.market.orderAvailability !== "enabled" ||
+    position.market.pricePrecision === null
   ) {
     throw new Error("A current validated market is required to close.");
   }
@@ -645,6 +742,58 @@ export function buildCloseIntent(
     timeInForce: draft.timeInForce,
     reduceOnly: true,
     cloid: prices.cloid,
+  };
+}
+
+export function buildPositionTpslIntent(
+  draft: PositionTpslDraft,
+  position: PortfolioPositionRow,
+  cloid: `0x${string}`,
+): PositionTpslIntent {
+  if (!position.protectionEnabled) {
+    throw new Error("Protective orders are unavailable for this position.");
+  }
+  if (
+    position.market === null ||
+    position.market.family !== "perp" ||
+    position.market.dexIndex !== 0 ||
+    position.market.lifecycle !== "active" ||
+    position.market.orderAvailability !== "enabled" ||
+    position.market.pricePrecision === null
+  ) {
+    throw new Error(
+      "A current validated native perpetual market is required for protection.",
+    );
+  }
+  if (draft.positionId !== position.id) {
+    throw new Error(
+      "The protective-order draft no longer matches this position.",
+    );
+  }
+  const expected =
+    draft.kind === "take_profit" ? position.takeProfit : position.stopLoss;
+  if ((expected?.oid ?? null) !== draft.existingOid) {
+    throw new Error(
+      "The protective order changed. Reopen it from the current position.",
+    );
+  }
+  parsedPositive(draft.triggerPrice, "Trigger price");
+  const side = position.side === "long" ? "sell" : "buy";
+  return {
+    type: "position_tpsl",
+    assetId: position.market.orderAssetId,
+    side,
+    size: position.absoluteSize,
+    triggerPrice: draft.triggerPrice,
+    aggressiveLimitPrice: aggressiveOrderPrice({
+      referencePrice: draft.triggerPrice,
+      side,
+      slippageBps: 500,
+      precision: position.market.pricePrecision,
+    }),
+    triggerKind: draft.kind,
+    existingOid: draft.existingOid,
+    cloid,
   };
 }
 

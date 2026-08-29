@@ -29,7 +29,29 @@ describe("public Portfolio snapshot contracts", () => {
         network: "testnet",
         user: USER,
         generatedAtMs: 20,
-        dexes: [{ dex: "", clearinghouse, openOrders: [] }],
+        dexes: [
+          {
+            dex: "",
+            clearinghouse,
+            openOrders: [
+              {
+                coin: "BTC",
+                limitPx: "104.5",
+                oid: 77,
+                side: "A",
+                sz: "1",
+                timestamp: 19,
+                origSz: "1",
+                triggerCondition: "Price above 110",
+                isTrigger: true,
+                triggerPx: "110",
+                isPositionTpsl: true,
+                reduceOnly: true,
+                orderType: "Take Profit Market",
+              },
+            ],
+          },
+        ],
         spot: { balances: [] },
         sourceGaps: [],
       },
@@ -37,6 +59,10 @@ describe("public Portfolio snapshot contracts", () => {
     );
 
     expect(result.dexes[0]?.clearinghouse.positions).toEqual([]);
+    expect(result.dexes[0]?.openOrders[0]).toMatchObject({
+      isPositionTpsl: true,
+      triggerPrice: "110",
+    });
     expect(result.spot.balances).toEqual([]);
   });
 

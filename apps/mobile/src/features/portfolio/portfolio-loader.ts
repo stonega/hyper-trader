@@ -17,7 +17,9 @@ const FUNDING_WINDOW_MS = 30 * 24 * 60 * 60 * 1_000;
 
 export type PortfolioLiveAccountReader = Pick<
   AccountDataClient,
-  "getClearinghouseState" | "getOpenOrders" | "getSpotClearinghouseState"
+  | "getClearinghouseState"
+  | "getFrontendOpenOrders"
+  | "getSpotClearinghouseState"
 >;
 
 export type PortfolioHistoryAccountReader = Pick<
@@ -93,7 +95,7 @@ export async function loadPortfolioAccountSnapshot(
           input.accounts.getClearinghouseState(input.target, source.dexName, {
             signal: input.signal,
           }),
-          input.accounts.getOpenOrders(input.target, source.dexName, {
+          input.accounts.getFrontendOpenOrders(input.target, source.dexName, {
             signal: input.signal,
           }),
         ]);

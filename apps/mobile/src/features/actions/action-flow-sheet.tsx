@@ -117,7 +117,8 @@ function isOrderReview(actionType: ReviewActionType): boolean {
   return (
     actionType === "market_order" ||
     actionType === "limit_order" ||
-    actionType === "reduce_only_close"
+    actionType === "reduce_only_close" ||
+    actionType === "position_tpsl"
   );
 }
 
@@ -139,6 +140,7 @@ function confirmationLabel(
       : `Place ${side} order`;
   }
   if (actionType === "reduce_only_close") return "Close position";
+  if (actionType === "position_tpsl") return "Set protection";
   if (actionType === "cancel") return "Cancel order";
   if (actionType === "update_leverage") return "Update leverage";
   return "Confirm action";
@@ -155,7 +157,11 @@ function reviewDetails(
       : [];
   }
   const priceLabel =
-    actionType === "limit_order" ? "Limit price" : "Price limit";
+    actionType === "limit_order"
+      ? "Limit price"
+      : actionType === "position_tpsl"
+        ? "Trigger price"
+        : "Price limit";
   const details: readonly (readonly [string, string])[] = [
     [priceLabel, presentation.price],
     [

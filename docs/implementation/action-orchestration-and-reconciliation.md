@@ -3,7 +3,8 @@
 ## Runtime status
 
 The action orchestration layer provides one deterministic pipeline for Trade and
-Portfolio. It supports reviewed market and limit orders, cancellation, full
+Portfolio. It supports reviewed market and limit orders, position-linked
+take-profit and stop-loss creation or modification, cancellation, full
 reduce-only close, and leverage changes through network-scoped nonce, journal,
 signer-session, and transport boundaries.
 
@@ -33,8 +34,9 @@ The progressive Trade drafting and review handoff is documented in
 ## Confirmation sequence
 
 Trade uses its side-specific **Buy / Long** or **Sell / Short** control as the
-explicit order confirmation. Portfolio uses **Market**, **Close**,
-and **Cancel** as its explicit confirmations. The pressed control first shows
+explicit order confirmation. Portfolio uses **Market**, **Close**, **Set
+protection**, **Save change**, and **Cancel** as its explicit confirmations. The
+pressed control first shows
 `Reviewing…` without opening a sheet. That explicit confirmation starts this
 sequence:
 
@@ -81,9 +83,13 @@ otherwise unchanged review. Insufficient refreshed margin still stops before
 reservation. Leverage, margin mode, position size, market metadata, signer, and
 context remain exact review fences.
 
-Trigger input is validated but fails closed because the reviewed action codec does not own a trigger
-codec. Bulk cancel remains outside the public reviewed action surface. Outcome
-markets remain browse-only. Missing constraints are never guessed.
+Position-linked market triggers validate exact direction against the current
+reference price, require the full opposite-side position size, bind an existing
+order ID for edits, and enforce a five-percent execution limit from the trigger
+price. The codec owns both `positionTpsl` creation and exact single-order
+`modify` wire shapes. Bulk cancel remains outside the public reviewed action
+surface. Outcome markets remain browse-only. Missing constraints are never
+guessed.
 
 ## Visible phases and Back behavior
 
@@ -133,6 +139,7 @@ transport permit.
 |---|---|---|
 | Market or limit create | Exact 128-bit `cloid`; documented `orderStatus` lookup | Exact order proves accepted. Documented rejection proves rejected. Strict `unknownOid` after server-time expiry proves expired. |
 | Full reduce-only close | Exact `cloid`, plus current position | Exact order/fill proves accepted. A position effect without causal order/fill evidence is ambiguous. |
+| Position TP/SL create or edit | Exact new `cloid`; edits also require the reviewed existing `oid` before submission | Exact trigger order proves accepted. Documented rejection proves rejected. Strict authoritative absence after server-time expiry proves expired. |
 | Cancel | Asset plus exact `oid` or `cloid`, and prior target observation | Canceled/filled/terminal evidence proves accepted. Still-open fresh evidence after expiry proves expired. Unattributed absence is ambiguous. |
 | Leverage | Asset, margin mode, target leverage, newer account state | Exact causal state proves accepted. Indistinguishable external change is ambiguous. |
 

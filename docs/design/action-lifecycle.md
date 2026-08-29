@@ -3,8 +3,9 @@
 ## Status and invariants
 
 This contract owns the path from a reviewed, typed intent to authoritative
-reconciliation. It applies to order creation, cancellation, reduce-only close,
-and leverage updates. No other screen, notification handler, background task, or
+reconciliation. It applies to order creation, position-linked take-profit and
+stop-loss creation or modification, cancellation, reduce-only close, and
+leverage updates. No other screen, notification handler, background task, or
 transport may construct or submit a state-changing request.
 
 The non-negotiable invariants are:

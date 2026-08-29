@@ -1,6 +1,6 @@
 import {
   parseClearinghouseState,
-  parseOpenOrders,
+  parseFrontendOpenOrders,
   parsePortfolio,
   parseSpotClearinghouseState,
   parseUserFills,
@@ -8,7 +8,7 @@ import {
 } from "./accounts/parsers";
 import type {
   ClearinghouseState,
-  OpenOrder,
+  FrontendOpenOrder,
   PortfolioPeriod,
   SpotClearinghouseState,
   UserFill,
@@ -54,7 +54,7 @@ export interface PublicPortfolioLiveSnapshot {
   readonly dexes: readonly {
     readonly dex: string;
     readonly clearinghouse: ClearinghouseState;
-    readonly openOrders: readonly OpenOrder[];
+    readonly openOrders: readonly FrontendOpenOrder[];
   }[];
   readonly spot: SpotClearinghouseState;
   readonly sourceGaps: readonly string[];
@@ -218,7 +218,7 @@ export function parsePublicPortfolioLiveSnapshot(
     return {
       dex: dex.dex,
       clearinghouse: parseClearinghouseState(dex.clearinghouse),
-      openOrders: parseOpenOrders(dex.openOrders),
+      openOrders: parseFrontendOpenOrders(dex.openOrders),
     };
   });
   return {

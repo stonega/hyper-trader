@@ -14,6 +14,7 @@ import type {
   CancelIntent,
   LimitOrderIntent,
   MarketOrderIntent,
+  PositionTpslIntent,
   ReduceOnlyCloseIntent,
   TradingActionIntent,
   UpdateLeverageIntent,
@@ -617,6 +618,158 @@ function validateOrder(
   };
 }
 
+function validatePositionTpsl(
+  input: TradingActionValidationInput,
+  intent: PositionTpslIntent,
+): ValidatedTradingAction {
+  assertExactFields(
+    intent,
+    [
+      "type",
+      "assetId",
+      "side",
+      "size",
+      "triggerPrice",
+      "aggressiveLimitPrice",
+      "triggerKind",
+      "existingOid",
+      "cloid",
+    ],
+    "intent.fields",
+  );
+  if (intent.side !== "buy" && intent.side !== "sell") {
+    invalid("intent.side", "expected buy or sell");
+  }
+  if (
+    intent.triggerKind !== "take_profit" &&
+    intent.triggerKind !== "stop_loss"
+  ) {
+    invalid("intent.triggerKind", "expected take_profit or stop_loss");
+  }
+  assertTradableMarket(
+    input.market,
+    safeInteger(intent.assetId, "intent.assetId"),
+  );
+  if (input.market.family !== "perp") {
+    invalid("intent.type", "position TP/SL requires a perpetual market");
+  }
+  const size = normalizeSize(intent.size, input.market);
+  const triggerPrice = normalizePrice(intent.triggerPrice, input.market);
+  const aggressiveLimitPrice = normalizePrice(
+    intent.aggressiveLimitPrice,
+    input.market,
+  );
+  assertReduceOnly(input, intent.side, size, true);
+
+  const expectedDirection =
+    intent.side === "sell"
+      ? intent.triggerKind === "take_profit"
+        ? "above"
+        : "below"
+      : intent.triggerKind === "take_profit"
+        ? "below"
+        : "above";
+  if (
+    input.controls.trigger === null ||
+    normalizePrice(input.controls.trigger.price, input.market) !==
+      triggerPrice ||
+    input.controls.trigger.direction !== expectedDirection
+  ) {
+    invalid(
+      "controls.trigger",
+      "the trigger price and direction must match the protective order",
+    );
+  }
+  if (
+    input.market.referencePrice === null ||
+    input.market.referencePrice === undefined
+  ) {
+    invalid("market.referencePrice", "a current reference price is required");
+  }
+  const reference = parseDecimal(
+    positiveDecimal(input.market.referencePrice, "market.referencePrice"),
+    "market.referencePrice",
+  );
+  const trigger = parseDecimal(triggerPrice, "intent.triggerPrice");
+  const referenceComparison = compareDecimal(trigger, reference);
+  if (
+    (expectedDirection === "above" && referenceComparison <= 0) ||
+    (expectedDirection === "below" && referenceComparison >= 0)
+  ) {
+    invalid(
+      "intent.triggerPrice",
+      `trigger price must be ${expectedDirection} the current reference price`,
+    );
+  }
+
+  const bps = input.controls.slippageBps;
+  if (
+    !Number.isSafeInteger(bps) ||
+    bps === null ||
+    bps < 0 ||
+    bps > MAX_SLIPPAGE_BPS
+  ) {
+    invalid(
+      "controls.slippageBps",
+      `expected whole basis points between 0 and ${MAX_SLIPPAGE_BPS}`,
+    );
+  }
+  const aggressive = parseDecimal(
+    aggressiveLimitPrice,
+    "intent.aggressiveLimitPrice",
+  );
+  const multiplier = {
+    coefficient: BigInt(intent.side === "buy" ? 10_000 + bps : 10_000 - bps),
+    scale: 0,
+  };
+  const left = multiplyDecimal(aggressive, {
+    coefficient: 10_000n,
+    scale: 0,
+  });
+  const right = multiplyDecimal(trigger, multiplier);
+  if (
+    (intent.side === "buy" && compareDecimal(left, right) > 0) ||
+    (intent.side === "sell" && compareDecimal(left, right) < 0)
+  ) {
+    invalid(
+      "intent.aggressiveLimitPrice",
+      "execution price exceeds the protective-order slippage bound",
+    );
+  }
+
+  if (intent.existingOid !== null) {
+    const existingOid = safeInteger(
+      intent.existingOid,
+      "intent.existingOid",
+      1,
+    );
+    if (
+      input.account.openOrders === undefined ||
+      !input.account.openOrders.some(
+        (order) =>
+          order.assetId === intent.assetId && order.oid === existingOid,
+      )
+    ) {
+      invalid("intent.existingOid", "the protective order is no longer open");
+    }
+  }
+  const normalizedIntent: PositionTpslIntent = {
+    ...intent,
+    size,
+    triggerPrice,
+    aggressiveLimitPrice,
+    cloid: parseCloid(intent.cloid),
+  };
+  return {
+    intent: normalizedIntent,
+    notional: formatDecimal(
+      multiplyDecimal(parseDecimal(size, "intent.size"), trigger),
+    ),
+    accountStateVersion: safeInteger(input.account.version, "account.version"),
+    marketCanonicalId: input.market.canonicalId,
+  };
+}
+
 function validateCancel(
   input: TradingActionValidationInput,
   intent: CancelIntent,
@@ -736,6 +889,8 @@ export function validateTradingAction(
     case "limit_order":
     case "reduce_only_close":
       return validateOrder(input, input.intent);
+    case "position_tpsl":
+      return validatePositionTpsl(input, input.intent);
     case "cancel":
       return validateCancel(input, input.intent);
     case "update_leverage":

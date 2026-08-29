@@ -28,6 +28,20 @@ credential may still be deleted and its signer scope retired while signer access
 and transport are stopped; neither operation releases a secret or creates new
 authority.
 
+## First-use entry
+
+The root launch route reads the device-global, presentation-only
+`@hyper-trader/onboarding/v1` AsyncStorage value before choosing a destination.
+An absent or unrecognized value opens the onboarding route; the exact
+`complete` value opens Trade. A storage read failure also opens onboarding and
+never supplies trading authority.
+
+**Set up API wallet** and **Skip for now** both attempt to write the completion
+value before replacing the route. The setup choice enters the existing manual
+setup coordinator, while skip enters read-only Trade. A failed completion write
+does not trap the user on onboarding, and no wallet identity, secret, account
+state, or authorization claim is stored in this preference.
+
 ## Setup ownership
 
 The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:

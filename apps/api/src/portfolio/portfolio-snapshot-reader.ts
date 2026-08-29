@@ -151,7 +151,7 @@ export class HyperliquidPortfolioSnapshotReader
               { signal: request.signal },
             ),
             transport.request(
-              { type: "openOrders", user, dex },
+              { type: "frontendOpenOrders", user, dex },
               { signal: request.signal },
             ),
           ]);

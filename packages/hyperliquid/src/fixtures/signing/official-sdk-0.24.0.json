@@ -182,6 +182,50 @@
           "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
         }
       }
+    },
+    "positionTpslCreate": {
+      "actionBytesLength": 146,
+      "actionBytesKeccak256": "0x86c8c2eb257fe98188fe922b649626b3524cdccd9cb8f2882983c0dba4e66721",
+      "actionHash": "0x183996d5a96606a5c183c164d06499421091b18f329b313560876e854f90cbe6",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0xd67d28a5e4bf6d7d8f83aba28c9e2b67e38b670be1fb1019f5064b59c39ff526",
+          "signatureKeccak256": "0x5dc8613ae48b8b3612d874e91ce1c0a5df52e3dc0901303bce966326467b6b25",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x01686b49fb4b5b9a2591f918cebdeff8cd39e07d30527d005d1a698832e9f753",
+          "signatureKeccak256": "0xd5afc20e339accd538003a78c72f53e0228c53bfe4a27e0e63835c5578fa644d",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
+    },
+    "positionTpslModify": {
+      "actionBytesLength": 126,
+      "actionBytesKeccak256": "0x67c4fe37758102ba6aae3af7a178b9b4eb953ac89ee0d6c4c635d764094dbd07",
+      "actionHash": "0x761f5b73cc56744625b4730896c896d5ea95eaef58139778ed9bb615a0b149e6",
+      "vaultAddress": null,
+      "nonce": 1725000000000,
+      "expiresAfter": 1725000015000,
+      "networks": {
+        "testnet": {
+          "source": "b",
+          "typedDataHash": "0x6e8d384ac0ee74653c07ea350b04fcfae33d5e081de3031a6e3dd0a8c365ae6a",
+          "signatureKeccak256": "0x8bdc6373697d055ac59f97a621b584b6f92d0efebf6f53fc05934f0545cf2e82",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        },
+        "mainnet": {
+          "source": "a",
+          "typedDataHash": "0x01fe5c1e59cc6cbe9f1dda822fa7ded5640982843d2172f5720c5f40ab7cd4c5",
+          "signatureKeccak256": "0x0e32b214d53cc2ccb7593e96c90a7f075986e2240fc2966a6595b93591f31a78",
+          "recoveredAddress": "0x4e5C4a3237021B5cF4d95Dd5a46a33C366467ca9"
+        }
+      }
     }
   },
   "approveAgent": {

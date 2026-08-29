@@ -1,7 +1,10 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { Market } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { Chip } from "heroui-native/chip";
+import { Dialog } from "heroui-native/dialog";
+import { useThemeColor } from "heroui-native/hooks";
 import { Input } from "heroui-native/input";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
@@ -15,10 +18,12 @@ import { useReducedMotion } from "../../components/use-reduced-motion";
 import {
   type CloseDraft,
   createCloseDraft,
+  createPositionTpslDraft,
   type NormalizedPortfolio,
   type PortfolioFilter,
   type PortfolioOpenOrderRow,
   type PortfolioPositionRow,
+  type PositionTpslDraft,
   portfolioFundingId,
   portfolioLimitCloseMidPrice,
 } from "./portfolio-model";
@@ -35,12 +40,20 @@ import {
   PORTFOLIO_ROW_BATCH_SIZE,
 } from "./portfolio-row-window";
 
-export type PortfolioEditor = {
-  readonly kind: "limit_close";
-  readonly positionId: string;
-  readonly limitPrice: string;
-  readonly size: string;
-};
+export type PortfolioEditor =
+  | {
+      readonly kind: "limit_close";
+      readonly positionId: string;
+      readonly limitPrice: string;
+      readonly size: string;
+    }
+  | {
+      readonly kind: "position_tpsl";
+      readonly positionId: string;
+      readonly protectionKind: PositionTpslDraft["kind"];
+      readonly triggerPrice: string;
+      readonly existingOid: number | null;
+    };
 
 export type PortfolioActionAccess =
   | { readonly allowed: true; readonly message: string }
@@ -164,6 +177,7 @@ function PositionCard({
   error,
   reviewingCloseBehavior,
   onReviewClose,
+  onReviewPositionTpsl,
 }: {
   readonly position: PortfolioPositionRow;
   readonly markets: readonly Market[];
@@ -172,15 +186,26 @@ function PositionCard({
   readonly actionAccess: PortfolioActionAccess;
   readonly closePending: boolean;
   readonly error: string | null;
-  readonly reviewingCloseBehavior: CloseDraft["behavior"] | null;
+  readonly reviewingCloseBehavior:
+    | CloseDraft["behavior"]
+    | "position_tpsl"
+    | null;
   readonly onReviewClose: (
     position: PortfolioPositionRow,
     draft: CloseDraft,
   ) => Promise<void>;
+  readonly onReviewPositionTpsl: (
+    position: PortfolioPositionRow,
+    draft: PositionTpslDraft,
+  ) => Promise<void>;
 }): JSX.Element {
   const reducedMotion = useReducedMotion();
+  const accent = useThemeColor("accent");
   const active = editor?.positionId === position.id ? editor : null;
+  const activeLimit = active?.kind === "limit_close" ? active : null;
+  const activeProtection = active?.kind === "position_tpsl" ? active : null;
   const closeEnabled = actionAccess.allowed && position.closeEnabled;
+  const protectionEnabled = actionAccess.allowed && position.protectionEnabled;
   const midPrice = portfolioLimitCloseMidPrice(position);
   const positionSide = position.side === "long" ? "Long" : "Short";
   const positionSideColor = position.side === "long" ? "success" : "danger";
@@ -213,6 +238,66 @@ function PositionCard({
           />
           <Value label="Margin" value={position.marginMode ?? "Unavailable"} />
         </View>
+        <View className="gap-3 rounded-xl bg-surface-secondary p-3">
+          <Text className="text-sm font-medium text-foreground">
+            Position protection
+          </Text>
+          <View className="flex-row gap-3">
+            {(
+              [
+                ["take_profit", "Take profit", position.takeProfit],
+                ["stop_loss", "Stop loss", position.stopLoss],
+              ] as const
+            ).map(([kind, label, protection]) => (
+              <View className="min-w-0 flex-1 gap-1" key={kind}>
+                <Text className="text-xs uppercase tracking-wide text-muted">
+                  {label}
+                </Text>
+                <View className="min-h-10 flex-row items-center gap-1">
+                  <Text
+                    className="min-w-0 flex-1 text-sm font-medium tabular-nums text-foreground"
+                    numberOfLines={1}
+                  >
+                    {protection?.triggerPrice ?? "Not set"}
+                  </Text>
+                  {protectionEnabled ? (
+                    <Button
+                      accessibilityHint={`Opens a trigger price editor for this position's ${label.toLowerCase()}.`}
+                      accessibilityLabel={`Edit ${label.toLowerCase()} for ${position.coin}`}
+                      accessibilityState={{
+                        expanded: activeProtection?.protectionKind === kind,
+                      }}
+                      animation={reducedMotion ? "disable-all" : undefined}
+                      className="h-10 min-h-10 w-10 min-w-10 px-0"
+                      hitSlop={4}
+                      isDisabled={closePending}
+                      onPress={() => {
+                        const draft = createPositionTpslDraft(position, kind);
+                        setEditor({
+                          kind: "position_tpsl",
+                          positionId: draft.positionId,
+                          protectionKind: draft.kind,
+                          triggerPrice: draft.triggerPrice,
+                          existingOid: draft.existingOid,
+                        });
+                      }}
+                      size="sm"
+                      variant="ghost"
+                    >
+                      <Ionicons
+                        accessibilityElementsHidden
+                        color={accent}
+                        importantForAccessibility="no-hide-descendants"
+                        name="create-outline"
+                        size={17}
+                      />
+                    </Button>
+                  ) : null}
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
         {closeEnabled ? (
           <View className="flex-row flex-wrap gap-2">
             <Button
@@ -232,12 +317,12 @@ function PositionCard({
             </Button>
             <Button
               accessibilityHint="Opens a reduce-only limit close form for this position."
-              accessibilityState={{ expanded: active !== null }}
+              accessibilityState={{ expanded: activeLimit !== null }}
               animation={reducedMotion ? "disable-all" : undefined}
               className="min-h-12 min-w-28 flex-1"
               isDisabled={closePending}
               onPress={() => {
-                if (active !== null) {
+                if (activeLimit !== null) {
                   setEditor(null);
                   return;
                 }
@@ -256,7 +341,7 @@ function PositionCard({
           </View>
         ) : null}
 
-        {active?.kind === "limit_close" ? (
+        {activeLimit !== null ? (
           <View
             accessibilityLabel={`Limit close for ${position.coin}`}
             className="gap-4 border-t border-divider pt-4"
@@ -282,10 +367,10 @@ function PositionCard({
                 midButtonAccessibilityLabel={`Use current mid price for ${position.coin}`}
                 midPrice={midPrice}
                 onChangeText={(limitPrice) =>
-                  setEditor({ ...active, limitPrice })
+                  setEditor({ ...activeLimit, limitPrice })
                 }
                 returnKeyType="next"
-                value={active.limitPrice}
+                value={activeLimit.limitPrice}
               />
             </TextField>
             <TextField
@@ -297,8 +382,8 @@ function PositionCard({
               <Input
                 accessibilityLabel={`Close size for ${position.coin}`}
                 keyboardType="decimal-pad"
-                onChangeText={(size) => setEditor({ ...active, size })}
-                value={active.size}
+                onChangeText={(size) => setEditor({ ...activeLimit, size })}
+                value={activeLimit.size}
               />
             </TextField>
             <View className="flex-row items-center justify-between gap-3">
@@ -309,7 +394,7 @@ function PositionCard({
                 animation={reducedMotion ? "disable-all" : undefined}
                 isDisabled={closePending}
                 onPress={() =>
-                  setEditor({ ...active, size: position.absoluteSize })
+                  setEditor({ ...activeLimit, size: position.absoluteSize })
                 }
                 size="sm"
                 variant="tertiary"
@@ -335,8 +420,8 @@ function PositionCard({
                   void onReviewClose(position, {
                     ...createCloseDraft(position),
                     behavior: "limit",
-                    limitPrice: active.limitPrice,
-                    size: active.size,
+                    limitPrice: activeLimit.limitPrice,
+                    size: activeLimit.size,
                   })
                 }
                 variant="primary"
@@ -357,6 +442,107 @@ function PositionCard({
             </View>
           </View>
         ) : null}
+
+        <Dialog
+          animation={reducedMotion ? "disable-all" : undefined}
+          isOpen={activeProtection !== null}
+          onOpenChange={(open) => {
+            if (!open) setEditor(null);
+          }}
+        >
+          <Dialog.Portal unstable_accessibilityContainerViewIsModal>
+            <Dialog.Overlay
+              animation={reducedMotion ? false : undefined}
+              isCloseOnPress={!closePending}
+            />
+            <Dialog.Content
+              animation={reducedMotion ? false : undefined}
+              className="gap-5 bg-background"
+            >
+              <Dialog.Close
+                className="absolute right-3 top-3 z-10"
+                isDisabled={closePending}
+              />
+              <View className="gap-1 pr-12">
+                <Dialog.Title>
+                  {activeProtection?.protectionKind === "take_profit"
+                    ? "Take profit"
+                    : "Stop loss"}
+                </Dialog.Title>
+                <Dialog.Description>
+                  Set the price that triggers a full position-linked market
+                  close. Execution is limited to 5% slippage.
+                </Dialog.Description>
+              </View>
+              <TextField
+                animation={reducedMotion ? "disable-all" : undefined}
+                isDisabled={closePending}
+                isInvalid={error !== null}
+              >
+                <Label>Trigger price (USDC)</Label>
+                <Input
+                  accessibilityLabel={`${activeProtection?.protectionKind === "take_profit" ? "Take profit" : "Stop loss"} trigger price for ${position.coin}`}
+                  autoFocus
+                  keyboardType="decimal-pad"
+                  onChangeText={(triggerPrice) => {
+                    if (activeProtection !== null) {
+                      setEditor({ ...activeProtection, triggerPrice });
+                    }
+                  }}
+                  returnKeyType="done"
+                  value={activeProtection?.triggerPrice ?? ""}
+                />
+              </TextField>
+              <Text className="text-xs leading-4 text-muted">
+                Current position size {position.absoluteSize} {position.coin}
+              </Text>
+              {error ? (
+                <Text
+                  accessibilityRole="alert"
+                  className="text-sm leading-5 text-danger"
+                >
+                  {error}
+                </Text>
+              ) : null}
+              <View className="flex-row gap-2">
+                <Button
+                  accessibilityHint="Validates this protective order, then requests device verification before submission."
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  className="min-h-12 flex-1"
+                  isDisabled={closePending || activeProtection === null}
+                  onPress={() => {
+                    if (activeProtection !== null) {
+                      void onReviewPositionTpsl(position, {
+                        positionId: activeProtection.positionId,
+                        kind: activeProtection.protectionKind,
+                        triggerPrice: activeProtection.triggerPrice,
+                        existingOid: activeProtection.existingOid,
+                      });
+                    }
+                  }}
+                  variant="primary"
+                >
+                  <Button.Label>
+                    {reviewingCloseBehavior === "position_tpsl"
+                      ? "Reviewing…"
+                      : activeProtection?.existingOid === null
+                        ? "Set protection"
+                        : "Save change"}
+                  </Button.Label>
+                </Button>
+                <Button
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  className="min-h-12 flex-1"
+                  isDisabled={closePending}
+                  onPress={() => setEditor(null)}
+                  variant="tertiary"
+                >
+                  <Button.Label>Cancel</Button.Label>
+                </Button>
+              </View>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog>
       </Card.Body>
     </Card>
   );
@@ -384,7 +570,9 @@ function OrderCard({
       <RecordHeader
         badges={
           <>
-            <RecordTypeChip label="Open" />
+            <RecordTypeChip
+              label={order.isPositionTpsl ? order.orderType : "Open"}
+            />
             <SideChip side={order.side} />
           </>
         }
@@ -394,7 +582,10 @@ function OrderCard({
       <Card.Body className="gap-3">
         <View className="flex-row flex-wrap gap-x-5 gap-y-3">
           <Value label="Order size" value={order.size} />
-          <Value label="Limit price" value={order.limitPrice} />
+          <Value
+            label={order.isTrigger ? "Trigger price" : "Limit price"}
+            value={order.isTrigger ? order.triggerPrice : order.limitPrice}
+          />
         </View>
         {cancelEnabled ? (
           <Button
@@ -507,6 +698,7 @@ export function PortfolioRows({
   error,
   onCancel,
   onReviewClose,
+  onReviewPositionTpsl,
 }: {
   readonly portfolio: NormalizedPortfolio;
   readonly markets: readonly Market[];
@@ -520,9 +712,13 @@ export function PortfolioRows({
     position: PortfolioPositionRow,
     draft: CloseDraft,
   ) => Promise<void>;
+  readonly onReviewPositionTpsl: (
+    position: PortfolioPositionRow,
+    draft: PositionTpslDraft,
+  ) => Promise<void>;
 }): JSX.Element {
   const [reviewingClose, setReviewingClose] = useState<{
-    readonly behavior: CloseDraft["behavior"];
+    readonly behavior: CloseDraft["behavior"] | "position_tpsl";
     readonly positionId: string;
   } | null>(null);
   const [reviewingCancelOrderId, setReviewingCancelOrderId] = useState<
@@ -556,6 +752,18 @@ export function PortfolioRows({
       setReviewingClose(null);
     }
   };
+  const reviewPositionTpsl = async (
+    position: PortfolioPositionRow,
+    draft: PositionTpslDraft,
+  ) => {
+    if (reviewingClose !== null) return;
+    setReviewingClose({ behavior: "position_tpsl", positionId: position.id });
+    try {
+      await onReviewPositionTpsl(position, draft);
+    } finally {
+      setReviewingClose(null);
+    }
+  };
   const cancelOrder = async (order: PortfolioOpenOrderRow) => {
     if (reviewingCancelOrderId !== null) return;
     setReviewingCancelOrderId(order.id);
@@ -583,6 +791,7 @@ export function PortfolioRows({
             key={position.id}
             markets={markets}
             onReviewClose={reviewClose}
+            onReviewPositionTpsl={reviewPositionTpsl}
             position={position}
             reviewingCloseBehavior={
               reviewingClose?.positionId === position.id

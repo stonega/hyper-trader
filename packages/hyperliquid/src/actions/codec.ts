@@ -15,7 +15,7 @@ import {
   MAX_BULK_CANCELS,
   ZERO_DECIMAL_PATTERN,
 } from "./constants";
-import type { ExchangeAction } from "./types";
+import type { ExchangeAction, OrderWire, TriggerOrderWire } from "./types";
 
 export interface L1ActionEncodingInput {
   readonly action: ExchangeAction;
@@ -119,70 +119,133 @@ function cloid(value: unknown, path: string): `0x${string}` {
   return value.toLowerCase() as `0x${string}`;
 }
 
+function canonicalOrderWire(
+  value: unknown,
+  path: string,
+  kind: "limit" | "trigger",
+): OrderWire {
+  const order = objectAt(value, path);
+  assertExactKeys(order, ["a", "b", "p", "s", "r", "t", "c"], path);
+  if (typeof order.b !== "boolean" || typeof order.r !== "boolean") {
+    throw new HyperliquidValidationError(
+      path,
+      "side and reduceOnly must be booleans",
+    );
+  }
+  if (
+    typeof order.p !== "string" ||
+    !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.p) ||
+    ZERO_DECIMAL_PATTERN.test(order.p) ||
+    typeof order.s !== "string" ||
+    !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.s) ||
+    ZERO_DECIMAL_PATTERN.test(order.s)
+  ) {
+    throw new HyperliquidValidationError(
+      path,
+      "price and size must be positive canonical decimal strings",
+    );
+  }
+  const orderType = objectAt(order.t, `${path}.t`);
+  if (kind === "limit") {
+    assertExactKeys(orderType, ["limit"], `${path}.t`);
+    const limit = objectAt(orderType.limit, `${path}.t.limit`);
+    assertExactKeys(limit, ["tif"], `${path}.t.limit`);
+    if (limit.tif !== "Alo" && limit.tif !== "Gtc" && limit.tif !== "Ioc") {
+      throw new HyperliquidValidationError(
+        `${path}.t.limit.tif`,
+        "unknown time in force",
+      );
+    }
+    return {
+      a: assetId(order.a, `${path}.a`),
+      b: order.b,
+      p: order.p,
+      s: order.s,
+      r: order.r,
+      t: { limit: { tif: limit.tif } },
+      c: cloid(order.c, `${path}.c`),
+    };
+  }
+  assertExactKeys(orderType, ["trigger"], `${path}.t`);
+  const trigger = objectAt(orderType.trigger, `${path}.t.trigger`);
+  assertExactKeys(
+    trigger,
+    ["isMarket", "triggerPx", "tpsl"],
+    `${path}.t.trigger`,
+  );
+  if (
+    order.r !== true ||
+    trigger.isMarket !== true ||
+    (trigger.tpsl !== "tp" && trigger.tpsl !== "sl") ||
+    typeof trigger.triggerPx !== "string" ||
+    !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(trigger.triggerPx) ||
+    ZERO_DECIMAL_PATTERN.test(trigger.triggerPx)
+  ) {
+    throw new HyperliquidValidationError(
+      `${path}.t.trigger`,
+      "expected a reduce-only market TP/SL trigger",
+    );
+  }
+  return {
+    a: assetId(order.a, `${path}.a`),
+    b: order.b,
+    p: order.p,
+    s: order.s,
+    r: true,
+    t: {
+      trigger: {
+        isMarket: true,
+        triggerPx: trigger.triggerPx,
+        tpsl: trigger.tpsl,
+      },
+    },
+    c: cloid(order.c, `${path}.c`),
+  } satisfies TriggerOrderWire;
+}
+
 function canonicalizeExchangeAction(action: ExchangeAction): ExchangeAction {
   const raw = objectAt(action, "action");
   switch (raw.type) {
     case "order": {
       assertExactKeys(raw, ["type", "orders", "grouping"], "action");
       if (
-        raw.grouping !== "na" ||
+        (raw.grouping !== "na" && raw.grouping !== "positionTpsl") ||
         !Array.isArray(raw.orders) ||
         raw.orders.length !== 1
       ) {
         throw new HyperliquidValidationError(
           "action.orders",
-          "expected one ungrouped order",
-        );
-      }
-      const order = objectAt(raw.orders[0], "action.orders[0]");
-      assertExactKeys(
-        order,
-        ["a", "b", "p", "s", "r", "t", "c"],
-        "action.orders[0]",
-      );
-      if (typeof order.b !== "boolean" || typeof order.r !== "boolean") {
-        throw new HyperliquidValidationError(
-          "action.orders[0]",
-          "side and reduceOnly must be booleans",
-        );
-      }
-      if (
-        typeof order.p !== "string" ||
-        !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.p) ||
-        ZERO_DECIMAL_PATTERN.test(order.p) ||
-        typeof order.s !== "string" ||
-        !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.s) ||
-        ZERO_DECIMAL_PATTERN.test(order.s)
-      ) {
-        throw new HyperliquidValidationError(
-          "action.orders[0]",
-          "price and size must be positive canonical decimal strings",
-        );
-      }
-      const trigger = objectAt(order.t, "action.orders[0].t");
-      assertExactKeys(trigger, ["limit"], "action.orders[0].t");
-      const limit = objectAt(trigger.limit, "action.orders[0].t.limit");
-      assertExactKeys(limit, ["tif"], "action.orders[0].t.limit");
-      if (limit.tif !== "Alo" && limit.tif !== "Gtc" && limit.tif !== "Ioc") {
-        throw new HyperliquidValidationError(
-          "action.orders[0].t.limit.tif",
-          "unknown time in force",
+          "expected one supported order",
         );
       }
       return {
         type: "order",
         orders: [
-          {
-            a: assetId(order.a, "action.orders[0].a"),
-            b: order.b,
-            p: order.p,
-            s: order.s,
-            r: order.r,
-            t: { limit: { tif: limit.tif } },
-            c: cloid(order.c, "action.orders[0].c"),
-          },
+          canonicalOrderWire(
+            raw.orders[0],
+            "action.orders[0]",
+            raw.grouping === "na" ? "limit" : "trigger",
+          ),
         ],
-        grouping: "na",
+        grouping: raw.grouping,
+      };
+    }
+    case "modify": {
+      assertExactKeys(raw, ["type", "oid", "order"], "action");
+      if (!Number.isSafeInteger(raw.oid) || (raw.oid as number) < 1) {
+        throw new HyperliquidValidationError(
+          "action.oid",
+          "expected a positive order ID",
+        );
+      }
+      return {
+        type: "modify",
+        oid: raw.oid as number,
+        order: canonicalOrderWire(
+          raw.order,
+          "action.order",
+          "trigger",
+        ) as TriggerOrderWire,
       };
     }
     case "cancel": {

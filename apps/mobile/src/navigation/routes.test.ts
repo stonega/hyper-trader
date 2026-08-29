@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   INITIAL_TAB_ROUTE,
+  ONBOARDING_ROUTE,
   SETUP_ROUTE,
   TRADE_ROUTE,
   tradeMarketRoute,
@@ -16,6 +17,12 @@ describe("application route contract", () => {
   test("keeps contextual Setup distinct from Trade", () => {
     expect(SETUP_ROUTE).toBe("/setup");
     expect(SETUP_ROUTE).not.toBe(TRADE_ROUTE);
+  });
+
+  test("keeps first-use onboarding distinct from setup and the tab shell", () => {
+    expect(ONBOARDING_ROUTE).toBe("/onboarding");
+    expect(ONBOARDING_ROUTE).not.toBe(SETUP_ROUTE);
+    expect(ONBOARDING_ROUTE).not.toBe(TRADE_ROUTE);
   });
 
   test("market navigation changes only the canonical market route parameter", () => {
