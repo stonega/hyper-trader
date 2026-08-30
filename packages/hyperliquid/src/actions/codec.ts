@@ -135,14 +135,25 @@ function canonicalOrderWire(
   if (
     typeof order.p !== "string" ||
     !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.p) ||
-    ZERO_DECIMAL_PATTERN.test(order.p) ||
-    typeof order.s !== "string" ||
-    !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.s) ||
-    ZERO_DECIMAL_PATTERN.test(order.s)
+    ZERO_DECIMAL_PATTERN.test(order.p)
   ) {
     throw new HyperliquidValidationError(
       path,
-      "price and size must be positive canonical decimal strings",
+      "price must be a positive canonical decimal string",
+    );
+  }
+  if (
+    typeof order.s !== "string" ||
+    !CANONICAL_POSITIVE_DECIMAL_PATTERN.test(order.s) ||
+    (kind === "limit"
+      ? ZERO_DECIMAL_PATTERN.test(order.s)
+      : !ZERO_DECIMAL_PATTERN.test(order.s))
+  ) {
+    throw new HyperliquidValidationError(
+      `${path}.s`,
+      kind === "trigger"
+        ? "position TP/SL size must use the canonical zero sentinel"
+        : "size must be a positive canonical decimal string",
     );
   }
   const orderType = objectAt(order.t, `${path}.t`);

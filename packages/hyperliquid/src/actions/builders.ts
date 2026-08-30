@@ -106,6 +106,10 @@ function positionTpslOrderWire(
   ) {
     invalid("triggerKind", "expected take_profit or stop_loss");
   }
+  // The reviewed intent retains the exact position size as a safety fence, but
+  // Hyperliquid uses zero on the wire to make a positionTpsl order follow the
+  // whole position. Encoding the current size creates a fixed-size trigger.
+  validatePositiveDecimal(intent.size, "size");
   return {
     a: validateAssetId(intent.assetId),
     b: intent.side === "buy",
@@ -113,7 +117,7 @@ function positionTpslOrderWire(
       intent.aggressiveLimitPrice,
       "aggressiveLimitPrice",
     ),
-    s: validatePositiveDecimal(intent.size, "size"),
+    s: "0",
     r: true,
     t: {
       trigger: {

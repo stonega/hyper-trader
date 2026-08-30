@@ -34,6 +34,15 @@ export function portfolioSideColor(side: string): PortfolioSideColor {
   return label === "Buy" ? "success" : label === "Sell" ? "danger" : "default";
 }
 
+export function portfolioOrderSizeLabel(order: {
+  readonly size: string;
+  readonly isPositionTpsl: boolean;
+}): string {
+  return order.isPositionTpsl && /^0(?:\.0+)?$/.test(order.size)
+    ? "Close Position"
+    : order.size;
+}
+
 export function portfolioMarketLabel(
   coin: string,
   markets: readonly Market[],

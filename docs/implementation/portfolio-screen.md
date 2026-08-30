@@ -157,6 +157,9 @@ the validated market catalog, preserving their canonical market identity; spot
 pairs use slash notation, such as `SWAP/USDC`, while perpetuals remain hyphenated.
 Spot balances omit assets whose exact total amount is zero, including decimal-padded
 zero values.
+Open-order rows render Hyperliquid's zero-size position TP/SL sentinel as
+**Close Position**; fixed-size triggers and ordinary orders retain their exact
+reported size.
 
 ## Quick actions and review ownership
 
@@ -190,9 +193,11 @@ action boundary:
   Each value has its own compact ghost pencil control with a 40-point visual
   target and additional hit slop; it is intentionally not presented as a
   primary action. The editor changes one protection order at a time. A missing
-  trigger creates one full-size reduce-only market trigger with
-  `positionTpsl` grouping, while an existing trigger modifies the exact
-  reviewed `oid`. Long take profit must remain above the current reference and
+  trigger creates one whole-position reduce-only market trigger with
+  `positionTpsl` grouping and Hyperliquid's zero-size wire sentinel, while the
+  reviewed intent retains the actual full position size as a safety fence. An
+  existing trigger modifies the exact reviewed `oid` using the same sentinel.
+  Long take profit must remain above the current reference and
   long stop loss below it; short positions reverse those directions. The
   execution limit is codec-owned and bounded to five percent from the trigger.
   **Set protection** or **Save change** is the explicit confirmation boundary.

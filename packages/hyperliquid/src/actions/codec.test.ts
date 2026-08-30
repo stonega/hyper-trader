@@ -126,7 +126,7 @@ describe("Hyperliquid L1 action codec", () => {
           a: 1,
           b: false,
           p: "104.5",
-          s: "2",
+          s: "0",
           r: true,
           t: {
             trigger: { isMarket: true, triggerPx: "110", tpsl: "tp" },
@@ -150,10 +150,35 @@ describe("Hyperliquid L1 action codec", () => {
       existingOid: 77,
       cloid,
     });
-    expect(edit).toMatchObject({ type: "modify", oid: 77 });
+    expect(edit).toMatchObject({ type: "modify", oid: 77, order: { s: "0" } });
     expect(() =>
       encodeL1Action({ action: edit, nonce: 100, expiresAfter: 200 }),
     ).not.toThrow();
+  });
+
+  test("rejects fixed-size wires for position-linked triggers", () => {
+    const action = buildPositionTpslAction({
+      assetId: 1,
+      side: "sell",
+      size: "2",
+      triggerPrice: "110",
+      aggressiveLimitPrice: "104.5",
+      triggerKind: "take_profit",
+      existingOid: null,
+      cloid,
+    });
+    if (action.type !== "order") throw new Error("Expected an order action.");
+    const fixedSize = {
+      ...action,
+      orders: [{ ...action.orders[0], s: "2" }],
+    };
+    expect(() =>
+      encodeL1Action({
+        action: fixedSize,
+        nonce: 100,
+        expiresAfter: 200,
+      }),
+    ).toThrow("position TP/SL size must use the canonical zero sentinel");
   });
 
   test("matches every redacted official Python SDK 0.24.0 action vector", () => {

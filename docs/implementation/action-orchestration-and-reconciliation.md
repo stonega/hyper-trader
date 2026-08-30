@@ -84,12 +84,14 @@ reservation. Leverage, margin mode, position size, market metadata, signer, and
 context remain exact review fences.
 
 Position-linked market triggers validate exact direction against the current
-reference price, require the full opposite-side position size, bind an existing
-order ID for edits, and enforce a five-percent execution limit from the trigger
-price. The codec owns both `positionTpsl` creation and exact single-order
-`modify` wire shapes. Bulk cancel remains outside the public reviewed action
-surface. Outcome markets remain browse-only. Missing constraints are never
-guessed.
+reference price, require the full opposite-side position size in the reviewed
+intent, bind an existing order ID for edits, and enforce a five-percent
+execution limit from the trigger price. The codec owns both `positionTpsl`
+creation and exact single-order `modify` wire shapes; both encode Hyperliquid's
+zero-size sentinel so the trigger follows the whole position instead of freezing
+the size observed during review. Bulk cancel remains outside the public reviewed
+action surface. Outcome markets remain browse-only. Missing constraints are
+never guessed.
 
 ## Visible phases and Back behavior
 

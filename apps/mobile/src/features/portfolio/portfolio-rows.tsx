@@ -31,6 +31,7 @@ import {
   formatPortfolioRecordTime,
   portfolioAmountTone,
   portfolioMarketLabel,
+  portfolioOrderSizeLabel,
   portfolioSideColor,
   portfolioSideLabel,
 } from "./portfolio-row-presentation";
@@ -581,7 +582,7 @@ function OrderCard({
       />
       <Card.Body className="gap-3">
         <View className="flex-row flex-wrap gap-x-5 gap-y-3">
-          <Value label="Order size" value={order.size} />
+          <Value label="Order size" value={portfolioOrderSizeLabel(order)} />
           <Value
             label={order.isTrigger ? "Trigger price" : "Limit price"}
             value={order.isTrigger ? order.triggerPrice : order.limitPrice}

@@ -9,6 +9,7 @@ import {
 import {
   portfolioAmountTone,
   portfolioMarketLabel,
+  portfolioOrderSizeLabel,
   portfolioSideColor,
   portfolioSideLabel,
 } from "./portfolio-row-presentation";
@@ -44,5 +45,23 @@ describe("portfolio row presentation", () => {
     expect(portfolioAmountTone("-2.5")).toBe("danger");
     expect(portfolioAmountTone("0.000")).toBe("default");
     expect(portfolioAmountTone("-0.000")).toBe("default");
+  });
+
+  test("labels zero-size position TP/SL orders as closing the position", () => {
+    expect(portfolioOrderSizeLabel({ size: "0", isPositionTpsl: true })).toBe(
+      "Close Position",
+    );
+    expect(portfolioOrderSizeLabel({ size: "0.0", isPositionTpsl: true })).toBe(
+      "Close Position",
+    );
+    expect(
+      portfolioOrderSizeLabel({ size: "0.00000", isPositionTpsl: true }),
+    ).toBe("Close Position");
+    expect(
+      portfolioOrderSizeLabel({ size: "0.02468", isPositionTpsl: true }),
+    ).toBe("0.02468");
+    expect(
+      portfolioOrderSizeLabel({ size: "0.0", isPositionTpsl: false }),
+    ).toBe("0.0");
   });
 });
