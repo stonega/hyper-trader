@@ -60,7 +60,7 @@ making the API wallet independently selectable.
 ## Key product decisions
 
 - **Hybrid first-use onboarding.** First launch offers API-wallet setup as the primary action and read-only Trade as an immediate skip path. Completing either choice prevents the onboarding screen from replaying; setup remains available contextually. Governs R13–R19.
-- **Testnet-first context.** A fresh read-only session and its public-data streams initialize on testnet. The network selector preserves an exact active account, restores the sole saved account on the selected network, and requires explicit account selection when that network has multiple accounts. Account data, cache, and signing authority never merge across networks.
+- **Mainnet-first context.** A fresh read-only session and its public-data streams initialize on mainnet. The network selector preserves an exact active account, restores the sole saved account on the selected network, and requires explicit account selection when that network has multiple accounts. Account data, cache, and signing authority never merge across networks.
 - **Session authentication.** Device authentication unlocks a short-lived trading session; every state-changing action still receives an explicit review. Governs R18, R26, R32, R38.
 - **Trade-first home.** Trade reopens the last-used market and provides a searchable market switcher. Governs R1, R20.
 - **Inline progressive order entry.** The order panel stays on Trade, with essential controls visible and advanced controls revealed contextually. Governs R21–R25.
@@ -211,7 +211,8 @@ making the API wallet independently selectable.
 - In-app deposits, withdrawals, and internal transfers are excluded.
 - The master-account seed phrase and private key are never handled by Hyper Trader.
 - `candidate` builds may submit supported Mainnet orders. Public distribution requires the automated repository aggregate, an exact target-platform artifact digest, target-device smoke testing, and the release owner's final preflight decision.
-- Read-only public market data may continue to use mainnet while authenticated development defaults to testnet.
+- Fresh sessions default to mainnet. Authenticated actions remain account-bound,
+  capability-gated, device-authenticated, and subject to explicit review.
 - Visual branding, illustration style, final typography, and motion language are not defined by this document.
 
 ## Dependencies and assumptions

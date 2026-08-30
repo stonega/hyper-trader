@@ -175,13 +175,13 @@ and [exchange actions](https://hyperliquid.gitbook.io/hyperliquid-docs/for-devel
 ## Network policy
 
 - Public price display currently reads mainnet.
-- Authenticated and state-changing development defaults to testnet.
+- Fresh application contexts default to mainnet.
 - The chosen network must be visible anywhere an order can be signed.
 - API-wallet authorization, storage, and nonce state are network-scoped and must
   never be silently reused across testnet and mainnet.
-- The action implementation accepts either validated network, but mainnet signer
-  access and transport remain compile-disabled until the separate mainnet release
-  evidence and safety review are complete.
+- The action implementation accepts either validated network. Mainnet signer
+  access and transport remain controlled by the compile-owned release stage and
+  require separate release evidence and safety review before public distribution.
 
 ## Security architecture contract
 

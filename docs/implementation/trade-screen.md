@@ -150,12 +150,12 @@ the accompanying execution limit.
 
 Trade follows a compact exchange-workspace order without copying another
 product's visual styling: the title and concise pair switch share the header,
-followed by a top-right account avatar, market identity and price, the
-candlestick chart, the order-entry and activity workspace, then account and
-session actions. The network-aware setup card appears after the market and
-activity workspace only when the selected network has no saved account. An
-existing account with a missing local signer instead receives a repair message
-for that network and is never presented as a new-account or testnet setup case.
+alongside a top-right account avatar. When the selected network has no saved
+account, the network-aware setup card appears directly below that header,
+before market identity and price, the candlestick chart, and the order-entry
+and activity workspace. An existing account with a missing local signer instead
+receives a repair message for that network and is never presented as a
+new-account or testnet setup case.
 The pair control uses a down chevron and opens the complete
 market selector. The selector uses the same generation-pinned, 24-row summary
 query and persisted default first page as Markets, starts that query while Trade

@@ -190,12 +190,45 @@ describe("native resumable API-wallet setup", () => {
     mockPrepare.mockClear();
   });
 
+  test("defaults new setup to Mainnet and exposes both network choices", async () => {
+    mockNetwork = "testnet";
+    mockLoad.mockResolvedValue({ status: "empty" });
+
+    render(<SetupScreen />);
+
+    expect(
+      await screen.findByText("Enter your Hyperliquid wallet"),
+    ).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Mainnet" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "Testnet" })).not.toBeChecked();
+    expect(
+      screen
+        .getAllByRole("radio")
+        .map((option) => option.props.accessibilityLabel),
+    ).toEqual(["Mainnet", "Testnet"]);
+    expect(screen.getByText("Practice with test funds")).toBeTruthy();
+    expect(screen.getByText("Uses real funds")).toBeTruthy();
+    const mainnetNotice = screen.getByText(
+      "Mainnet actions use real funds. This API wallet is isolated from testnet and remains bound to this exact account.",
+    );
+    expect(mainnetNotice).toHaveProp(
+      "className",
+      expect.stringContaining("text-accent"),
+    );
+    expect(mainnetNotice.props.className).not.toContain("text-danger");
+  });
+
   test("applies the compile-owned mainnet stage to setup", async () => {
     mockNetwork = "mainnet";
     mockLoad.mockResolvedValue({ status: "empty" });
     mockPrepare.mockResolvedValue({ ...ATTEMPT, network: "mainnet" });
 
     render(<SetupScreen />);
+
+    expect(
+      await screen.findByText("Enter your Hyperliquid wallet"),
+    ).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Mainnet" })).toBeChecked();
 
     if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
       expect(
@@ -210,9 +243,6 @@ describe("native resumable API-wallet setup", () => {
       fireEvent.press(generate);
       expect(mockPrepare).not.toHaveBeenCalled();
     } else {
-      expect(
-        await screen.findByText("Enter your Hyperliquid wallet"),
-      ).toBeTruthy();
       fireEvent.changeText(screen.getByPlaceholderText("0x…"), MASTER);
       fireEvent.press(
         screen.getByRole("button", { name: "Generate API wallet" }),
@@ -259,7 +289,7 @@ describe("native resumable API-wallet setup", () => {
 
   test("uses the default API-wallet name without another input", async () => {
     mockLoad.mockResolvedValue({ status: "empty" });
-    mockPrepare.mockResolvedValue(ATTEMPT);
+    mockPrepare.mockResolvedValue({ ...ATTEMPT, network: "mainnet" });
 
     render(<SetupScreen />);
 
@@ -274,7 +304,7 @@ describe("native resumable API-wallet setup", () => {
 
     expect(await screen.findByText(AGENT)).toBeTruthy();
     expect(mockPrepare).toHaveBeenCalledWith(
-      "testnet",
+      "mainnet",
       MASTER,
       REGISTRATION_NAME,
     );
@@ -317,6 +347,12 @@ describe("native resumable API-wallet setup", () => {
       "data",
       AGENT,
     );
+    expect(screen.queryByText("API wallet address")).toBeNull();
+    expect(
+      screen.getByText(
+        "Scan or copy this exact public address into Hyperliquid.",
+      ),
+    ).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Copy wallet name" }),
     ).toBeNull();
@@ -335,6 +371,59 @@ describe("native resumable API-wallet setup", () => {
     expect(mockSelect).toHaveBeenCalledTimes(1);
     expect(mockSwitchContext).toHaveBeenCalledTimes(1);
     expect(mockReplace).toHaveBeenCalledWith("/(tabs)/trade");
+  });
+
+  test("keeps the wallet-check subtitle stable while checking", async () => {
+    const authorizationSubtitle =
+      "Add this address on Hyperliquid, then return here. We’ll check it automatically.";
+    let resolveVerification: ((result: unknown) => void) | undefined;
+    let resolveSave: ((saved: boolean) => void) | undefined;
+    mockLoad.mockResolvedValue({ status: "authorization", attempt: ATTEMPT });
+    mockVerify.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveVerification = resolve;
+        }),
+    );
+    mockActivationFor.mockReturnValue(ACTIVATION);
+    mockSave.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    mockSelect.mockResolvedValue(true);
+    mockSwitchContext.mockResolvedValue(true);
+    mockFinish.mockResolvedValue(undefined);
+
+    render(<SetupScreen />);
+
+    expect(await screen.findByText(authorizationSubtitle)).toBeTruthy();
+    fireEvent.press(screen.getByRole("button", { name: "Check again" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Checking" })).toBeDisabled(),
+    );
+    expect(screen.getByText(authorizationSubtitle)).toBeTruthy();
+
+    await act(async () => {
+      resolveVerification?.({
+        status: "activated",
+        binding: ACTIVATION.binding,
+        effectiveExpiry: ACTIVATION.effectiveExpiry,
+      });
+    });
+
+    await waitFor(() => expect(mockSave).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(authorizationSubtitle)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Checking" })).toBeDisabled();
+
+    await act(async () => {
+      resolveSave?.(true);
+    });
+    await waitFor(() =>
+      expect(mockReplace).toHaveBeenCalledWith("/(tabs)/trade"),
+    );
   });
 
   test("restores an authorization checkpoint without generating another key", async () => {

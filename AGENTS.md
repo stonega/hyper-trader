@@ -64,6 +64,8 @@ Run EAS and native Expo commands from `apps/mobile`.
 - Fetch current HeroUI Native component documentation before using a component.
 - Use Uniwind/Tailwind CSS v4 classes and semantic theme tokens.
 - Use HeroUI compound component anatomy and React Native `onPress` handlers.
+- Never nest a card inside another card. Use spacing, dividers, buttons, or rows
+  to structure content within the parent card.
 - Minimize required user input. Do not ask for values the app can safely derive,
   retrieve, or supply with a stable default, and do not add redundant actions
   for those values. Keep explicit review and confirmation at security-sensitive

@@ -13,6 +13,8 @@ import { FieldError } from "heroui-native/field-error";
 import { useThemeColor } from "heroui-native/hooks";
 import { InputGroup } from "heroui-native/input-group";
 import { Label } from "heroui-native/label";
+import { Radio } from "heroui-native/radio";
+import { RadioGroup } from "heroui-native/radio-group";
 import { TextField } from "heroui-native/text-field";
 import type { JSX } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
@@ -78,14 +80,6 @@ const PHASE_COPY = {
     description:
       "Add this address on Hyperliquid, then return here. We’ll check it automatically.",
   },
-  verifying: {
-    title: "Add this API wallet",
-    description: "Checking Hyperliquid for this API wallet.",
-  },
-  activating: {
-    title: "Add this API wallet",
-    description: "Saving your trading account on this device.",
-  },
   failure: {
     title: "Setup is safely paused",
     description:
@@ -106,8 +100,6 @@ function stepLabel(phase: keyof typeof PHASE_COPY): string {
     case "protection":
       return "Step 1 of 2";
     case "authorization":
-    case "verifying":
-    case "activating":
     case "ready":
       return "Step 2 of 2";
     case "failure":
@@ -159,9 +151,8 @@ export default function SetupScreen(): JSX.Element {
   const switchTradingContext = tradingContext.switchContext;
   const [state, dispatch] = useReducer(reduceSetupFlow, INITIAL_SETUP_FLOW);
   const [masterAccount, setMasterAccount] = useState("");
-  const [setupNetwork, setSetupNetwork] = useState<HyperliquidNetwork>(
-    tradingContext.current.network,
-  );
+  const [setupNetwork, setSetupNetwork] =
+    useState<HyperliquidNetwork>("mainnet");
   const [registrationName, setRegistrationName] = useState(
     DEFAULT_API_WALLET_REGISTRATION_NAME,
   );
@@ -173,7 +164,9 @@ export default function SetupScreen(): JSX.Element {
   const prepareInFlight = useRef(false);
   const verificationInFlight = useRef(false);
   const verifyOnForeground = useRef<(() => void) | null>(null);
-  const copy = PHASE_COPY[state.phase];
+  const checking = state.phase === "verifying" || state.phase === "activating";
+  const presentationPhase = checking ? "authorization" : state.phase;
+  const copy = PHASE_COPY[presentationPhase];
   const setupCapabilityEnabled = hasSignerAccessCapability(setupNetwork);
 
   useEffect(() => {
@@ -567,10 +560,10 @@ export default function SetupScreen(): JSX.Element {
             Set up trading
           </Text>
           <Text className="text-base leading-6 text-muted">
-            {stepLabel(state.phase)}
+            {stepLabel(presentationPhase)}
           </Text>
           {setupNetwork === "mainnet" && setupCapabilityEnabled ? (
-            <Text className="text-sm leading-5 text-danger">
+            <Text className="text-sm leading-5 text-accent">
               Mainnet actions use real funds. This API wallet is isolated from
               testnet and remains bound to this exact account.
             </Text>
@@ -585,7 +578,7 @@ export default function SetupScreen(): JSX.Element {
         <Card variant="default" className="min-h-80 gap-4">
           <Card.Body className="gap-4">
             <Animated.View
-              key={state.phase}
+              key={presentationPhase}
               className="gap-4"
               entering={FadeIn.duration(duration).reduceMotion(
                 ReduceMotion.System,
@@ -600,7 +593,42 @@ export default function SetupScreen(): JSX.Element {
               </View>
 
               {state.phase === "account" ? (
-                <View>
+                <View className="gap-5">
+                  <View className="gap-2">
+                    <Label>Network</Label>
+                    <RadioGroup
+                      animation={reducedMotion ? "disable-all" : undefined}
+                      className="gap-2"
+                      onValueChange={(value) => {
+                        if (value !== "testnet" && value !== "mainnet") return;
+                        setSetupNetwork(value);
+                        setNotice(null);
+                      }}
+                      value={setupNetwork}
+                    >
+                      <RadioGroup.Item
+                        accessibilityLabel="Mainnet"
+                        value="mainnet"
+                      >
+                        <View className="flex-1 gap-0.5">
+                          <Label>Mainnet</Label>
+                          <Description>Uses real funds</Description>
+                        </View>
+                        <Radio />
+                      </RadioGroup.Item>
+                      <RadioGroup.Item
+                        accessibilityLabel="Testnet"
+                        value="testnet"
+                      >
+                        <View className="flex-1 gap-0.5">
+                          <Label>Testnet</Label>
+                          <Description>Practice with test funds</Description>
+                        </View>
+                        <Radio />
+                      </RadioGroup.Item>
+                    </RadioGroup>
+                  </View>
+
                   <TextField isInvalid={addressInvalid} isRequired>
                     <Label>Master wallet address</Label>
                     <InputGroup>
@@ -661,67 +689,58 @@ export default function SetupScreen(): JSX.Element {
 
               {authorizationVisible ? (
                 <View className="gap-4">
-                  <View className="gap-4 rounded-2xl bg-surface-secondary p-4">
-                    <View className="gap-1">
-                      <Text className="text-sm font-medium text-muted">
-                        API wallet address
-                      </Text>
-                      <Text className="text-sm leading-5 text-muted">
-                        Scan or copy this exact public address into Hyperliquid.
-                      </Text>
-                    </View>
-
-                    <View
-                      accessible
-                      accessibilityLabel="QR code for the generated API wallet address"
-                      accessibilityRole="image"
-                      className="items-center self-center rounded-3xl bg-white p-1"
-                      testID="api-wallet-address-qr"
-                    >
-                      <QRCodeStyled
-                        color="#111827"
-                        data={attempt.agentAddress}
-                        errorCorrectionLevel="M"
-                        padding={14}
-                        pieceScale={1.03}
-                        size={156}
-                        testID="api-wallet-address-qr-code"
-                      />
-                    </View>
-
-                    <Text
-                      selectable
-                      className="text-center text-sm font-medium leading-5 text-foreground"
-                    >
-                      {attempt.agentAddress}
-                    </Text>
-                    <Button
-                      accessibilityLabel="Copy API wallet address"
-                      animation={reducedMotion ? "disable-all" : undefined}
-                      className="min-h-11 w-full"
-                      onPress={() => {
-                        void copyPublicValue(
-                          attempt.agentAddress,
-                          "API wallet address",
-                        );
-                      }}
-                      variant="outline"
-                    >
-                      <Ionicons
-                        accessibilityElementsHidden
-                        color={accent}
-                        importantForAccessibility="no-hide-descendants"
-                        name="copy-outline"
-                        size={18}
-                      />
-                      <Button.Label>Copy wallet address</Button.Label>
-                    </Button>
+                  <View
+                    accessible
+                    accessibilityLabel="QR code for the generated API wallet address"
+                    accessibilityRole="image"
+                    className="items-center self-center rounded-3xl bg-white p-1"
+                    testID="api-wallet-address-qr"
+                  >
+                    <QRCodeStyled
+                      color="#111827"
+                      data={attempt.agentAddress}
+                      errorCorrectionLevel="M"
+                      padding={14}
+                      pieceScale={1.03}
+                      size={156}
+                      testID="api-wallet-address-qr-code"
+                    />
                   </View>
 
+                  <Text
+                    selectable
+                    className="text-center text-sm font-medium leading-5 text-foreground"
+                  >
+                    {attempt.agentAddress}
+                  </Text>
+                  <Button
+                    accessibilityLabel="Copy API wallet address"
+                    animation={reducedMotion ? "disable-all" : undefined}
+                    className="min-h-11 w-full"
+                    onPress={() => {
+                      void copyPublicValue(
+                        attempt.agentAddress,
+                        "API wallet address",
+                      );
+                    }}
+                    variant="outline"
+                  >
+                    <Ionicons
+                      accessibilityElementsHidden
+                      color={accent}
+                      importantForAccessibility="no-hide-descendants"
+                      name="copy-outline"
+                      size={18}
+                    />
+                    <Button.Label>Copy wallet address</Button.Label>
+                  </Button>
                   <Text className="text-sm leading-5 text-muted">
                     Connect {attempt.masterAccount} and add this address. Use
                     {` ${attempt.registrationName}`} if Hyperliquid asks for a
                     name, and choose the expiry you want.
+                  </Text>
+                  <Text className="text-sm leading-5 text-muted">
+                    Scan or copy this exact public address into Hyperliquid.
                   </Text>
                 </View>
               ) : null}
@@ -793,11 +812,9 @@ export default function SetupScreen(): JSX.Element {
                   onPress={() => void verifyAuthorization()}
                   variant="secondary"
                 >
-                  {state.phase === "verifying"
-                    ? "Checking…"
-                    : state.phase === "activating"
-                      ? "Saving account…"
-                      : "Check again"}
+                  <Button.Label>
+                    {checking ? "Checking" : "Check again"}
+                  </Button.Label>
                 </Button>
               </>
             ) : null}

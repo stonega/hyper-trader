@@ -10,10 +10,11 @@ not approved for public distribution.
 
 Hyper Trader creates a dedicated API wallet on your device. Enter only your
 public master-wallet address; Hyper Trader never asks for or stores your seed
-phrase or master private key. After system authentication, copy the generated
-public API-wallet address to the official Hyperliquid API page shown for the
-selected network, connect the same master wallet there, and add it with the
-`Hyper Trader` name.
+phrase or master private key. In the first setup step, choose Mainnet or Testnet;
+Mainnet appears first and is selected by default. After system authentication,
+copy the generated public API-wallet address to the official Hyperliquid API
+page shown for the selected network, connect the same master wallet there, and
+add it with the `Hyper Trader` name.
 
 Choose the API-wallet expiry you want on Hyperliquid. Hyper Trader stores the
 actual finite expiry reported by Hyperliquid. It is bound to the shown network, master

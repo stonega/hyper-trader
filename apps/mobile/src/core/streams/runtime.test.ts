@@ -44,7 +44,7 @@ describe("stream runtime declarations", () => {
     });
     await applied;
     expect(connections).toBe(1);
-    expect(openedNetworks).toEqual(["testnet"]);
+    expect(openedNetworks).toEqual(["mainnet"]);
 
     remove();
     await Promise.resolve();

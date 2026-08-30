@@ -46,8 +46,12 @@ state, or authorization claim is stored in this preference.
 
 The setup coordinator in `apps/mobile/src/features/accounts` owns this sequence:
 
-1. Validate the selected network, normalize the entered or QR-scanned public
-   master address, and bind the first manual flow to that same master target.
+1. Present Mainnet and Testnet as an explicit network choice in the first task,
+   show Mainnet first and select it by default, validate the selected network,
+   normalize the entered or QR-scanned public master address, and bind the first
+   manual flow to that same master target. A resumed checkpoint restores its
+   saved network, and the selector is no longer shown after key generation
+   begins.
    The scanner accepts
    a plain Ethereum address or an `ethereum:` URI and passes only the extracted
    public address into the existing validation boundary.
@@ -99,9 +103,11 @@ tombstone and pending-action rules before deleting an old secret.
 The state machine retains recovery checkpoints, but the screen presents only
 two user tasks: generate the wallet, then add it on Hyperliquid. Verifying and
 activation are working states inside the second task, not additional numbered
-steps. Navigation readiness and internal phase are separate state. Every asynchronous
-completion includes the captured generation, so a completion after interruption
-cannot reopen a later phase.
+steps. The second task keeps its title and subtitle mounted throughout those
+working states; only the check button label changes to **Checking** so progress
+does not shift the surrounding layout. Navigation readiness and internal phase
+are separate state. Every asynchronous completion includes the captured
+generation, so a completion after interruption cannot reopen a later phase.
 
 | Phase | Back behavior |
 |---|---|
@@ -114,8 +120,9 @@ cannot reopen a later phase.
 | Ready | Replace the route with Trade. |
 
 The screen keeps an opaque `bg-background` root and one mounted HeroUI Native
-card shell. Only its inner phase content fades. Motion is restrained to 160 ms,
-and system Reduced Motion removes the staged transition.
+card shell. Its inner content fades only between user-visible presentation
+phases, not between verification and activation. Motion is restrained to 160
+ms, and system Reduced Motion removes the staged transition.
 
 ## Credential records
 

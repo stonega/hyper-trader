@@ -15,6 +15,7 @@ type CommonProps = PropsWithChildren<{
     | "alert"
     | "button"
     | "header"
+    | "radio"
     | "text";
   readonly isDisabled?: boolean;
   readonly onPress?: () => void;
@@ -226,6 +227,58 @@ export const TextField = Container;
 export const Description = Copy;
 export const FieldError = Copy;
 export const Label = Copy;
+
+interface RadioGroupContextValue {
+  readonly onValueChange: (value: string) => void;
+  readonly value: string;
+}
+
+const RadioGroupContext = createContext<RadioGroupContextValue | null>(null);
+
+function RadioGroupRoot({
+  children,
+  onValueChange,
+  value,
+}: PropsWithChildren<RadioGroupContextValue>): ReactNode {
+  return (
+    <RadioGroupContext.Provider value={{ onValueChange, value }}>
+      <View>{children}</View>
+    </RadioGroupContext.Provider>
+  );
+}
+
+function RadioGroupItem({
+  children,
+  isDisabled,
+  value,
+  ...props
+}: CommonProps & { readonly value: string }): ReactNode {
+  const group = useContext(RadioGroupContext);
+  if (!group) {
+    throw new Error("RadioGroup.Item must be rendered within RadioGroup.");
+  }
+  const isSelected = group.value === value;
+
+  return (
+    <Pressable
+      {...props}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: isSelected, disabled: !!isDisabled }}
+      disabled={isDisabled}
+      onPress={() => group.onValueChange(value)}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+export const RadioGroup = Object.assign(RadioGroupRoot, {
+  Item: RadioGroupItem,
+});
+
+export function Radio(): ReactNode {
+  return null;
+}
 
 interface TabsContextValue {
   readonly onValueChange: (value: string) => void;

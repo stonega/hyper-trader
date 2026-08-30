@@ -770,6 +770,15 @@ export default function TradeScreen(): JSX.Element {
           }
         />
 
+        {shouldShowTradeSetupCard({
+          hasMarket: market !== null,
+          accountDirectoryReady: directory.status === "ready",
+          hasSavedAccountForNetwork,
+          gate,
+        }) ? (
+          <SetupResumeCard network={current.network} />
+        ) : null}
+
         {invalidRestoredMarket ? (
           <Text
             accessibilityRole="alert"
@@ -871,15 +880,6 @@ export default function TradeScreen(): JSX.Element {
             />
           )}
         </View>
-
-        {shouldShowTradeSetupCard({
-          hasMarket: market !== null,
-          accountDirectoryReady: directory.status === "ready",
-          hasSavedAccountForNetwork,
-          gate,
-        }) ? (
-          <SetupResumeCard network={current.network} />
-        ) : null}
       </ScrollView>
       <MarketSummarySwitcher
         network={current.network}

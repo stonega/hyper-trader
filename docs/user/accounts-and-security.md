@@ -112,9 +112,10 @@ through current-state refresh, boundary validation, and explicit review.
 
 ## Network safety
 
-Authenticated exchange actions default to Hyperliquid testnet. The private
-functional-testing candidate also enables mainnet setup, signing, and submission
-for intentional real-funds testing; it is not approved for public distribution.
+Fresh sessions default to Hyperliquid mainnet. The private functional-testing
+candidate enables mainnet setup, signing, and submission with real funds; it is
+not approved for public distribution. Every action still requires the exact
+network-scoped account authorization, device authentication, and explicit review.
 Selecting a network keeps its exact active account or restores its sole saved
 account. If multiple accounts exist on that network, choose one explicitly from
 the account switcher. Setup, Portfolio data, and action records remain isolated

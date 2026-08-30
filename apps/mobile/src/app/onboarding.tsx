@@ -75,11 +75,10 @@ export default function OnboardingScreen(): JSX.Element {
               accessibilityRole="header"
               className="text-5xl font-semibold leading-tight tracking-tight text-foreground"
             >
-              Give every trade its own key.
+              A safer way to trade.
             </Text>
             <Text className="max-w-md text-lg leading-7 text-muted">
-              Set up a dedicated API wallet on this device. Your master wallet
-              stays separate.
+              API wallets can trade for you, but cannot withdraw your funds.
             </Text>
           </View>
 

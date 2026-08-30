@@ -9,7 +9,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppText as Text } from "../../components/app-text";
 import { floatingTabBarInset } from "../../components/navigation/floating-tab-bar";
 import { ScreenHeading } from "../../components/screen-heading";
-import { SetupResumeCard } from "../../components/setup-resume-card";
 import { useReducedMotion } from "../../components/use-reduced-motion";
 import { useTradingContext } from "../../core/context/provider";
 import { useSignerSession } from "../../core/session/provider";
@@ -331,7 +330,15 @@ export default function SettingsScreen(): JSX.Element {
           </Text>
         ) : null}
         {directory.accounts.length === 0 ? (
-          <SetupResumeCard network={current.network} />
+          <Button
+            accessibilityHint={`Opens ${current.network === "mainnet" ? "Mainnet" : "Testnet"} API-wallet setup.`}
+            animation={reducedMotion ? "disable-all" : undefined}
+            className="min-h-12 w-full"
+            onPress={() => void startAccountSetup()}
+            variant="secondary"
+          >
+            <Button.Label>Set up API wallet</Button.Label>
+          </Button>
         ) : (
           <Button
             animation={reducedMotion ? "disable-all" : undefined}

@@ -8,7 +8,7 @@ tags:
     clearState: true
     arguments:
       HT_E2E_FIXTURE: read-only-launch
-- assertVisible: "Give every trade its own key."
+- assertVisible: "A safer way to trade."
 - assertVisible: "Set up API wallet"
 - tapOn: "Skip for now"
 - assertVisible: "Trade"

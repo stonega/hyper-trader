@@ -98,7 +98,7 @@ describe("onboarding choices", () => {
     render(<OnboardingScreen />);
 
     expect(
-      screen.getByRole("header", { name: "Give every trade its own key." }),
+      screen.getByRole("header", { name: "A safer way to trade." }),
     ).toBeTruthy();
     expect(
       screen.getByLabelText(
