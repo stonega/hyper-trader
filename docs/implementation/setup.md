@@ -40,8 +40,10 @@ bunx eas-cli build --platform ios --profile preview
 ```
 
 The `production` profile auto-increments the remote app version. On Android it
-produces a signed APK for direct installation instead of an app bundle. Build it
-without Google Play submission by omitting the auto-submit flag:
+produces signed, standalone APKs for `arm64-v8a`, `armeabi-v7a`, `x86_64`, and
+`x86` instead of an app bundle or universal APK. Each APK can be installed
+directly on a matching device. Build them without Google Play submission by
+omitting the auto-submit flag:
 
 ```sh
 cd apps/mobile
@@ -52,6 +54,95 @@ Do not run `eas submit` for this artifact. Do not start a production build until
 the security review, mainnet preflight, and release evidence requirements are
 satisfied. EAS initialization does not change the OTA policy: `updates.enabled`
 remains `false` in `app.json`.
+
+### Android GitHub Release and iOS TestFlight workflow
+
+`apps/mobile/.eas/workflows/android-github-release.yml` builds the Android
+`production` profile, publishes its four ABI APKs to a GitHub Release, builds the
+iOS `production` profile in parallel, and submits the resulting iOS build to
+TestFlight when a semantic version tag such as `v0.1.0` is pushed. TestFlight
+submission uploads the build to App Store Connect; it does not submit the app
+for public App Review. The Expo project must be linked to the
+`stonega/hyper-trader` GitHub repository for the tag trigger to run.
+
+Before using the workflow, add `GITHUB_RELEASE_TOKEN` to the EAS `production`
+environment as a secret project variable. Use a fine-grained GitHub token scoped
+to this repository with **Contents: read and write** permission. Keep the token
+in EAS; do not add it to the repository or the app's client-side environment.
+
+The App Store Connect Apple ID is configured as
+`submit.production.ios.ascAppId` in `apps/mobile/eas.json`. Before enabling the
+iOS path in another EAS project, create the app in App Store Connect and
+configure an App Store Connect API key for non-interactive EAS Submit:
+
+```sh
+cd apps/mobile
+bunx eas-cli credentials --platform ios
+```
+
+Select the `production` profile, then configure the App Store Connect API key
+for EAS Submit. Keep the API key in EAS credentials rather than the repository.
+The Apple Developer team must also have valid distribution credentials for the
+`com.stonegate.hypertrader` bundle identifier.
+
+After completing the release checks and recording the required evidence, create
+and push the version tag:
+
+```sh
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow verifies that the tag matches the app version and resolves to the
+exact commit built by EAS, creates or reuses the matching GitHub Release, and
+uploads files named like `hyper-trader-v0.1.0-android-arm64-v8a.apk`. A
+prerelease tag such as `v0.1.0-rc.1` creates a GitHub prerelease. Retries accept
+an existing asset only when its size and GitHub SHA-256 digest match; a different
+same-name asset fails without being overwritten. Treat all four APKs as one
+Android release set: retain every digest and smoke-test at least the
+physical-device (`arm64-v8a`) and emulator (`x86_64`) outputs before publication.
+
+For a manual Android rebuild, check out the same tag before dispatching the
+workflow and pass the tag explicitly. Manual runs do not build or submit iOS by
+default:
+
+```sh
+cd apps/mobile
+bunx eas-cli workflow:run .eas/workflows/android-github-release.yml \
+  -F release_tag=v0.1.0
+```
+
+To run both release paths manually, explicitly enable iOS:
+
+```sh
+cd apps/mobile
+bunx eas-cli workflow:run .eas/workflows/android-github-release.yml \
+  -F release_tag=v0.1.0 \
+  -F run_ios=true
+```
+
+If the EAS build already succeeded and only GitHub publication needs to be
+retried, reuse that build without compiling again. Pass its build ID, app
+version, and full Git commit SHA:
+
+```sh
+cd apps/mobile
+bunx eas-cli workflow:run .eas/workflows/android-github-release.yml \
+  -F release_tag=v0.1.0 \
+  -F existing_build_id=00000000-0000-0000-0000-000000000000 \
+  -F existing_app_version=0.1.0 \
+  -F existing_commit=0123456789abcdef0123456789abcdef01234567
+```
+
+If the iOS build succeeded but TestFlight submission needs to be retried, submit
+that exact build without rebuilding it:
+
+```sh
+cd apps/mobile
+bunx eas-cli workflow:run .eas/workflows/android-github-release.yml \
+  -F release_tag=v0.1.0 \
+  -F existing_ios_build_id=00000000-0000-0000-0000-000000000000
+```
 
 ## HeroUI Native and Uniwind
 

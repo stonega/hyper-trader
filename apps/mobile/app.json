@@ -79,6 +79,7 @@
           "backgroundColor": "#071511"
         }
       ],
+      "./plugins/with-android-abi-splits.cjs",
       "expo-status-bar",
       "expo-font"
     ],

@@ -1,0 +1,17 @@
+build:
+  name: Build Android ABI APKs
+  steps:
+    - eas/checkout
+    - eas/use_npm_token
+    - eas/install_node_modules
+    - eas/resolve_build_config
+    - eas/prebuild
+    - eas/inject_android_credentials
+    - eas/configure_android_version
+    - eas/run_gradle
+    - eas/upload_artifact:
+        name: Upload Android ABI APKs
+        inputs:
+          type: application-archive
+          name: android-abi-apks
+          path: apps/mobile/android/app/build/outputs/apk/release/*.apk

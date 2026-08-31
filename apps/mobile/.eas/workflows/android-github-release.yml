@@ -1,0 +1,107 @@
+name: Publish Android APKs and submit iOS to TestFlight
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        type: string
+        required: true
+        description: Existing Git tag for the commit being built (for retries)
+      run_ios:
+        type: boolean
+        required: false
+        default: false
+        description: Build and submit iOS during a manual run
+      existing_build_id:
+        type: string
+        required: false
+        description: Completed Android EAS build ID to publish without rebuilding
+      existing_app_version:
+        type: string
+        required: false
+        description: App version of the completed EAS build
+      existing_commit:
+        type: string
+        required: false
+        description: Full Git commit SHA of the completed Android EAS build
+      existing_ios_build_id:
+        type: string
+        required: false
+        description: Completed iOS EAS build ID to submit without rebuilding
+
+jobs:
+  build_android:
+    name: Build Android production ABI APKs
+    if: ${{ !inputs.existing_build_id && !inputs.existing_ios_build_id }}
+    type: build
+    params:
+      platform: android
+      profile: production
+
+  publish_github_release:
+    name: Publish ABI APKs to GitHub Release
+    if: ${{ !inputs.existing_build_id && !inputs.existing_ios_build_id }}
+    needs: [build_android]
+    environment: production
+    env:
+      GITHUB_RELEASE_TOKEN: ${{ env.GITHUB_RELEASE_TOKEN }}
+      GITHUB_REPOSITORY: stonega/hyper-trader
+      GITHUB_RELEASE_TAG: ${{ github.ref_name || inputs.release_tag }}
+      GITHUB_RELEASE_COMMIT: ${{ needs.build_android.outputs.git_commit_hash }}
+      ANDROID_APP_VERSION: ${{ needs.build_android.outputs.app_version }}
+    steps:
+      - uses: eas/checkout
+      - uses: eas/download_build
+        id: download_apks
+        with:
+          build_id: ${{ needs.build_android.outputs.build_id }}
+      - name: Create GitHub Release and upload ABI APKs
+        working_directory: ../..
+        run: ANDROID_APK_PATH="${{ steps.download_apks.outputs.artifact_path }}" node scripts/publish-github-release.mjs
+
+  publish_existing_github_release:
+    name: Publish an existing EAS build to GitHub Release
+    if: ${{ inputs.existing_build_id }}
+    environment: production
+    env:
+      GITHUB_RELEASE_TOKEN: ${{ env.GITHUB_RELEASE_TOKEN }}
+      GITHUB_REPOSITORY: stonega/hyper-trader
+      GITHUB_RELEASE_TAG: ${{ inputs.release_tag }}
+      GITHUB_RELEASE_COMMIT: ${{ inputs.existing_commit }}
+      ANDROID_APP_VERSION: ${{ inputs.existing_app_version }}
+    steps:
+      - uses: eas/checkout
+      - uses: eas/download_build
+        id: download_apks
+        with:
+          build_id: ${{ inputs.existing_build_id }}
+      - name: Create GitHub Release and upload ABI APKs
+        working_directory: ../..
+        run: ANDROID_APK_PATH="${{ steps.download_apks.outputs.artifact_path }}" node scripts/publish-github-release.mjs
+
+  build_ios:
+    name: Build iOS production app
+    if: ${{ (github.ref_type == 'tag' || inputs.run_ios) && !inputs.existing_ios_build_id }}
+    type: build
+    params:
+      platform: ios
+      profile: production
+
+  submit_ios_to_testflight:
+    name: Submit iOS build to TestFlight
+    if: ${{ (github.ref_type == 'tag' || inputs.run_ios) && !inputs.existing_ios_build_id }}
+    needs: [build_ios]
+    type: testflight
+    params:
+      build_id: ${{ needs.build_ios.outputs.build_id }}
+      profile: production
+
+  submit_existing_ios_to_testflight:
+    name: Submit an existing iOS build to TestFlight
+    if: ${{ inputs.existing_ios_build_id }}
+    type: testflight
+    params:
+      build_id: ${{ inputs.existing_ios_build_id }}
+      profile: production
