@@ -29,6 +29,13 @@ interface DialogContextValue {
 
 const DialogContext = createContext<DialogContextValue | null>(null);
 
+interface SearchFieldContextValue {
+  readonly onChange: (value: string) => void;
+  readonly value: string;
+}
+
+const SearchFieldContext = createContext<SearchFieldContextValue | null>(null);
+
 function Container({ children, testID }: CommonProps): ReactNode {
   return <View testID={testID}>{children}</View>;
 }
@@ -357,6 +364,52 @@ export const Tabs = Object.assign(TabsRoot, {
 export function Input(props: ComponentProps<typeof TextInput>): ReactNode {
   return <TextInput {...props} />;
 }
+
+function SearchFieldRoot({
+  children,
+  onChange,
+  value,
+}: PropsWithChildren<SearchFieldContextValue>): ReactNode {
+  return (
+    <SearchFieldContext.Provider value={{ onChange, value }}>
+      <View>{children}</View>
+    </SearchFieldContext.Provider>
+  );
+}
+
+function SearchFieldInput(props: ComponentProps<typeof TextInput>): ReactNode {
+  const searchField = useContext(SearchFieldContext);
+  return (
+    <TextInput
+      {...props}
+      onChangeText={searchField?.onChange}
+      value={searchField?.value}
+    />
+  );
+}
+
+function SearchFieldSearchIcon({
+  iconProps,
+}: {
+  readonly iconProps?: { readonly color?: string; readonly size?: number };
+}): ReactNode {
+  return (
+    <Text
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ color: iconProps?.color }}
+      testID="search-field-search-icon"
+    >
+      search
+    </Text>
+  );
+}
+
+export const SearchField = Object.assign(SearchFieldRoot, {
+  Group: Container,
+  Input: SearchFieldInput,
+  SearchIcon: SearchFieldSearchIcon,
+});
 
 export const InputGroup = Object.assign(Container, {
   Input,

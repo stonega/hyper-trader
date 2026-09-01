@@ -3,8 +3,7 @@ import type { MarketSummary } from "@hyper-trader/hyperliquid/public";
 import { Button } from "heroui-native/button";
 import { Card } from "heroui-native/card";
 import { useThemeColor } from "heroui-native/hooks";
-import { Input } from "heroui-native/input";
-import { TextField } from "heroui-native/text-field";
+import { SearchField } from "heroui-native/search-field";
 import type { JSX, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
@@ -179,21 +178,24 @@ export function MarketSwitcher({
                     />
                   </Button>
                 </View>
-                <TextField
+                <SearchField
                   animation={reducedMotion ? "disable-all" : undefined}
+                  onChange={setQuery}
+                  value={query}
                 >
-                  <Input
-                    accessibilityHint="Searches market names, symbols, and venues."
-                    accessibilityLabel="Search markets"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    autoFocus
-                    onChangeText={setQuery}
-                    placeholder="Search markets"
-                    returnKeyType="search"
-                    value={query}
-                  />
-                </TextField>
+                  <SearchField.Group>
+                    <SearchField.SearchIcon iconProps={{ color: accent }} />
+                    <SearchField.Input
+                      accessibilityHint="Searches market names, symbols, and venues."
+                      accessibilityLabel="Search markets"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoFocus
+                      placeholder="Search markets"
+                      returnKeyType="search"
+                    />
+                  </SearchField.Group>
+                </SearchField>
                 {status}
                 <Text
                   accessibilityLiveRegion="polite"

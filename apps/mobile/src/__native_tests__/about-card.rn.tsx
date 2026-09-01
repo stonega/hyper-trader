@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react-native";
 import { Linking } from "react-native";
 
@@ -52,10 +53,36 @@ test("declares the project independent from Hyperliquid", () => {
   ).toBeTruthy();
 });
 
+test("presents the heading action and address as separate copy buttons", () => {
+  render(<AboutCard />);
+
+  const address = screen.getByText(
+    "0x065699fda5db01cdbffd1625aeed8e6f5ba7efdf",
+  );
+  const supportWorkRow = screen.getByTestId("support-work-row");
+  const addressButton = screen.getByRole("button", {
+    name: "Copy donation wallet address 0x065699fda5db01cdbffd1625aeed8e6f5ba7efdf",
+  });
+
+  expect(address.props.className).toContain("font-mono");
+  expect(supportWorkRow.props.className).toContain("flex-row");
+  expect(within(supportWorkRow).getByText("Support our work")).toBeTruthy();
+  expect(
+    within(supportWorkRow).getByRole("button", { name: "Copy" }),
+  ).toBeTruthy();
+  expect(addressButton.props.variant).toBe("outline");
+});
+
 test("opens the community and repository links", async () => {
   const openURL = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
   render(<AboutCard />);
 
+  expect(screen.getByRole("button", { name: "Telegram" }).props.variant).toBe(
+    "outline",
+  );
+  expect(screen.getByRole("button", { name: "GitHub" }).props.variant).toBe(
+    "outline",
+  );
   expect(
     screen.getByText("telegram", { includeHiddenElements: true }),
   ).toBeTruthy();
@@ -90,7 +117,11 @@ test("confirms a copied donation address in the button for two seconds", async (
     expect(
       screen.getByText("heart-fill", { includeHiddenElements: true }),
     ).toBeTruthy();
-    fireEvent.press(screen.getByRole("button", { name: "Copy address" }));
+    fireEvent.press(
+      screen.getByRole("button", {
+        name: "Copy donation wallet address 0x065699fda5db01cdbffd1625aeed8e6f5ba7efdf",
+      }),
+    );
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Thank you!" })).toBeTruthy();
@@ -104,7 +135,7 @@ test("confirms a copied donation address in the button for two seconds", async (
     expect(screen.getByRole("button", { name: "Thank you!" })).toBeTruthy();
 
     act(() => jest.advanceTimersByTime(1));
-    expect(screen.getByRole("button", { name: "Copy address" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy" })).toBeTruthy();
   } finally {
     jest.useRealTimers();
   }

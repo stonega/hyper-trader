@@ -20,8 +20,18 @@ jest.mock("@expo/vector-icons/Ionicons", () => {
     jest.requireActual<typeof import("react-native")>("react-native");
   return {
     __esModule: true,
-    default: ({ name }: { readonly name: string }) =>
-      React.createElement(Text, null, name),
+    default: ({
+      color,
+      name,
+    }: {
+      readonly color?: string;
+      readonly name: string;
+    }) =>
+      React.createElement(
+        Text,
+        { style: { color }, testID: `ionicon-${name}` },
+        name,
+      ),
   };
 });
 
@@ -59,6 +69,15 @@ test("renders compact, left-aligned market rows without repeated trading copy", 
   expect(
     screen.getByRole("button", { name: "Close market selector" }),
   ).toBeTruthy();
+  expect(
+    screen.getByTestId("search-field-search-icon", {
+      includeHiddenElements: true,
+    }).props.style.color,
+  ).toBe(
+    screen.getByTestId("ionicon-close", {
+      includeHiddenElements: true,
+    }).props.style.color,
+  );
   expect(screen.queryByTestId("market-catalog-mode-toggle")).toBeNull();
   const selected = screen.getByRole("button", {
     name: "Selected, DUP-USDC, 20x max leverage, Trading",

@@ -17,9 +17,8 @@ const DONATION_WALLET_ADDRESS = "0x065699fda5db01cdbffd1625aeed8e6f5ba7efdf";
 
 export function AboutCard(): JSX.Element {
   const reducedMotion = useReducedMotion();
-  const [heartColor, telegramIconColor, githubIconColor] = useThemeColor([
+  const [heartColor, socialIconColor] = useThemeColor([
     "danger",
-    "accent-soft-foreground",
     "default-foreground",
   ]);
   const [copyConfirmation, setCopyConfirmation] = useState(0);
@@ -61,11 +60,6 @@ export function AboutCard(): JSX.Element {
       title="About"
       description="Community, source code, and ways to support Hyper Trader."
     >
-      <Text className="text-sm leading-5 text-muted">
-        Hyper Trader is an unofficial, independent community project. It is not
-        affiliated with or endorsed by Hyperliquid.
-      </Text>
-
       <View className="flex-row gap-2">
         <Button
           accessibilityHint="Opens the Hyper Trader Telegram group."
@@ -73,11 +67,11 @@ export function AboutCard(): JSX.Element {
           animation={reducedMotion ? "disable-all" : undefined}
           className="min-h-12 flex-1"
           onPress={() => void openExternalLink(TELEGRAM_GROUP_URL, "Telegram")}
-          variant="secondary"
+          variant="outline"
         >
           <FontAwesome6
             accessibilityElementsHidden
-            color={telegramIconColor}
+            color={socialIconColor}
             iconStyle="brand"
             importantForAccessibility="no-hide-descendants"
             name="telegram"
@@ -95,7 +89,7 @@ export function AboutCard(): JSX.Element {
         >
           <FontAwesome6
             accessibilityElementsHidden
-            color={githubIconColor}
+            color={socialIconColor}
             iconStyle="brand"
             importantForAccessibility="no-hide-descendants"
             name="github"
@@ -106,8 +100,8 @@ export function AboutCard(): JSX.Element {
       </View>
 
       <View className="gap-3 rounded-2xl bg-surface-secondary p-4">
-        <View className="gap-1">
-          <View className="flex-row items-center gap-2">
+        <View className="flex-row items-center gap-2" testID="support-work-row">
+          <View className="min-w-0 flex-1 flex-row items-center gap-2">
             <Octicons
               accessibilityElementsHidden
               color={heartColor}
@@ -119,22 +113,30 @@ export function AboutCard(): JSX.Element {
               Support our work
             </Text>
           </View>
-          <Text
-            accessibilityLabel={`Donation wallet address ${DONATION_WALLET_ADDRESS}`}
-            className="font-mono text-xs leading-5 text-muted"
-            selectable
+          <Button
+            accessibilityHint="Copies the donation wallet address."
+            animation={reducedMotion ? "disable-all" : undefined}
+            className="min-h-11 shrink-0"
+            onPress={() => void copyDonationAddress()}
+            size="sm"
+            variant="ghost"
           >
-            {DONATION_WALLET_ADDRESS}
-          </Text>
+            {copyConfirmation > 0 ? "Thank you!" : "Copy"}
+          </Button>
         </View>
         <Button
-          accessibilityHint="Copies the donation wallet address."
+          accessibilityHint="Copies this donation wallet address."
+          accessibilityLabel={`Copy donation wallet address ${DONATION_WALLET_ADDRESS}`}
           animation={reducedMotion ? "disable-all" : undefined}
-          className="min-h-11 w-full"
+          className="min-h-12 w-full px-3"
           onPress={() => void copyDonationAddress()}
-          variant="ghost"
+          variant="outline"
         >
-          {copyConfirmation > 0 ? "Thank you!" : "Copy address"}
+          <Button.Label className="min-w-0 flex-1">
+            <Text className="text-center font-mono text-xs leading-5">
+              {DONATION_WALLET_ADDRESS}
+            </Text>
+          </Button.Label>
         </Button>
       </View>
 
@@ -147,6 +149,11 @@ export function AboutCard(): JSX.Element {
           {notice}
         </Text>
       ) : null}
+
+      <Text className="text-sm leading-5 text-muted">
+        Hyper Trader is an unofficial, independent community project. It is not
+        affiliated with or endorsed by Hyperliquid.
+      </Text>
     </SettingsSection>
   );
 }
