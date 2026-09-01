@@ -208,14 +208,22 @@ describe("native resumable API-wallet setup", () => {
     ).toEqual(["Mainnet", "Testnet"]);
     expect(screen.getByText("Practice with test funds")).toBeTruthy();
     expect(screen.getByText("Uses real funds")).toBeTruthy();
-    const mainnetNotice = screen.getByText(
-      "Mainnet actions use real funds. This API wallet is isolated from testnet and remains bound to this exact account.",
-    );
-    expect(mainnetNotice).toHaveProp(
-      "className",
-      expect.stringContaining("text-accent"),
-    );
-    expect(mainnetNotice.props.className).not.toContain("text-danger");
+    if (MAINNET_TRADING_RELEASE_STAGE === "preactivation") {
+      expect(
+        screen.getByText(
+          "Mainnet API-wallet setup remains unavailable until its release evidence is approved.",
+        ),
+      ).toHaveProp("className", expect.stringContaining("text-muted"));
+    } else {
+      const mainnetNotice = screen.getByText(
+        "Mainnet actions use real funds. This API wallet is isolated from testnet and remains bound to this exact account.",
+      );
+      expect(mainnetNotice).toHaveProp(
+        "className",
+        expect.stringContaining("text-accent"),
+      );
+      expect(mainnetNotice.props.className).not.toContain("text-danger");
+    }
   });
 
   test("applies the compile-owned mainnet stage to setup", async () => {
@@ -289,13 +297,14 @@ describe("native resumable API-wallet setup", () => {
 
   test("uses the default API-wallet name without another input", async () => {
     mockLoad.mockResolvedValue({ status: "empty" });
-    mockPrepare.mockResolvedValue({ ...ATTEMPT, network: "mainnet" });
+    mockPrepare.mockResolvedValue(ATTEMPT);
 
     render(<SetupScreen />);
 
     expect(
       await screen.findByText("Enter your Hyperliquid wallet"),
     ).toBeTruthy();
+    fireEvent.press(screen.getByRole("radio", { name: "Testnet" }));
     fireEvent.changeText(screen.getByPlaceholderText("0x…"), MASTER);
     expect(screen.queryByText("API wallet name")).toBeNull();
     fireEvent.press(
@@ -304,7 +313,7 @@ describe("native resumable API-wallet setup", () => {
 
     expect(await screen.findByText(AGENT)).toBeTruthy();
     expect(mockPrepare).toHaveBeenCalledWith(
-      "mainnet",
+      "testnet",
       MASTER,
       REGISTRATION_NAME,
     );

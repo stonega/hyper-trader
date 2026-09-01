@@ -39,11 +39,13 @@ bunx eas-cli build --platform android --profile preview
 bunx eas-cli build --platform ios --profile preview
 ```
 
-The `production` profile auto-increments the remote app version. On Android it
-produces signed, standalone APKs for `arm64-v8a`, `armeabi-v7a`, `x86_64`, and
-`x86` instead of an app bundle or universal APK. Each APK can be installed
-directly on a matching device. Build them without Google Play submission by
-omitting the auto-submit flag:
+The `production` profile auto-increments the remote Android `versionCode` and
+iOS build number. The marketing version remains source-controlled in
+`apps/mobile/app.json` and must match the release tag before starting a release.
+On Android, the profile produces signed, standalone APKs for `arm64-v8a`,
+`armeabi-v7a`, `x86_64`, and `x86` instead of an app bundle or universal APK.
+Each APK can be installed directly on a matching device. Build them without
+Google Play submission by omitting the auto-submit flag:
 
 ```sh
 cd apps/mobile

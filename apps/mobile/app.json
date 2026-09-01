@@ -2,7 +2,7 @@
   "expo": {
     "name": "Hyper Trader",
     "slug": "hyper-trader",
-    "version": "0.1.0",
+    "version": "0.1.2",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon-hyper-trader-v5-prism.png",
