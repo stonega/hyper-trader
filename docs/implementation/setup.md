@@ -62,7 +62,10 @@ remains `false` in `app.json`.
 iOS `production` profile in parallel, and submits the resulting iOS build to
 TestFlight when a semantic version tag such as `v0.1.0` is pushed. TestFlight
 submission uploads the build to App Store Connect; it does not submit the app
-for public App Review. The Expo project must be linked to the
+for public App Review. The iOS path uses the standard EAS `submit` job rather
+than the paid-plan `testflight` job that accepts an EAS `build_id`; the uploaded
+build becomes available in TestFlight after App Store Connect finishes
+processing it. The Expo project must be linked to the
 `stonega/hyper-trader` GitHub repository for the tag trigger to run.
 
 Before using the workflow, add `GITHUB_RELEASE_TOKEN` to the EAS `production`

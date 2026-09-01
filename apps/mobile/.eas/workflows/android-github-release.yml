@@ -89,11 +89,11 @@ jobs:
       platform: ios
       profile: production
 
-  submit_ios_to_testflight:
+  submit_ios:
     name: Submit iOS build to TestFlight
     if: ${{ (github.ref_type == 'tag' || inputs.run_ios) && !inputs.existing_ios_build_id }}
     needs: [build_ios]
-    type: testflight
+    type: submit
     params:
       build_id: ${{ needs.build_ios.outputs.build_id }}
       profile: production
@@ -101,7 +101,7 @@ jobs:
   submit_existing_ios_to_testflight:
     name: Submit an existing iOS build to TestFlight
     if: ${{ inputs.existing_ios_build_id }}
-    type: testflight
+    type: submit
     params:
       build_id: ${{ inputs.existing_ios_build_id }}
       profile: production
