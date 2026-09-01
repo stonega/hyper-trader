@@ -98,8 +98,15 @@ describe("onboarding choices", () => {
     render(<OnboardingScreen />);
 
     expect(
+      screen.getByTestId("onboarding-ribbon-background", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(
       screen.getByRole("header", { name: "A safer way to trade." }),
     ).toBeTruthy();
+    expect(screen.queryByText("HT")).toBeNull();
+    expect(screen.queryByText("Hyper Trader")).toBeNull();
     expect(
       screen.getByLabelText(
         "Your master wallet stays with you. A dedicated API wallet is protected on this device.",

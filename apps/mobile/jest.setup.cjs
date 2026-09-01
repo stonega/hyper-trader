@@ -26,6 +26,15 @@ jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 
+jest.mock("expo-gl", () => {
+  const React = require("react");
+  const { View } = require("react-native");
+  return {
+    GLView: ({ onContextCreate: _onContextCreate, ...props }) =>
+      React.createElement(View, props),
+  };
+});
+
 jest.mock("@gorhom/bottom-sheet", () => {
   const { ScrollView } = require("react-native");
   return { BottomSheetScrollView: ScrollView };
