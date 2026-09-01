@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Hyper Trader app icon - Knot</title>
+  <rect width="1024" height="1024" fill="#071511"/>
+  <g
+    fill="none"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path
+      d="M286 376C380 288 476 336 512 456C548 576 644 624 738 536"
+      stroke="#5DE6C2"
+      stroke-width="116"
+    />
+    <path
+      d="M286 648C380 736 476 688 512 568C548 448 644 400 738 488"
+      stroke="#5DE6C2"
+      stroke-width="116"
+    />
+    <path d="M498 512C512 482 526 454 544 432" stroke="#071511" stroke-width="144"/>
+    <path d="M498 512C512 482 526 454 544 432" stroke="#5DE6C2" stroke-width="76"/>
+  </g>
+</svg>

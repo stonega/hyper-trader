@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Hyper Trader app icon - Pulse</title>
+  <rect width="1024" height="1024" fill="#071511"/>
+  <g
+    fill="none"
+    stroke="#5DE6C2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path d="M320 584V440" stroke-width="132"/>
+    <path d="M512 694V330" stroke-width="132"/>
+    <path d="M704 568V456" stroke-width="132"/>
+    <path d="M270 648C374 648 388 526 484 526C580 526 600 384 754 384" stroke-width="78"/>
+  </g>
+</svg>

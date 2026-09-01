@@ -5,7 +5,7 @@
     "version": "0.1.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
-    "icon": "./assets/images/icon-hyper-trader-v1.png",
+    "icon": "./assets/images/icon-hyper-trader-v5-prism.png",
     "scheme": "hypertrader",
     "updates": {
       "enabled": false
@@ -23,8 +23,8 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon-hyper-trader-v1.png",
-        "monochromeImage": "./assets/images/adaptive-icon-monochrome-hyper-trader-v1.png",
+        "foregroundImage": "./assets/images/adaptive-icon-hyper-trader-v5-prism.png",
+        "monochromeImage": "./assets/images/adaptive-icon-monochrome-hyper-trader-v5-prism.png",
         "backgroundColor": "#071511"
       },
       "predictiveBackGestureEnabled": false,
@@ -73,7 +73,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon-hyper-trader-v1.png",
+          "image": "./assets/images/splash-icon-hyper-trader-v5-prism.png",
           "imageWidth": 180,
           "resizeMode": "contain",
           "backgroundColor": "#071511"

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Hyper Trader app icon - Orbit</title>
+  <rect width="1024" height="1024" fill="#071511"/>
+  <g
+    fill="none"
+    stroke="#5DE6C2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  >
+    <path
+      d="M360 306C244 368 214 522 294 624C374 726 530 746 634 666"
+      stroke-width="112"
+    />
+    <path
+      d="M664 718C780 656 810 502 730 400C650 298 494 278 390 358"
+      stroke-width="112"
+    />
+    <path d="M342 548C438 468 540 468 682 548" stroke-width="92"/>
+  </g>
+</svg>

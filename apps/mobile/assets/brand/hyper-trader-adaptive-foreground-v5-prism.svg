@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Hyper Trader Prism adaptive icon foreground</title>
+  <g
+    fill="none"
+    stroke="#5DE6C2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="104"
+    transform="translate(512 512) scale(.82) translate(-512 -512)"
+  >
+    <path d="M300 344L458 512L300 680"/>
+    <path d="M724 344L566 512L724 680"/>
+    <path d="M424 298L512 390L600 298"/>
+    <path d="M424 726L512 634L600 726"/>
+  </g>
+</svg>
