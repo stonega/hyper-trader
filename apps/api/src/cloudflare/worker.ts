@@ -21,21 +21,27 @@ interface WorkerRuntime {
   readonly synchronize: () => Promise<void>;
 }
 
+type RuntimeForEnvironment = (env: Env) => WorkerRuntime;
+
 let cached:
   | { readonly database: D1Database; readonly runtime: WorkerRuntime }
   | undefined;
 const cloudflareNoRedirectFetch = createCloudflareNoRedirectFetch();
 
-export default {
-  async fetch(request, env, context): Promise<Response> {
-    const runtime = runtimeFor(env);
-    context.waitUntil(runtime.synchronize());
-    return runtime.handler(request);
-  },
-  scheduled(_controller, env, context): void {
-    context.waitUntil(runtimeFor(env).synchronize());
-  },
-} satisfies ExportedHandler<Env>;
+export function createCloudflareWorker(
+  runtimeForEnvironment: RuntimeForEnvironment,
+) {
+  return {
+    fetch(request, env): Promise<Response> {
+      return runtimeForEnvironment(env).handler(request);
+    },
+    scheduled(_controller, env, context): void {
+      context.waitUntil(runtimeForEnvironment(env).synchronize());
+    },
+  } satisfies ExportedHandler<Env>;
+}
+
+export default createCloudflareWorker(runtimeFor);
 
 function runtimeFor(env: Env): WorkerRuntime {
   if (cached?.database === env.BACKEND_DB) return cached.runtime;

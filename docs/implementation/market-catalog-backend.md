@@ -143,10 +143,11 @@ observability-only: an exception in a callback cannot alter transport behavior.
 ## Cloudflare public-backend deployment
 
 The repository includes a Cloudflare Worker deployment adapter for the public
-market-catalog, market-summary, and Portfolio routes. It uses D1 for generation and incremental
-sync state, runs one bounded synchronization step per minute, and keeps the
-same exact-origin, request-size, response-size, ETag, and fail-closed HTTP
-contracts as the Bun service.
+market-catalog, market-summary, and Portfolio routes. It uses D1 for generation
+and incremental sync state, runs one bounded synchronization step per minute
+from the scheduled trigger, and keeps the same exact-origin, request-size,
+response-size, ETag, and fail-closed HTTP contracts as the Bun service. Public
+requests never start a synchronization attempt.
 
 D1 migration `0002_catalog_records` moves the published and building catalog
 documents out of `market_catalog_sync_state` into generation-scoped
@@ -155,6 +156,17 @@ lease queries and stored rows below D1's 2 MB string/BLOB/row limit while
 retaining the previous published generation during an incremental build.
 Record and metadata transitions use transactional D1 batches with the same
 generation and lease fencing.
+
+D1 migration `0003_generation_sources` adds a bounded source-resolution ledger.
+New building generations start empty, successful sources use change-aware
+upserts, and stale-record deletion is forced through the existing
+`(network, generation, source_key)` index. A failed source copies only its own
+published fallback rows; a failed builder enumeration copies only builder
+sources that were not already refreshed. Mainnet starts a new generation no
+more than every five minutes, while the larger testnet catalog starts one no
+more than every fifteen minutes. Both networks still advance an in-progress
+generation through the one-minute scheduled trigger and the existing bounded
+retry delays.
 
 The Worker keeps Portfolio live reads within Cloudflare's six simultaneous
 outbound-connection limit by batching three active DEXes at a time. Active DEX

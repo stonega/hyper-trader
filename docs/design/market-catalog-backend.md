@@ -18,10 +18,14 @@ from catalog publication.
 ## Publication model
 
 Each network has at most one building generation and one published generation.
-A sync lease fences concurrent workers. A new build copies the previous
-generation first, refreshes native perpetual, spot, and applicable outcome
-sources, then refreshes HIP-3 DEXes in bounded pages. Readers continue to see the
-previous published generation until the complete build is atomically published.
+A sync lease fences concurrent workers. A new build refreshes native perpetual,
+spot, and applicable outcome sources, then refreshes HIP-3 DEXes in bounded
+pages. The D1 adapter starts the building generation empty and copies only a
+source whose bounded retries fail; a source-resolution ledger distinguishes a
+successfully empty source from one that has not run. The PostgreSQL adapter may
+seed the building generation from the previous publication. Readers continue to
+see the previous published generation until the complete build is atomically
+published.
 
 The worker admits at most 840 weighted REST units per stage, starts no more than
 eight source requests concurrently, and waits at least 65 seconds between
@@ -31,8 +35,10 @@ the upstream request deadline and scheduling margin.
 The Cloudflare adapter stores sync metadata separately from catalog content.
 Each market, quarantined record, and bounded source error occupies its own
 generation-scoped D1 row, so lease claims and state transitions never carry a
-growing catalog document. Publication swaps the generation pointer in the same
-D1 batch that finishes the building records, then retires superseded rows.
+growing catalog document. Successful source retries use change-aware upserts and
+an index-constrained stale-record deletion instead of deleting and reinserting a
+whole source. Publication swaps the generation pointer in the same D1 batch that
+finishes the building records, then retires superseded rows.
 
 One failed source is retained as a typed source error. The worker retries a
 stage three times with bounded exponential or upstream `Retry-After` delay. If a

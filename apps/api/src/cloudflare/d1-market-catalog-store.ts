@@ -15,14 +15,16 @@ import type { MarketCatalogSyncStore } from "../catalog/market-catalog-sync";
 
 const SYNC_LEASE_MS = 120_000;
 const PAGE_INTERVAL_MS = 65_000;
-const GENERATION_INTERVAL_MS = 5 * 60_000;
+const MAINNET_GENERATION_INTERVAL_MS = 5 * 60_000;
+const TESTNET_GENERATION_INTERVAL_MS = 15 * 60_000;
+const MAX_RETRY_DELAY_MS = 5 * 60_000;
 const MAX_PAGE_FAILURES = 3;
 const MAX_RECORD_BATCH_BYTES = 512 * 1024;
 
 const CORE_SOURCES = [
-  { key: "perp:0", name: "metaAndAssetCtxs:native" },
-  { key: "spot", name: "spotMetaAndAssetCtxs" },
-  { key: "outcome", name: "outcomeMeta" },
+  { key: "perp:0", name: "metaAndAssetCtxs:native", dexIndex: 0 },
+  { key: "spot", name: "spotMetaAndAssetCtxs", dexIndex: null },
+  { key: "outcome", name: "outcomeMeta", dexIndex: null },
 ] as const;
 
 interface SyncStateRow {
@@ -116,27 +118,15 @@ export class D1MarketCatalogStore implements MarketCatalogSyncStore {
         claimed.lease_generation,
         claimed.published_generation,
       ),
+      deleteGenerationSourcesStatement(
+        this.#database,
+        network,
+        buildingGeneration,
+        ownerId,
+        claimed.lease_generation,
+        claimed.published_generation,
+      ),
     ];
-    if (claimed.published_generation !== null) {
-      statements.push(
-        copyGenerationRecordsStatement(
-          this.#database,
-          network,
-          claimed.published_generation,
-          buildingGeneration,
-          ownerId,
-          claimed.lease_generation,
-        ),
-        copyGenerationErrorsStatement(
-          this.#database,
-          network,
-          claimed.published_generation,
-          buildingGeneration,
-          ownerId,
-          claimed.lease_generation,
-        ),
-      );
-    }
     const stateResultIndex = statements.length;
     statements.push(
       this.#database
@@ -189,14 +179,21 @@ export class D1MarketCatalogStore implements MarketCatalogSyncStore {
       if (error) {
         coreErrors.push(error);
         statements.push(
+          ...retainSourceStatements(
+            this.#database,
+            lease,
+            source.key,
+            source.dexIndex,
+          ),
           upsertSourceErrorStatement(this.#database, lease, source.key, error),
         );
       } else {
         statements.push(
-          ...replaceSourceStatements(
+          ...synchronizeSourceStatements(
             this.#database,
             lease,
             source.key,
+            source.dexIndex,
             recordsForSource(catalog, source.key),
           ),
         );
@@ -249,14 +246,21 @@ export class D1MarketCatalogStore implements MarketCatalogSyncStore {
       if (error) {
         descriptorErrors.push(error);
         statements.push(
+          ...retainSourceStatements(
+            this.#database,
+            lease,
+            sourceKey,
+            dex.index,
+          ),
           upsertSourceErrorStatement(this.#database, lease, sourceKey, error),
         );
       } else {
         statements.push(
-          ...replaceSourceStatements(
+          ...synchronizeSourceStatements(
             this.#database,
             lease,
             sourceKey,
+            dex.index,
             recordsForBuilderDex(catalog, dex),
           ),
         );
@@ -312,14 +316,10 @@ export class D1MarketCatalogStore implements MarketCatalogSyncStore {
       return { published: false };
     }
 
-    const retainExistingBuilders =
-      enumerationError !== undefined && lease.publishedGeneration !== null;
-    const publication = publishStatements(
-      this.#database,
-      lease,
-      this.#now(),
-      retainExistingBuilders ? null : page.total,
-    );
+    if (enumerationError !== undefined) {
+      statements.push(...retainMissingBuilderStatements(this.#database, lease));
+    }
+    const publication = publishStatements(this.#database, lease, this.#now());
     const stateResultIndex = statements.length + publication.stateResultIndex;
     statements.push(...publication.statements);
     const results = await this.#database.batch(statements);
@@ -452,34 +452,14 @@ export class D1MarketCatalogStore implements MarketCatalogSyncStore {
   }
 }
 
-function replaceSourceStatements(
+function synchronizeSourceStatements(
   database: D1Database,
   lease: MarketCatalogSyncLease,
   sourceKey: string,
+  dexIndex: number | null,
   records: readonly (Market | QuarantinedMarket)[],
 ): D1PreparedStatement[] {
-  const statements = [
-    database
-      .prepare(
-        `DELETE FROM market_catalog_records
-         WHERE network = ? AND generation = ? AND source_key = ?
-           AND EXISTS (
-             SELECT 1 FROM market_catalog_sync_state
-             WHERE network = ? AND lease_owner = ?
-               AND lease_generation = ? AND building_generation = ?
-           )`,
-      )
-      .bind(
-        lease.network,
-        lease.buildingGeneration,
-        sourceKey,
-        lease.network,
-        lease.ownerId,
-        lease.leaseGeneration,
-        lease.buildingGeneration,
-      ),
-    deleteSourceErrorStatement(database, lease, sourceKey),
-  ];
+  const statements: D1PreparedStatement[] = [];
   for (const recordsJson of recordJsonBatches(records)) {
     statements.push(
       database
@@ -500,7 +480,16 @@ function replaceSourceStatements(
            SELECT 1 FROM market_catalog_sync_state
            WHERE network = ? AND lease_owner = ?
              AND lease_generation = ? AND building_generation = ?
-         )`,
+         )
+         ON CONFLICT (network, generation, canonical_id) DO UPDATE SET
+           source_key = excluded.source_key,
+           dex_index = excluded.dex_index,
+           record_kind = excluded.record_kind,
+           payload = excluded.payload
+         WHERE market_catalog_records.source_key IS NOT excluded.source_key
+            OR market_catalog_records.dex_index IS NOT excluded.dex_index
+            OR market_catalog_records.record_kind IS NOT excluded.record_kind
+            OR market_catalog_records.payload IS NOT excluded.payload`,
         )
         .bind(
           lease.network,
@@ -514,7 +503,142 @@ function replaceSourceStatements(
         ),
     );
   }
+  statements.push(
+    database
+      .prepare(
+        `DELETE FROM market_catalog_records
+           INDEXED BY market_catalog_records_source
+         WHERE network = ? AND generation = ? AND source_key = ?
+           AND canonical_id NOT IN (
+             SELECT CAST(value AS TEXT) FROM json_each(?)
+           )
+           AND EXISTS (
+             SELECT 1 FROM market_catalog_sync_state
+             WHERE network = ? AND lease_owner = ?
+               AND lease_generation = ? AND building_generation = ?
+           )`,
+      )
+      .bind(
+        lease.network,
+        lease.buildingGeneration,
+        sourceKey,
+        recordIdsJson(records),
+        lease.network,
+        lease.ownerId,
+        lease.leaseGeneration,
+        lease.buildingGeneration,
+      ),
+    deleteSourceErrorStatement(database, lease, sourceKey),
+    upsertGenerationSourceStatement(
+      database,
+      lease,
+      sourceKey,
+      dexIndex,
+      "refreshed",
+    ),
+  );
   return statements;
+}
+
+function retainSourceStatements(
+  database: D1Database,
+  lease: MarketCatalogSyncLease,
+  sourceKey: string,
+  dexIndex: number | null,
+): D1PreparedStatement[] {
+  const statements: D1PreparedStatement[] = [];
+  if (lease.publishedGeneration !== null) {
+    statements.push(
+      database
+        .prepare(
+          `INSERT INTO market_catalog_records (
+             network, generation, source_key, dex_index,
+             record_kind, canonical_id, payload
+           )
+           SELECT source.network, ?, source.source_key, source.dex_index,
+                  source.record_kind, source.canonical_id, source.payload
+           FROM market_catalog_records AS source
+             INDEXED BY market_catalog_records_source
+           WHERE source.network = ? AND source.generation = ?
+             AND source.source_key = ?
+             AND NOT EXISTS (
+               SELECT 1 FROM market_catalog_generation_sources AS target
+               WHERE target.network = ? AND target.generation = ?
+                 AND target.source_key = ?
+             )
+             AND EXISTS (
+               SELECT 1 FROM market_catalog_sync_state
+               WHERE network = ? AND lease_owner = ?
+                 AND lease_generation = ? AND building_generation = ?
+             )
+           ON CONFLICT (network, generation, canonical_id) DO NOTHING`,
+        )
+        .bind(
+          lease.buildingGeneration,
+          lease.network,
+          lease.publishedGeneration,
+          sourceKey,
+          lease.network,
+          lease.buildingGeneration,
+          sourceKey,
+          lease.network,
+          lease.ownerId,
+          lease.leaseGeneration,
+          lease.buildingGeneration,
+        ),
+    );
+  }
+  statements.push(
+    upsertGenerationSourceStatement(
+      database,
+      lease,
+      sourceKey,
+      dexIndex,
+      "fallback",
+      false,
+    ),
+  );
+  return statements;
+}
+
+function upsertGenerationSourceStatement(
+  database: D1Database,
+  lease: MarketCatalogSyncLease,
+  sourceKey: string,
+  dexIndex: number | null,
+  resolution: "refreshed" | "fallback",
+  replaceFallback = true,
+): D1PreparedStatement {
+  const conflict = replaceFallback
+    ? `DO UPDATE SET dex_index = excluded.dex_index,
+         resolution = excluded.resolution
+       WHERE market_catalog_generation_sources.dex_index IS NOT excluded.dex_index
+          OR market_catalog_generation_sources.resolution IS NOT excluded.resolution`
+    : "DO NOTHING";
+  return database
+    .prepare(
+      `INSERT INTO market_catalog_generation_sources (
+         network, generation, source_key, dex_index, resolution
+       )
+       SELECT ?, ?, ?, ?, ?
+       WHERE EXISTS (
+         SELECT 1 FROM market_catalog_sync_state
+         WHERE network = ? AND lease_owner = ?
+           AND lease_generation = ? AND building_generation = ?
+       )
+       ON CONFLICT (network, generation, source_key) ${conflict}`,
+    )
+    .bind(
+      lease.network,
+      lease.buildingGeneration,
+      sourceKey,
+      dexIndex,
+      resolution,
+      lease.network,
+      lease.ownerId,
+      lease.leaseGeneration,
+      lease.buildingGeneration,
+    );
 }
 
 function upsertSourceErrorStatement(
@@ -546,7 +670,11 @@ function upsertSourceErrorStatement(
          source_name = excluded.source_name,
          error_message = excluded.error_message,
          status = excluded.status,
-         retry_after_ms = excluded.retry_after_ms`,
+         retry_after_ms = excluded.retry_after_ms
+       WHERE market_catalog_source_errors.source_name IS NOT excluded.source_name
+          OR market_catalog_source_errors.error_message IS NOT excluded.error_message
+          OR market_catalog_source_errors.status IS NOT excluded.status
+          OR market_catalog_source_errors.retry_after_ms IS NOT excluded.retry_after_ms`,
     )
     .bind(
       lease.network,
@@ -628,56 +756,11 @@ function publishStatements(
   database: D1Database,
   lease: MarketCatalogSyncLease,
   now: number,
-  builderTotal: number | null,
 ): {
   readonly statements: D1PreparedStatement[];
   readonly stateResultIndex: number;
 } {
   const statements: D1PreparedStatement[] = [];
-  if (builderTotal !== null) {
-    statements.push(
-      database
-        .prepare(
-          `DELETE FROM market_catalog_records
-           WHERE network = ? AND generation = ? AND dex_index > ?
-             AND EXISTS (
-               SELECT 1 FROM market_catalog_sync_state
-               WHERE network = ? AND lease_owner = ?
-                 AND lease_generation = ? AND building_generation = ?
-             )`,
-        )
-        .bind(
-          lease.network,
-          lease.buildingGeneration,
-          builderTotal,
-          lease.network,
-          lease.ownerId,
-          lease.leaseGeneration,
-          lease.buildingGeneration,
-        ),
-      database
-        .prepare(
-          `DELETE FROM market_catalog_source_errors
-           WHERE network = ? AND generation = ?
-             AND source_key GLOB 'perp:[0-9]*'
-             AND CAST(substr(source_key, 6) AS INTEGER) > ?
-             AND EXISTS (
-               SELECT 1 FROM market_catalog_sync_state
-               WHERE network = ? AND lease_owner = ?
-                 AND lease_generation = ? AND building_generation = ?
-             )`,
-        )
-        .bind(
-          lease.network,
-          lease.buildingGeneration,
-          builderTotal,
-          lease.network,
-          lease.ownerId,
-          lease.leaseGeneration,
-          lease.buildingGeneration,
-        ),
-    );
-  }
   const stateResultIndex = statements.length;
   statements.push(
     database
@@ -695,7 +778,7 @@ function publishStatements(
       .bind(
         lease.buildingGeneration,
         now,
-        now + GENERATION_INTERVAL_MS,
+        now + generationIntervalMs(lease.network),
         now,
         lease.network,
         lease.ownerId,
@@ -725,6 +808,23 @@ function publishStatements(
     database
       .prepare(
         `DELETE FROM market_catalog_source_errors
+         WHERE network = ? AND generation < ?
+           AND EXISTS (
+             SELECT 1 FROM market_catalog_sync_state
+             WHERE network = ? AND published_generation = ?
+               AND building_generation IS NULL AND updated_at_ms = ?
+           )`,
+      )
+      .bind(
+        lease.network,
+        oldestRetainedGeneration,
+        lease.network,
+        lease.buildingGeneration,
+        now,
+      ),
+    database
+      .prepare(
+        `DELETE FROM market_catalog_generation_sources
          WHERE network = ? AND generation < ?
            AND EXISTS (
              SELECT 1 FROM market_catalog_sync_state
@@ -799,74 +899,137 @@ function deleteGenerationErrorsStatement(
     );
 }
 
-function copyGenerationRecordsStatement(
+function deleteGenerationSourcesStatement(
   database: D1Database,
   network: HyperliquidNetwork,
-  sourceGeneration: number,
-  targetGeneration: number,
+  generation: number,
   ownerId: string,
   leaseGeneration: number,
+  publishedGeneration: number | null,
 ): D1PreparedStatement {
   return database
     .prepare(
-      `INSERT INTO market_catalog_records (
-         network, generation, source_key, dex_index,
-         record_kind, canonical_id, payload
-       )
-       SELECT source.network, ?, source.source_key, source.dex_index,
-              source.record_kind, source.canonical_id, source.payload
-       FROM market_catalog_records AS source
-       WHERE source.network = ? AND source.generation = ?
+      `DELETE FROM market_catalog_generation_sources
+       WHERE network = ? AND generation = ?
          AND EXISTS (
            SELECT 1 FROM market_catalog_sync_state
            WHERE network = ? AND lease_owner = ? AND lease_generation = ?
-             AND published_generation = ? AND building_generation IS NULL
+             AND published_generation IS ? AND building_generation IS NULL
          )`,
     )
     .bind(
-      targetGeneration,
       network,
-      sourceGeneration,
+      generation,
       network,
       ownerId,
       leaseGeneration,
-      sourceGeneration,
+      publishedGeneration,
     );
 }
 
-function copyGenerationErrorsStatement(
+function retainMissingBuilderStatements(
   database: D1Database,
-  network: HyperliquidNetwork,
-  sourceGeneration: number,
-  targetGeneration: number,
-  ownerId: string,
-  leaseGeneration: number,
-): D1PreparedStatement {
-  return database
-    .prepare(
-      `INSERT INTO market_catalog_source_errors (
-         network, generation, source_key, source_name,
-         error_message, status, retry_after_ms
-       )
-       SELECT source.network, ?, source.source_key, source.source_name,
-              source.error_message, source.status, source.retry_after_ms
-       FROM market_catalog_source_errors AS source
-       WHERE source.network = ? AND source.generation = ?
-         AND EXISTS (
-           SELECT 1 FROM market_catalog_sync_state
-           WHERE network = ? AND lease_owner = ? AND lease_generation = ?
-             AND published_generation = ? AND building_generation IS NULL
-         )`,
-    )
-    .bind(
-      targetGeneration,
-      network,
-      sourceGeneration,
-      network,
-      ownerId,
-      leaseGeneration,
-      sourceGeneration,
-    );
+  lease: MarketCatalogSyncLease,
+): D1PreparedStatement[] {
+  if (lease.publishedGeneration === null) return [];
+  const missingSource = `NOT EXISTS (
+    SELECT 1 FROM market_catalog_generation_sources AS target
+    WHERE target.network = ? AND target.generation = ?
+      AND target.source_key = previous.source_key
+  )`;
+  const leaseExists = `EXISTS (
+    SELECT 1 FROM market_catalog_sync_state
+    WHERE network = ? AND lease_owner = ?
+      AND lease_generation = ? AND building_generation = ?
+  )`;
+  return [
+    database
+      .prepare(
+        `INSERT INTO market_catalog_records (
+           network, generation, source_key, dex_index,
+           record_kind, canonical_id, payload
+         )
+         SELECT source.network, ?, source.source_key, source.dex_index,
+                source.record_kind, source.canonical_id, source.payload
+         FROM market_catalog_records AS source
+           INDEXED BY market_catalog_records_source
+         JOIN market_catalog_generation_sources AS previous
+           ON previous.network = source.network
+          AND previous.generation = source.generation
+          AND previous.source_key = source.source_key
+         WHERE source.network = ? AND source.generation = ?
+           AND previous.dex_index > 0
+           AND ${missingSource}
+           AND ${leaseExists}
+         ON CONFLICT (network, generation, canonical_id) DO NOTHING`,
+      )
+      .bind(
+        lease.buildingGeneration,
+        lease.network,
+        lease.publishedGeneration,
+        lease.network,
+        lease.buildingGeneration,
+        lease.network,
+        lease.ownerId,
+        lease.leaseGeneration,
+        lease.buildingGeneration,
+      ),
+    database
+      .prepare(
+        `INSERT INTO market_catalog_source_errors (
+           network, generation, source_key, source_name,
+           error_message, status, retry_after_ms
+         )
+         SELECT source.network, ?, source.source_key, source.source_name,
+                source.error_message, source.status, source.retry_after_ms
+         FROM market_catalog_source_errors AS source
+         JOIN market_catalog_generation_sources AS previous
+           ON previous.network = source.network
+          AND previous.generation = source.generation
+          AND previous.source_key = source.source_key
+         WHERE source.network = ? AND source.generation = ?
+           AND previous.dex_index > 0
+           AND ${missingSource}
+           AND ${leaseExists}
+         ON CONFLICT (network, generation, source_key) DO NOTHING`,
+      )
+      .bind(
+        lease.buildingGeneration,
+        lease.network,
+        lease.publishedGeneration,
+        lease.network,
+        lease.buildingGeneration,
+        lease.network,
+        lease.ownerId,
+        lease.leaseGeneration,
+        lease.buildingGeneration,
+      ),
+    database
+      .prepare(
+        `INSERT INTO market_catalog_generation_sources (
+           network, generation, source_key, dex_index, resolution
+         )
+         SELECT previous.network, ?, previous.source_key,
+                previous.dex_index, 'fallback'
+         FROM market_catalog_generation_sources AS previous
+         WHERE previous.network = ? AND previous.generation = ?
+           AND previous.dex_index > 0
+           AND ${missingSource}
+           AND ${leaseExists}
+         ON CONFLICT (network, generation, source_key) DO NOTHING`,
+      )
+      .bind(
+        lease.buildingGeneration,
+        lease.network,
+        lease.publishedGeneration,
+        lease.network,
+        lease.buildingGeneration,
+        lease.network,
+        lease.ownerId,
+        lease.leaseGeneration,
+        lease.buildingGeneration,
+      ),
+  ];
 }
 
 function recordsForSource(
@@ -924,6 +1087,24 @@ function recordJsonBatches(
   return batches;
 }
 
+function recordIdsJson(
+  records: readonly (Market | QuarantinedMarket)[],
+): string {
+  const value = JSON.stringify(records.map((record) => record.canonicalId));
+  if (new TextEncoder().encode(value).byteLength > MAX_RECORD_BATCH_BYTES) {
+    throw new Error(
+      "market catalog source identity set exceeds the D1 boundary",
+    );
+  }
+  return value;
+}
+
+function generationIntervalMs(network: HyperliquidNetwork): number {
+  return network === "testnet"
+    ? TESTNET_GENERATION_INTERVAL_MS
+    : MAINNET_GENERATION_INTERVAL_MS;
+}
+
 function retryDelay(
   errors: readonly CatalogSourceError[],
   failureCount: number,
@@ -933,7 +1114,7 @@ function retryDelay(
     ...errors.map((error) => error.retryAfterMs ?? 0),
   );
   const exponential = Math.min(
-    GENERATION_INTERVAL_MS,
+    MAX_RETRY_DELAY_MS,
     5_000 * 2 ** Math.max(0, failureCount - 1),
   );
   return boundedDelay(Math.max(upstream, exponential));
