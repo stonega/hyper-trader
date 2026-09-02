@@ -1,5 +1,10 @@
 # Hyper Trader
 
+## Install the app
+
+- **Android:** [Download the latest release from GitHub](https://github.com/stonega/hyper-trader/releases/latest).
+- **iOS:** [Join the TestFlight beta](https://testflight.apple.com/join/rH1jujw4).
+
 Hyper Trader is a native iOS and Android Hyperliquid client built as a Bun
 monorepo. It provides runtime market discovery, Trade and Portfolio workflows,
 target-scoped testnet action boundaries, account/security controls, and a
