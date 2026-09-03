@@ -197,6 +197,12 @@ action boundary:
   `positionTpsl` grouping and Hyperliquid's zero-size wire sentinel, while the
   reviewed intent retains the actual full position size as a safety fence. An
   existing trigger modifies the exact reviewed `oid` using the same sentinel.
+  The editor shows the position entry price and accepts either a trigger price
+  or a positive Gain/Loss percentage from entry. The two inputs stay
+  synchronized with exact decimal arithmetic; long and short positions reverse
+  the price direction, and the derived trigger is rounded to the current
+  market's price precision before review. The percentage is an input
+  convenience only and is never submitted as exchange intent.
   Long take profit must remain above the current reference and
   long stop loss below it; short positions reverse those directions. The
   execution limit is codec-owned and bounded to five percent from the trigger.

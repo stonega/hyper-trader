@@ -6,6 +6,7 @@ import { Chip } from "heroui-native/chip";
 import { Dialog } from "heroui-native/dialog";
 import { useThemeColor } from "heroui-native/hooks";
 import { Input } from "heroui-native/input";
+import { InputGroup } from "heroui-native/input-group";
 import { Label } from "heroui-native/label";
 import { TextField } from "heroui-native/text-field";
 import type { JSX, ReactNode } from "react";
@@ -40,6 +41,10 @@ import {
   nextPortfolioRowLimit,
   PORTFOLIO_ROW_BATCH_SIZE,
 } from "./portfolio-row-window";
+import {
+  positionTpslPercentageFromPrice,
+  positionTpslPriceFromPercentage,
+} from "./position-tpsl-percentage";
 
 export type PortfolioEditor =
   | {
@@ -52,6 +57,7 @@ export type PortfolioEditor =
       readonly kind: "position_tpsl";
       readonly positionId: string;
       readonly protectionKind: PositionTpslDraft["kind"];
+      readonly percentage: string;
       readonly triggerPrice: string;
       readonly existingOid: number | null;
     };
@@ -211,6 +217,16 @@ function PositionCard({
   const positionSide = position.side === "long" ? "Long" : "Short";
   const positionSideColor = position.side === "long" ? "success" : "danger";
   const pnlTone = portfolioAmountTone(position.unrealizedPnl);
+  const percentageLabel =
+    activeProtection?.protectionKind === "take_profit" ? "Gain" : "Loss";
+  const percentageUnavailable =
+    position.entryPrice === null ||
+    position.market === null ||
+    position.market.pricePrecision === null;
+  const percentageInvalid =
+    activeProtection !== null &&
+    activeProtection.percentage !== "" &&
+    activeProtection.triggerPrice === "";
   return (
     <Card variant="default" className="gap-4">
       <RecordHeader
@@ -278,6 +294,13 @@ function PositionCard({
                           kind: "position_tpsl",
                           positionId: draft.positionId,
                           protectionKind: draft.kind,
+                          percentage:
+                            positionTpslPercentageFromPrice({
+                              entryPrice: position.entryPrice,
+                              kind: draft.kind,
+                              side: position.side,
+                              triggerPrice: draft.triggerPrice,
+                            }) ?? "",
                           triggerPrice: draft.triggerPrice,
                           existingOid: draft.existingOid,
                         });
@@ -475,6 +498,57 @@ function PositionCard({
                   close. Execution is limited to 5% slippage.
                 </Dialog.Description>
               </View>
+              <View className="flex-row items-center justify-between gap-4 rounded-xl bg-surface-secondary px-3 py-2.5">
+                <Text className="text-sm text-muted">Entry price</Text>
+                <Text className="font-mono text-sm font-medium tabular-nums text-foreground">
+                  {position.entryPrice === null
+                    ? "Unavailable"
+                    : `${position.entryPrice} USDC`}
+                </Text>
+              </View>
+              <TextField
+                animation={reducedMotion ? "disable-all" : undefined}
+                isDisabled={closePending || percentageUnavailable}
+                isInvalid={percentageInvalid}
+              >
+                <Label>{percentageLabel} from entry</Label>
+                <InputGroup
+                  animation={reducedMotion ? "disable-all" : undefined}
+                  isDisabled={closePending || percentageUnavailable}
+                >
+                  <InputGroup.Input
+                    accessibilityHint={`Calculates the ${activeProtection?.protectionKind === "take_profit" ? "take profit" : "stop loss"} trigger price from the position entry price.`}
+                    accessibilityLabel={`${activeProtection?.protectionKind === "take_profit" ? "Take profit gain" : "Stop loss"} percentage for ${position.coin}`}
+                    autoFocus
+                    className="font-mono"
+                    keyboardType="decimal-pad"
+                    onChangeText={(percentage) => {
+                      if (activeProtection === null) return;
+                      setEditor({
+                        ...activeProtection,
+                        percentage,
+                        triggerPrice:
+                          percentage === ""
+                            ? ""
+                            : (positionTpslPriceFromPercentage({
+                                entryPrice: position.entryPrice,
+                                kind: activeProtection.protectionKind,
+                                percentage,
+                                precision:
+                                  position.market?.pricePrecision ?? null,
+                                side: position.side,
+                              }) ?? ""),
+                      });
+                    }}
+                    placeholder="0"
+                    returnKeyType="next"
+                    value={activeProtection?.percentage ?? ""}
+                  />
+                  <InputGroup.Suffix className="px-4" isDecorative>
+                    <Text className="text-sm font-medium text-muted">%</Text>
+                  </InputGroup.Suffix>
+                </InputGroup>
+              </TextField>
               <TextField
                 animation={reducedMotion ? "disable-all" : undefined}
                 isDisabled={closePending}
@@ -483,11 +557,21 @@ function PositionCard({
                 <Label>Trigger price (USDC)</Label>
                 <Input
                   accessibilityLabel={`${activeProtection?.protectionKind === "take_profit" ? "Take profit" : "Stop loss"} trigger price for ${position.coin}`}
-                  autoFocus
+                  className="font-mono"
                   keyboardType="decimal-pad"
                   onChangeText={(triggerPrice) => {
                     if (activeProtection !== null) {
-                      setEditor({ ...activeProtection, triggerPrice });
+                      setEditor({
+                        ...activeProtection,
+                        percentage:
+                          positionTpslPercentageFromPrice({
+                            entryPrice: position.entryPrice,
+                            kind: activeProtection.protectionKind,
+                            side: position.side,
+                            triggerPrice,
+                          }) ?? "",
+                        triggerPrice,
+                      });
                     }
                   }}
                   returnKeyType="done"
@@ -497,6 +581,14 @@ function PositionCard({
               <Text className="text-xs leading-4 text-muted">
                 Current position size {position.absoluteSize} {position.coin}
               </Text>
+              {percentageInvalid ? (
+                <Text
+                  accessibilityRole="alert"
+                  className="text-sm leading-5 text-danger"
+                >
+                  Enter a percentage that keeps the trigger price above zero.
+                </Text>
+              ) : null}
               {error ? (
                 <Text
                   accessibilityRole="alert"
@@ -510,7 +602,11 @@ function PositionCard({
                   accessibilityHint="Validates this protective order, then requests device verification before submission."
                   animation={reducedMotion ? "disable-all" : undefined}
                   className="min-h-12 flex-1"
-                  isDisabled={closePending || activeProtection === null}
+                  isDisabled={
+                    closePending ||
+                    activeProtection === null ||
+                    percentageInvalid
+                  }
                   onPress={() => {
                     if (activeProtection !== null) {
                       void onReviewPositionTpsl(position, {

@@ -236,16 +236,40 @@ test("shows position protection and edits it from a compact icon action", async 
   fireEvent.press(edit);
   const input = screen.getByLabelText("Take profit trigger price for DUP");
   expect(input.props.value).toBe("12");
+  expect(screen.getByText("Entry price")).toBeTruthy();
+  expect(screen.getByText("10 USDC")).toBeTruthy();
+  const percentage = screen.getByLabelText(
+    "Take profit gain percentage for DUP",
+  );
+  expect(percentage.props.value).toBe("20");
+  fireEvent.changeText(percentage, "25");
+  expect(input.props.value).toBe("12.5");
   fireEvent.changeText(input, "13");
+  expect(percentage.props.value).toBe("30");
+  fireEvent.changeText(percentage, "25");
   fireEvent.press(screen.getByRole("button", { name: "Save change" }));
 
   await waitFor(() => expect(onReviewPositionTpsl).toHaveBeenCalledTimes(1));
   expect(onReviewPositionTpsl.mock.calls[0]?.[1]).toEqual({
     positionId: ":DUP",
     kind: "take_profit",
-    triggerPrice: "13",
+    triggerPrice: "12.5",
     existingOid: 170,
   });
+});
+
+test("offers a loss percentage when editing stop loss", () => {
+  render(<InteractivePositionRows onReviewClose={reviewCloseNoop} />);
+
+  fireEvent.press(
+    screen.getByRole("button", { name: "Edit stop loss for DUP" }),
+  );
+
+  const percentage = screen.getByLabelText("Stop loss percentage for DUP");
+  const triggerPrice = screen.getByLabelText("Stop loss trigger price for DUP");
+  expect(percentage.props.value).toBe("10");
+  fireEvent.changeText(percentage, "15");
+  expect(triggerPrice.props.value).toBe("8.5");
 });
 
 test("restores a precision-safe current midpoint in the Limit close form", () => {
