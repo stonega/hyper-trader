@@ -8,6 +8,7 @@ import {
   type RecentTrade,
 } from "@hyper-trader/hyperliquid/public";
 import {
+  skipToken,
   useInfiniteQuery,
   useQuery,
   useQueryClient,
@@ -75,13 +76,9 @@ export function useTradeMarketData(
   );
   const context = useQuery<MarketContext>({
     queryKey: marketContextQueryKey,
-    queryFn: async () => {
-      if (catalogContext === null) {
-        throw new Error("A selected market context is required.");
-      }
-      return catalogContext;
-    },
-    enabled,
+    // The catalog only seeds this cache; the stream owns subsequent updates.
+    queryFn: skipToken,
+    initialData: catalogContext ?? undefined,
     staleTime: mobileDataPolicies.marketContext.staleTimeMs,
   });
   useEffect(() => {
@@ -93,7 +90,8 @@ export function useTradeMarketData(
       applyBaseline(baseline) {
         queryClient.setQueryData<MarketContext>(
           marketContextQueryKey,
-          marketContextBaselineFromStream(baseline.data),
+          (current) =>
+            current ?? marketContextBaselineFromStream(baseline.data),
         );
       },
       applyDelta(message) {

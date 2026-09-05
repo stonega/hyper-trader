@@ -97,6 +97,11 @@ then update the exact canonical-market cache entry without interval polling.
 Live market context is merged onto the selected catalog market, so price,
 funding, volume, and open interest update without changing the immutable market
 identity or safety metadata.
+The catalog context only seeds an empty `(network, canonical market)` cache.
+That query observes stream updates without a catalog refetch function; catalog
+refreshes, focus changes, and reconnect baselines preserve the cached context
+until the next validated stream update. This prevents older catalog prices from
+replacing live prices, including while a reconnect baseline is being prepared.
 
 Candle and market-activity query observers are owned by memoized leaf
 components. Candle changes redraw only the chart; book and trade changes redraw
