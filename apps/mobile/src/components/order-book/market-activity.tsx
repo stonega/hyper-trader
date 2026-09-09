@@ -58,7 +58,7 @@ function LevelRow({
       <Button
         accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
         accessibilityHint="Sets this price on a limit order."
-        className="h-10 min-h-10 w-full flex-row items-baseline justify-start gap-1 px-0 py-1"
+        className="h-10 min-h-10 w-full flex-row items-baseline justify-start gap-1 rounded-none px-0 py-1"
         onPress={() => onSelectPrice(level.price)}
         size="sm"
         variant="ghost"
@@ -90,7 +90,7 @@ function LevelRow({
     <Button
       accessibilityLabel={`${side}, price ${level.price}, size ${level.size}, ${level.orderCount} orders`}
       accessibilityHint="Sets this price on a limit order."
-      className="min-h-12 w-full flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-0 py-1"
+      className="min-h-12 w-full flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-none px-0 py-1"
       onPress={() => onSelectPrice(level.price)}
       variant="ghost"
     >
