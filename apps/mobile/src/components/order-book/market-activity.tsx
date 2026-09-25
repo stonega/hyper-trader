@@ -209,7 +209,7 @@ export function MarketActivity({
             ? `${modeLabel} unavailable`
             : undefined
       }
-      className={compact ? "gap-2" : "gap-3"}
+      className={compact ? "gap-2 rounded-none" : "gap-3 rounded-none"}
       style={style}
       variant="default"
     >
