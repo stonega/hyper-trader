@@ -8,7 +8,7 @@ on:
       release_tag:
         type: string
         required: true
-        description: Existing Git tag for the commit being built (for retries)
+        description: Existing version tag including v (e.g. v0.1.4 or v0.1.4-rc.1)
       run_ios:
         type: boolean
         required: false
@@ -48,7 +48,7 @@ jobs:
     env:
       GITHUB_RELEASE_TOKEN: ${{ env.GITHUB_RELEASE_TOKEN }}
       GITHUB_REPOSITORY: stonega/hyper-trader
-      GITHUB_RELEASE_TAG: ${{ github.ref_name || inputs.release_tag }}
+      GITHUB_RELEASE_TAG: ${{ inputs.release_tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
       GITHUB_RELEASE_COMMIT: ${{ needs.build_android.outputs.git_commit_hash }}
       ANDROID_APP_VERSION: ${{ needs.build_android.outputs.app_version }}
     steps:

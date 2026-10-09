@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import {
   abiForApkName,
   assetNameForTag,
@@ -19,6 +20,74 @@ const validEnvironment = {
   GITHUB_RELEASE_TOKEN: "secret-token",
   GITHUB_REPOSITORY: "stonega/hyper-trader",
 };
+
+async function workflowReleaseTag(jobName, github, inputs) {
+  const workflow = Bun.YAML.parse(
+    await readFile(
+      new URL(
+        "../apps/mobile/.eas/workflows/android-github-release.yml",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  );
+  const expression = workflow.jobs[jobName].env.GITHUB_RELEASE_TAG;
+  // This expression uses only JavaScript-compatible EAS boolean operators.
+  return runInNewContext(expression.slice(3, -2), { github, inputs });
+}
+
+describe("EAS GitHub Release tag selection", () => {
+  for (const jobName of [
+    "publish_github_release",
+    "publish_existing_github_release",
+  ]) {
+    test(`${jobName} uses the manual tag when running from a branch`, async () => {
+      const tag = await workflowReleaseTag(
+        jobName,
+        { ref_name: "main", ref_type: "branch" },
+        { release_tag: "v1.2.3" },
+      );
+      expect(
+        parseConfig({ ...validEnvironment, GITHUB_RELEASE_TAG: tag }).tag,
+      ).toBe("v1.2.3");
+    });
+
+    test(`${jobName} uses the manual tag when CLI GitHub fields are empty`, async () => {
+      const tag = await workflowReleaseTag(
+        jobName,
+        {},
+        {
+          release_tag: "v1.2.3-rc.1",
+        },
+      );
+      expect(
+        parseConfig({ ...validEnvironment, GITHUB_RELEASE_TAG: tag }).tag,
+      ).toBe("v1.2.3-rc.1");
+    });
+  }
+
+  test("uses the pushed Git tag without manual inputs", async () => {
+    const tag = await workflowReleaseTag(
+      "publish_github_release",
+      { ref_name: "v1.2.3-rc.1", ref_type: "tag" },
+      {},
+    );
+    expect(
+      parseConfig({ ...validEnvironment, GITHUB_RELEASE_TAG: tag }).tag,
+    ).toBe("v1.2.3-rc.1");
+  });
+
+  test("requires an explicit release tag for branch runs", async () => {
+    const tag = await workflowReleaseTag(
+      "publish_github_release",
+      { ref_name: "v1.2.3", ref_type: "branch" },
+      {},
+    );
+    expect(() =>
+      parseConfig({ ...validEnvironment, GITHUB_RELEASE_TAG: tag }),
+    ).toThrow("GITHUB_RELEASE_TAG is required");
+  });
+});
 
 describe("GitHub Release publishing", () => {
   test("derives stable APK names and prerelease state from the tag", () => {
@@ -110,6 +179,17 @@ describe("GitHub Release publishing", () => {
       parseConfig({ ...validEnvironment, GITHUB_RELEASE_COMMIT: "0123456" }),
     ).toThrow("full Git commit SHA");
   });
+
+  test.each(["main", "1.2.3", "refs/tags/v1.2.3"])(
+    "reports the rejected tag %s and the matching manual input",
+    (tag) => {
+      expect(() =>
+        parseConfig({ ...validEnvironment, GITHUB_RELEASE_TAG: tag }),
+      ).toThrow(
+        `received ${JSON.stringify(tag)}. For a manual run, pass release_tag=v1.2.3`,
+      );
+    },
+  );
 
   test("rejects a release tag that does not match the built app version", () => {
     expect(() =>

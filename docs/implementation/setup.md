@@ -117,6 +117,14 @@ bunx eas-cli workflow:run .eas/workflows/android-github-release.yml \
   -F release_tag=v0.1.0
 ```
 
+In the Expo dashboard or CLI, enter the complete tag including its `v` prefix
+(for example, `v0.1.4` for app version `0.1.4`, or `v0.1.4-rc.1` for a
+prerelease). The explicit `release_tag` takes priority over the selected Git
+ref. Without a manual input, only a Git tag ref supplies the release tag;
+a branch name is never used. Invalid-tag errors report the received value and
+the expected manual input. If publication fails after a successful build, use
+the existing-build retry below with the corrected tag.
+
 To run both release paths manually, explicitly enable iOS:
 
 ```sh

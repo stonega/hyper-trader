@@ -33,7 +33,7 @@ export function parseConfig(environment) {
   }
   if (!RELEASE_TAG_PATTERN.test(tag)) {
     throw new Error(
-      "GITHUB_RELEASE_TAG must be a semantic version tag such as v1.2.3 or v1.2.3-rc.1",
+      `GITHUB_RELEASE_TAG must be a semantic version tag such as v1.2.3 or v1.2.3-rc.1; received ${JSON.stringify(tag)}. For a manual run, pass release_tag=v${appVersion} (or a prerelease tag for that version).`,
     );
   }
   if (!COMMIT_PATTERN.test(commit)) {
