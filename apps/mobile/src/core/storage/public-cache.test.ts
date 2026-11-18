@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  backendPublicCacheStorageKey,
   createSafePublicCachePersister,
   PUBLIC_CACHE_STORAGE_KEY,
 } from "./public-cache";
@@ -59,6 +60,33 @@ function marketSummaryPage(canonicalId: string, nextCursor: string | null) {
 }
 
 describe("safe public cache persister", () => {
+  test("isolates persisted pages by backend and discards the former unscoped cache", async () => {
+    const storage = memoryStorage("untrusted-unscoped-cache");
+    const a = createSafePublicCachePersister(storage, {
+      origin: "https://a.example.com",
+    });
+    const b = createSafePublicCachePersister(storage, {
+      origin: "https://b.example.com",
+    });
+    await a.persistClient({
+      timestamp: 1,
+      buster: "a",
+      clientState: { queries: [], mutations: [] },
+    });
+    expect(await b.restoreClient()).toBeUndefined();
+    expect(storage.values.has(PUBLIC_CACHE_STORAGE_KEY)).toBe(false);
+    expect((await a.restoreClient())?.buster).toBe("a");
+    await b.persistClient({
+      timestamp: 2,
+      buster: "b",
+      clientState: { queries: [], mutations: [] },
+    });
+    expect((await a.restoreClient())?.buster).toBe("a");
+    expect((await b.restoreClient())?.buster).toBe("b");
+    expect(backendPublicCacheStorageKey("https://a.example.com")).not.toBe(
+      backendPublicCacheStorageKey("https://b.example.com"),
+    );
+  });
   test("keeps restoration pending until asynchronous storage resolves", async () => {
     let release: (value: string | null) => void = () => undefined;
     let markStorageReadStarted: () => void = () => undefined;

@@ -1,0 +1,20 @@
+https://hyper-trader-backend.clawearn.xyz {
+	encode zstd gzip
+	reverse_proxy https://127.0.0.1:8788 {
+		header_up Host {hostport}
+		header_down ETag `^"(market-catalog-[^"]+)"$` `W/"${1}"`
+		transport http {
+			tls_trust_pool file /etc/caddy/hyper-trader/upstream-cert.pem
+			tls_server_name hyper-trader-backend.internal
+		}
+	}
+}
+
+https://13.140.242.169 {
+	tls {
+		issuer acme {
+			profile shortlived
+		}
+	}
+	redir https://hyper-trader-backend.clawearn.xyz{uri} permanent
+}

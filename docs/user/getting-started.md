@@ -26,6 +26,19 @@ start or resume API-wallet setup later from Settings.
 - Inspect the Portfolio, account/security settings, appearance preferences, and
   redacted diagnostics without granting additional trading authority.
 
+## Change the backend server
+
+Open **Settings → Backend API**, enter an HTTPS server URL, and tap **Save backend**.
+Review the destination and confirm **Use backend**. The app saves your selection
+on this device and reloads data from that server. The server can see the public
+account addresses used for Portfolio requests, so choose a server you trust.
+Changing servers clears open order drafts and locks the trading session; finish
+an active order before switching.
+
+Tap **Use default** to restore `https://hyper-trader-backend.clawearn.xyz` in the
+standard build. Existing installed versions need an updated build to gain this
+setting.
+
 ## What is not enabled
 
 The native Reown handoff and account-alert proof path are not active. Deposits,

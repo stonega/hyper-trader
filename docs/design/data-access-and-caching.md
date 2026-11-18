@@ -77,6 +77,17 @@ result to poison later launches. Public cache version 4 discards older full-
 catalog cache entries once during restoration without affecting preferences,
 account records, or protected signing state.
 
+The backend URL is a device-wide preference editable in Settings. Only an HTTPS
+origin can be saved; a native confirmation identifies the destination and its
+access to Portfolio account addresses. The saved origin is restored before data
+consumers mount. Switching servers creates a fresh query/runtime scope, cancels
+pending reads, removes private snapshots, locks signing sessions, and clears
+drafts. The action gate blocks a change while an action is in flight. Public
+summary persistence uses separate storage keys and cache busters for each
+backend, so one server's data cannot seed another server's query client. Backend
+selection affects only public-data APIs; notification authority and signed
+exchange transports keep their separate origins.
+
 ## WebSocket consistency
 
 The process-wide stream runtime reference-counts equivalent declarations, so

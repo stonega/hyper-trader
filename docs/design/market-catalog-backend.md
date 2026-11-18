@@ -100,7 +100,13 @@ value. Later reads send `If-None-Match` and reuse only the already validated
 in-memory generation after `304 Not Modified`. Browse summaries never authorize
 or parameterize an order.
 
-The release build supplies one exact HTTPS backend origin. HTTP, paths,
+The release build supplies an exact HTTPS backend default. Users may explicitly
+replace it through Settings after reviewing the destination and Portfolio address
+disclosure. The device restores the saved preference before loading backend data.
+A change remounts the data/runtime scope, cancels previous reads, locks signing
+sessions, discards drafts and private snapshots, and isolates persisted public
+summary pages by origin. It cannot redirect notification credentials or signed
+Hyperliquid actions. HTTP, paths,
 credentials, query strings, fragments, redirects, cross-network responses,
 oversized bodies, and malformed UTF-8/JSON fail closed. Mobile does not fall
 back to direct catalog discovery when the backend is missing or unavailable;

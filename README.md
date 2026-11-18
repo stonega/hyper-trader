@@ -109,6 +109,7 @@ and submission are compile-denied and have no enablement path.
 - [Architecture](docs/design/architecture.md)
 - [Market catalog backend design](docs/design/market-catalog-backend.md)
 - [Market catalog backend operations](docs/implementation/market-catalog-backend.md)
+- [VPS backend deployment](docs/implementation/vps-deployment.md)
 - [Local setup](docs/implementation/setup.md)
 - [Release evidence](docs/implementation/release-evidence.md)
 - [Safety and current app behavior](docs/user/getting-started.md)

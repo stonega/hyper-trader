@@ -2,7 +2,7 @@
   "expo": {
     "name": "Hyper Trader",
     "slug": "hyper-trader",
-    "version": "0.1.4",
+    "version": "0.1.5",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon-hyper-trader-v5-prism.png",
@@ -11,7 +11,7 @@
       "enabled": false
     },
     "extra": {
-      "backendOrigin": "https://hyper-trader-backend.stoneflare.workers.dev",
+      "backendOrigin": "https://hyper-trader-backend.clawearn.xyz",
       "eas": {
         "projectId": "fef3cbd7-9d32-46af-8afa-3907e785513c"
       }
@@ -22,6 +22,7 @@
       "bundleIdentifier": "com.stonegate.hypertrader"
     },
     "android": {
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon-hyper-trader-v5-prism.png",
         "monochromeImage": "./assets/images/adaptive-icon-monochrome-hyper-trader-v5-prism.png",

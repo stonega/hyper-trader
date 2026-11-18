@@ -4,10 +4,11 @@ import {
 } from "@hyper-trader/hyperliquid";
 import type { Market } from "@hyper-trader/hyperliquid/public";
 import { onlineManager, useQuery, useQueryClient } from "@tanstack/react-query";
-import Constants from "expo-constants";
 import { useIsFocused } from "expo-router";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
+import { configuredBackendOrigin } from "../../core/backend/config";
+import { useBackendOrigin } from "../../core/backend/provider";
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
 import { createCoalescedTask } from "../../core/query/coalesced-task";
 import {
@@ -86,13 +87,9 @@ function useOnlineStatus(): boolean {
 
 export function createPortfolioQuerySource(
   network: NormalizedTradingContext["network"],
+  origin: string | null = configuredBackendOrigin(),
 ): PortfolioQuerySource {
   const accounts = createAccountDataClient({ network });
-  const origin =
-    process.env.EXPO_PUBLIC_BACKEND_ORIGIN ??
-    process.env.EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN ??
-    Constants.expoConfig?.extra?.backendOrigin ??
-    Constants.expoConfig?.extra?.notificationServiceOrigin;
   if (typeof origin !== "string" || origin.length === 0) {
     return { accounts, backend: null, backendConfigured: false };
   }
@@ -241,6 +238,7 @@ export function usePortfolioData(
   const isOnline = useOnlineStatus();
   const queryClient = useQueryClient();
   const streams = useStreamRuntime();
+  const origin = useBackendOrigin();
   const targetIdentity =
     target === null
       ? null
@@ -253,8 +251,8 @@ export function usePortfolioData(
         ]);
   const targetUser = target?.address.trim().toLowerCase() ?? null;
   const source = useMemo(
-    () => createPortfolioQuerySource(context.network),
-    [context.network],
+    () => createPortfolioQuerySource(context.network, origin),
+    [context.network, origin],
   );
   const catalogFingerprint = useMemo(
     () => portfolioCatalogCacheKey(markets),

@@ -15,6 +15,7 @@
     "market-catalog": "bun --cwd apps/api start:catalog",
     "mainnet:preflight": "bun scripts/mainnet-release-readiness.ts",
     "backend:deploy": "bun --cwd apps/api deploy:cloudflare",
+    "backend:deploy:vps": "bash scripts/deploy-vps.sh",
     "check": "biome check .",
     "check:fix": "biome check --write .",
     "check:mainnet-source": "bun scripts/mainnet-release-readiness.ts source",

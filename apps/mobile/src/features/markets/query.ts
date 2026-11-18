@@ -14,9 +14,10 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import Constants from "expo-constants";
 import { useIsFocused } from "expo-router";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { configuredBackendOrigin } from "../../core/backend/config";
+import { useBackendOrigin } from "../../core/backend/provider";
 import { createMarketLoadTrace } from "../../core/performance/market-load-timing";
 import { mobileDataPolicies } from "../../core/query/data-policies";
 import { queryKeys } from "../../core/query/keys";
@@ -84,15 +85,6 @@ export function marketSummaryDiscoveryKey(
   ]);
 }
 
-function configuredBackendOrigin(): string | null {
-  const origin =
-    process.env.EXPO_PUBLIC_BACKEND_ORIGIN ??
-    process.env.EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN ??
-    Constants.expoConfig?.extra?.backendOrigin ??
-    Constants.expoConfig?.extra?.notificationServiceOrigin;
-  return typeof origin === "string" && origin.length > 0 ? origin : null;
-}
-
 export interface MarketCatalogQuerySource {
   readonly backend: ReturnType<typeof createMarketCatalogBackendClient> | null;
   readonly development: ReturnType<
@@ -102,8 +94,8 @@ export interface MarketCatalogQuerySource {
 
 export function createMarketCatalogQuerySource(
   network: HyperliquidNetwork,
+  origin: string | null = configuredBackendOrigin(),
 ): MarketCatalogQuerySource {
-  const origin = configuredBackendOrigin();
   if (origin === null) {
     return {
       backend: null,
@@ -158,9 +150,10 @@ export function marketCatalogQueryOptions(
 
 function useMarketCatalog(network: HyperliquidNetwork) {
   const isFocused = useIsFocused();
+  const origin = useBackendOrigin();
   const source = useMemo(
-    () => createMarketCatalogQuerySource(network),
-    [network],
+    () => createMarketCatalogQuerySource(network, origin),
+    [network, origin],
   );
   const catalogQuery = useQuery<MarketCatalog>({
     ...marketCatalogQueryOptions(network, source),
@@ -239,12 +232,12 @@ export function useMarketSummaryPages(
   options: MarketSummaryDiscoveryOptions,
 ) {
   const queryClient = useQueryClient();
+  const origin = useBackendOrigin();
   const isFocused = useIsFocused();
   const isOnline = useOnlineStatus();
   const emptyIdFilter = options.restrictToIds && options.ids.length === 0;
   const discoveryKey = marketSummaryDiscoveryKey(options);
   const client = useMemo<MarketSummaryClient | null>(() => {
-    const origin = configuredBackendOrigin();
     if (origin === null) {
       if (typeof __DEV__ !== "undefined" && __DEV__ && network === "testnet") {
         const development = createDevelopmentTestnetMarketCatalogClient();
@@ -275,7 +268,7 @@ export function useMarketSummaryPages(
     } catch {
       return null;
     }
-  }, [network, queryClient]);
+  }, [network, origin, queryClient]);
   const query = useInfiniteQuery({
     queryKey: queryKeys.public.marketSummaries(network, discoveryKey),
     initialPageParam: INITIAL_MARKET_SUMMARY_PAGE,

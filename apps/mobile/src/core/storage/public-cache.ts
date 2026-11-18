@@ -8,6 +8,10 @@ import type {
 import { isAllowlistedPublicQuery } from "../query/persistence";
 
 export const PUBLIC_CACHE_STORAGE_KEY = "hyper-trader.public-query-cache.v4";
+
+export function backendPublicCacheStorageKey(origin: string | null): string {
+  return `${PUBLIC_CACHE_STORAGE_KEY}:${encodeURIComponent(origin ?? "unconfigured")}`;
+}
 const LEGACY_PUBLIC_CACHE_STORAGE_KEYS = [
   "hyper-trader.public-query-cache.v1",
   "hyper-trader.public-query-cache.v2",
@@ -103,10 +107,15 @@ function sanitizePersistedClient(value: PersistedClient): PersistedClient {
 
 export function createSafePublicCachePersister(
   storage: AsyncKeyValueStorage,
+  backend?: { readonly origin: string | null },
 ): Persister {
+  const key =
+    backend === undefined
+      ? PUBLIC_CACHE_STORAGE_KEY
+      : backendPublicCacheStorageKey(backend.origin);
   const base = createAsyncStoragePersister({
     storage,
-    key: PUBLIC_CACHE_STORAGE_KEY,
+    key,
     throttleTime: 1_000,
   });
   return {
@@ -120,6 +129,8 @@ export function createSafePublicCachePersister(
             storage.removeItem(key),
           ),
         );
+        if (backend !== undefined)
+          await storage.removeItem(PUBLIC_CACHE_STORAGE_KEY);
         const restored = await base.restoreClient();
         return restored === undefined
           ? undefined

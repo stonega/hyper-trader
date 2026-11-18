@@ -82,14 +82,32 @@ successful empty catalog to mobile clients.
 
 ## Mobile configuration
 
-The checked-in Expo config pins `extra.backendOrigin` to the reviewed public
-Cloudflare backend. `EXPO_PUBLIC_BACKEND_ORIGIN` takes precedence when a build
-must target another reviewed exact HTTPS origin. During the transition,
+The checked-in Expo config defaults `extra.backendOrigin` to
+`https://hyper-trader-backend.clawearn.xyz`, proxied by Cloudflare to the VPS.
+`EXPO_PUBLIC_BACKEND_ORIGIN` sets a different build default. During the transition,
 `EXPO_PUBLIC_NOTIFICATION_SERVICE_ORIGIN` and Expo
 `extra.notificationServiceOrigin` remain accepted aliases because the catalog
-route is hosted by that service. The client captures the origin once and
-rejects runtime changes or invalid values. Fully reload a running Expo app after
-changing an `EXPO_PUBLIC_` value.
+route is hosted by that service. Fully reload a running Expo app after changing
+an `EXPO_PUBLIC_` value.
+
+Settings → Backend API lets users save a device-wide HTTPS origin or restore the
+build default. A saved selection takes precedence over environment and Expo
+configuration and is restored before any backend consumers mount. Changing it
+requires confirmation that the destination receives Portfolio account addresses.
+The current action gate is rechecked before activation; an in-flight action
+prevents the switch and restores the previous stored preference. A successful
+switch locks signing sessions, clears open drafts, cancels reads, and remounts
+the runtime with a fresh query client. Public persisted summary pages are
+namespaced by origin and carry an origin-specific cache buster. The former
+unscoped cache is discarded. Private aggregates stay memory-only.
+
+The override applies to catalog, summary, and Portfolio reads, including the
+startup warm-up. Notification credentials and fixed Hyperliquid signing/exchange
+origins retain their independent configuration. Validate a candidate URL offline:
+
+```sh
+bun examples/backend-preference.ts https://hyper-trader-backend.clawearn.xyz
+```
 
 Inspect one bounded page against a deployed backend with:
 
@@ -139,6 +157,13 @@ infinite-scroll pages.
 The records include counts and status codes but never account identifiers,
 request payloads, response contents, or signing material. Timing callbacks are
 observability-only: an exception in a callback cannot alter transport behavior.
+
+## VPS public-backend deployment
+
+The public Bun/PostgreSQL service can also run in an isolated Docker Compose
+project behind Caddy, retaining verified TLS between Caddy and the backend.
+See [VPS deployment](vps-deployment.md) for the configured host, update command,
+secret ownership, health checks, and rollback procedure.
 
 ## Cloudflare public-backend deployment
 

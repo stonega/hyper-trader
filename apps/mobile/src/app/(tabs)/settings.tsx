@@ -32,6 +32,7 @@ import { NOTIFICATION_SETTINGS_AVAILABLE } from "../../features/notifications/av
 import { useNotificationRuntime } from "../../features/notifications/provider";
 import { AboutCard } from "../../features/settings/about-card";
 import { useAppearancePreference } from "../../features/settings/appearance-provider";
+import { BackendSection } from "../../features/settings/backend-section";
 import { useScopedTradingPreferences } from "../../features/settings/preferences-provider";
 import { SettingsSection } from "../../features/settings/settings-section";
 
@@ -265,6 +266,9 @@ export default function SettingsScreen(): JSX.Element {
         paddingTop: Math.max(insets.top, 20),
       }}
       showsVerticalScrollIndicator={false}
+      automaticallyAdjustKeyboardInsets
+      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
     >
       <ScreenHeading
         title="Settings"
@@ -379,6 +383,24 @@ export default function SettingsScreen(): JSX.Element {
           </Button>
         </View>
       </SettingsSection>
+
+      <BackendSection
+        beforeApply={() => {
+          const gate = accountMutationGate({
+            operation: "switch",
+            actionPhase: actionRuntime.readFlow().phase,
+            actionStatus: { known: false },
+            riskAcknowledged: false,
+          });
+          if (!gate.allowed) {
+            setMessage(accountGateMessage(gate.reason));
+            return false;
+          }
+          signerSession.lock("context_changed");
+          actionRuntime.clear();
+          return true;
+        }}
+      />
 
       <SettingsSection
         title="Trading preferences"

@@ -13,6 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { DraftRegistryProvider } from "../core/actions/draft-provider";
+import { BackendPreferenceProvider } from "../core/backend/provider";
 import { TradingContextProvider } from "../core/context/provider";
 import { NativeLifecycleProvider } from "../core/lifecycle/provider";
 import { MobileQueryProvider } from "../core/query/provider";
@@ -53,55 +54,57 @@ export default function RootLayout(): JSX.Element {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <HeroUINativeProvider>
         <AppearancePreferenceProvider>
-          <SafeAreaProvider>
-            <MobileQueryProvider>
-              <AccountDirectoryProvider>
-                <TradingSignerSessionProvider>
-                  <StreamRuntimeProvider>
-                    <DraftRegistryProvider>
-                      <TradingContextProvider>
-                        <ActiveAccountContextRestorer />
-                        <PortfolioStartupLoader />
-                        <ScopedTradingPreferencesProvider>
-                          <TradingActionRuntimeProvider>
-                            <NativeLifecycleProvider>
-                              <NotificationRuntimeProvider>
-                                <StatusBar style="auto" />
-                                <Stack screenOptions={{ headerShown: false }}>
-                                  <Stack.Screen
-                                    name="onboarding"
-                                    options={{
-                                      animation: "none",
-                                      gestureEnabled: false,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="notification-settings"
-                                    options={{
-                                      animation: "none",
-                                      gestureEnabled: false,
-                                    }}
-                                  />
-                                  <Stack.Screen
-                                    name="notification"
-                                    options={{
-                                      animation: "none",
-                                      gestureEnabled: false,
-                                    }}
-                                  />
-                                </Stack>
-                                <ActionFlowSheet />
-                              </NotificationRuntimeProvider>
-                            </NativeLifecycleProvider>
-                          </TradingActionRuntimeProvider>
-                        </ScopedTradingPreferencesProvider>
-                      </TradingContextProvider>
-                    </DraftRegistryProvider>
-                  </StreamRuntimeProvider>
-                </TradingSignerSessionProvider>
-              </AccountDirectoryProvider>
-            </MobileQueryProvider>
-          </SafeAreaProvider>
+          <BackendPreferenceProvider>
+            <SafeAreaProvider>
+              <MobileQueryProvider>
+                <AccountDirectoryProvider>
+                  <TradingSignerSessionProvider>
+                    <StreamRuntimeProvider>
+                      <DraftRegistryProvider>
+                        <TradingContextProvider>
+                          <ActiveAccountContextRestorer />
+                          <PortfolioStartupLoader />
+                          <ScopedTradingPreferencesProvider>
+                            <TradingActionRuntimeProvider>
+                              <NativeLifecycleProvider>
+                                <NotificationRuntimeProvider>
+                                  <StatusBar style="auto" />
+                                  <Stack screenOptions={{ headerShown: false }}>
+                                    <Stack.Screen
+                                      name="onboarding"
+                                      options={{
+                                        animation: "none",
+                                        gestureEnabled: false,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="notification-settings"
+                                      options={{
+                                        animation: "none",
+                                        gestureEnabled: false,
+                                      }}
+                                    />
+                                    <Stack.Screen
+                                      name="notification"
+                                      options={{
+                                        animation: "none",
+                                        gestureEnabled: false,
+                                      }}
+                                    />
+                                  </Stack>
+                                  <ActionFlowSheet />
+                                </NotificationRuntimeProvider>
+                              </NativeLifecycleProvider>
+                            </TradingActionRuntimeProvider>
+                          </ScopedTradingPreferencesProvider>
+                        </TradingContextProvider>
+                      </DraftRegistryProvider>
+                    </StreamRuntimeProvider>
+                  </TradingSignerSessionProvider>
+                </AccountDirectoryProvider>
+              </MobileQueryProvider>
+            </SafeAreaProvider>
+          </BackendPreferenceProvider>
         </AppearancePreferenceProvider>
       </HeroUINativeProvider>
     </GestureHandlerRootView>

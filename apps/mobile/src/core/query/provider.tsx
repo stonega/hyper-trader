@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query-persist-client";
 import type { JSX, PropsWithChildren } from "react";
 import { useEffect, useState } from "react";
+import { useBackendOrigin } from "../backend/provider";
 import { createMarketLoadTrace } from "../performance/market-load-timing";
 import { warmResumeMarkers } from "../performance/warm-resume";
 import { createSafePublicCachePersister } from "../storage/public-cache";
@@ -20,19 +21,29 @@ import {
   shouldPersistPublicCacheEvent,
 } from "./persistence";
 
-const mobileQueryClient = createMobileQueryClient();
-const publicCachePersister = createSafePublicCachePersister(AsyncStorage);
-const persistOptions = {
-  buster: PUBLIC_CACHE_BUSTER,
-  dehydrateOptions: createPublicCacheDehydrateOptions(),
-  maxAge: PUBLIC_CACHE_MAX_AGE_MS,
-  persister: publicCachePersister,
-  queryClient: mobileQueryClient,
-};
-
 export function MobileQueryProvider({
   children,
 }: PropsWithChildren): JSX.Element {
+  const origin = useBackendOrigin();
+  const [{ mobileQueryClient, publicCachePersister, persistOptions }] =
+    useState(() => {
+      const mobileQueryClient = createMobileQueryClient();
+      const publicCachePersister = createSafePublicCachePersister(
+        AsyncStorage,
+        { origin },
+      );
+      return {
+        mobileQueryClient,
+        publicCachePersister,
+        persistOptions: {
+          buster: `${PUBLIC_CACHE_BUSTER}:${origin ?? "unconfigured"}`,
+          dehydrateOptions: createPublicCacheDehydrateOptions(),
+          maxAge: PUBLIC_CACHE_MAX_AGE_MS,
+          persister: publicCachePersister,
+          queryClient: mobileQueryClient,
+        },
+      };
+    });
   const [isRestoring, setIsRestoring] = useState(true);
 
   useEffect(() => {
@@ -54,11 +65,18 @@ export function MobileQueryProvider({
       })
       .finally(() => {
         if (active) setIsRestoring(false);
+        else
+          void mobileQueryClient
+            .cancelQueries()
+            .then(() => mobileQueryClient.clear());
       });
     return () => {
       active = false;
+      void mobileQueryClient
+        .cancelQueries()
+        .then(() => mobileQueryClient.clear());
     };
-  }, []);
+  }, [mobileQueryClient, persistOptions, publicCachePersister]);
 
   useEffect(() => {
     if (isRestoring) return;
@@ -66,7 +84,7 @@ export function MobileQueryProvider({
       if (!shouldPersistPublicCacheEvent(event)) return;
       void persistQueryClientSave(persistOptions).catch(() => undefined);
     });
-  }, [isRestoring]);
+  }, [isRestoring, mobileQueryClient, persistOptions]);
 
   return (
     <QueryClientProvider client={mobileQueryClient}>

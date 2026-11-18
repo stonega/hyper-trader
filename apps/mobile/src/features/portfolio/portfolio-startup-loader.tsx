@@ -3,6 +3,7 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import type { JSX } from "react";
 import { useEffect, useMemo, useRef } from "react";
 
+import { useBackendOrigin } from "../../core/backend/provider";
 import { useTradingContext } from "../../core/context/provider";
 import type { NormalizedTradingContext } from "../../core/context/supervisor";
 import {
@@ -25,9 +26,16 @@ async function loadPortfolioAtStartup(input: {
   readonly context: NormalizedTradingContext;
   readonly target: AccountTarget;
   readonly isCurrent: () => boolean;
+  readonly backendOrigin: string | null;
 }): Promise<void> {
-  const catalogSource = createMarketCatalogQuerySource(input.context.network);
-  const portfolioSource = createPortfolioQuerySource(input.context.network);
+  const catalogSource = createMarketCatalogQuerySource(
+    input.context.network,
+    input.backendOrigin,
+  );
+  const portfolioSource = createPortfolioQuerySource(
+    input.context.network,
+    input.backendOrigin,
+  );
   await runPortfolioStartupLoad(
     {
       catalog: () =>
@@ -59,6 +67,7 @@ async function loadPortfolioAtStartup(input: {
 
 export function PortfolioStartupLoader(): JSX.Element | null {
   const queryClient = useQueryClient();
+  const backendOrigin = useBackendOrigin();
   const { current } = useTradingContext();
   const attemptedOwners = useRef(new Set<string>());
   const startupContext = useMemo<NormalizedTradingContext>(
@@ -80,6 +89,7 @@ export function PortfolioStartupLoader(): JSX.Element | null {
 
     let active = true;
     void loadPortfolioAtStartup({
+      backendOrigin,
       queryClient,
       context: startupContext,
       target,
@@ -88,7 +98,7 @@ export function PortfolioStartupLoader(): JSX.Element | null {
     return () => {
       active = false;
     };
-  }, [queryClient, startupContext]);
+  }, [backendOrigin, queryClient, startupContext]);
 
   return null;
 }
